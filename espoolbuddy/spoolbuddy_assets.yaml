@@ -1,0 +1,128 @@
+# ============================================================================
+# Images — 3D-printing icon set. Spools are drawn
+# as stacked recolourable layers: fill (filament colour) + hub (dark) + shine.
+# Unassigned AMS slots use the dashed "empty" ring.
+# ============================================================================
+image:
+  - file: espoolbuddy/images/spool_fill.png
+    id: img_spool_fill
+    type: grayscale
+    transparency: alpha_channel
+    resize: 32x32      # AMS slot size; downscaled from 256px source = crisp/anti-aliased
+  - file: espoolbuddy/images/spool_empty.png
+    id: img_spool_empty
+    type: grayscale
+    transparency: alpha_channel
+    resize: 32x32
+  - file: espoolbuddy/images/spool_active.png
+    id: img_spool_active
+    type: grayscale
+    transparency: alpha_channel
+    resize: 36x36
+  # AMS unit icon (square) — nav tab at 30px, AMS-card header at 20px
+  - file: espoolbuddy/images/ams_tab.png
+    id: img_ams_tab
+    type: grayscale
+    transparency: alpha_channel
+    resize: 30x30
+  - file: espoolbuddy/images/ams_tab.png
+    id: img_ams_sm
+    type: grayscale
+    transparency: alpha_channel
+    resize: 20x20
+  # AMS HT (high-temp dryer) icon — used on HT cards
+  - file: espoolbuddy/images/ams_ht.png
+    id: img_ht_sm
+    type: grayscale
+    transparency: alpha_channel
+    resize: 20x20
+  # External spool (vt_tray) row icon — spool_fill downscaled to 20×20
+  - file: espoolbuddy/images/spool_fill.png
+    id: img_vt_sm
+    type: grayscale
+    transparency: alpha_channel
+    resize: 20x20
+  # 80×80 variants for the larger NFC hero spool (downscaled from 256px source)
+  - file: espoolbuddy/images/spool_fill.png
+    id: img_spool_fill_lg
+    type: grayscale
+    transparency: alpha_channel
+    resize: 80x80
+  - file: espoolbuddy/images/spool_shine.png
+    id: img_spool_shine_lg
+    type: grayscale
+    transparency: alpha_channel
+    resize: 80x80
+  # Tag format icons — 24×24 white-on-transparent grayscale PNGs
+  - file: espoolbuddy/images/icon_bambu.png
+    id: img_icon_bambu
+    type: grayscale
+    transparency: alpha_channel
+  - file: espoolbuddy/images/icon_opentag3d.png
+    id: img_icon_opentag3d
+    type: grayscale
+    transparency: alpha_channel
+  - file: espoolbuddy/images/icon_nfc.png
+    id: img_icon_nfc
+    type: grayscale
+    transparency: alpha_channel
+
+# ============================================================================
+# Fonts
+# ============================================================================
+font:
+  - file: "gfonts://Roboto"
+    id: roboto_12
+    size: 12
+    bpp: 4          # 4 bpp = anti-aliased glyph edges (default is 1 = aliased)
+    glyphs: " !\"#%&'()*+,-./0123456789:;=?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]_abcdefghijklmnopqrstuvwxyz°"
+  - file: "gfonts://Roboto"
+    id: roboto_16
+    size: 16
+    bpp: 4          # anti-aliased
+    glyphs: " !\"#%&'()*+,-./0123456789:;=?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]_abcdefghijklmnopqrstuvwxyz°–·"
+    # – U+2013 en-dash  (nozzle temp range separator)
+    # · U+00B7 middle dot (AMS · Slot separator)
+  - file: "gfonts://Roboto"
+    id: roboto_20
+    size: 20
+    bpp: 4          # anti-aliased — used for the header title
+    glyphs: " !\"#%&'()*+,-./0123456789:;=?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]_abcdefghijklmnopqrstuvwxyz°"
+  - file: "gfonts://Roboto"
+    id: roboto_28
+    size: 28
+    bpp: 4          # anti-aliased
+    glyphs: " !#%&'()+,-./0123456789:?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz°"
+  - file: "gfonts://Roboto"
+    id: roboto_40
+    size: 40
+    bpp: 4          # anti-aliased
+    glyphs: " 0123456789.,-+gk°"
+
+  # Material Design Icons
+  - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
+    id: mdi_24
+    size: 24
+    bpp: 4
+    glyphs:
+      - "\U000F05A9"   # wifi
+      - "\U000F05AA"   # wifi-off
+      - "\U000F0160"   # cloud-check-variant
+      - "\U000F0164"   # cloud-off-outline
+      - "\U000F0156"   # close
+      - "\U000F0765"   # circle (spool colour dot)
+      - "\U000F05D6"   # alert-circle-outline
+      - "\U000F0141"   # chevron-left  (AMS pagination prev)
+      - "\U000F0142"   # chevron-right (AMS pagination next)
+      - "\U000F0472"   # scale (scale device icon in Settings picker)
+      - "\U000F042B"   # printer-3d (printer status icon)
+  - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
+    id: mdi_30
+    size: 30
+    bpp: 4
+    glyphs:
+      - "\U000F0472"   # scale  (Scale tab)
+      - "\U000F0396"   # nfc    (NFC tab)
+      - "\U000F0493"   # cog    (Settings tab)
+      - "\U000F003C"   # archive (empty-spool popup)
+

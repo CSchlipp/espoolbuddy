@@ -1,0 +1,92 @@
+<svg viewBox="0 0 1000 650" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <rect x="0" y="0" width="1000" height="650" rx="16" fill="#ffffff" stroke="#d0d7de" stroke-width="2"/>
+
+  <text x="500" y="28" text-anchor="middle" font-size="24" font-weight="700" fill="#1b1f23">Console — optional speaker &amp; battery power</text>
+  <text x="500" y="50" text-anchor="middle" font-size="14" fill="#57606a">Both groups are add-ons — the console runs fine on plain USB-C power with neither attached</text>
+
+  <!-- Dashed group box: the battery bundle is all-or-nothing. PowerBoost and the -->
+  <!-- magnetic connector only exist to support the LiPo; they are not independently useful. -->
+  <rect x="40" y="80" width="610" height="530" rx="20" fill="none" stroke="#8250df" stroke-width="2.5" stroke-dasharray="12,8"/>
+  <rect x="205" y="66" width="280" height="22" fill="#ffffff"/>
+  <text x="345" y="82" text-anchor="middle" font-size="13" font-weight="700" fill="#8250df">Optional battery bundle — all 3 or none</text>
+
+  <!-- Row 1 (y 90-230): Magnetic connector (col1) · Speaker (col3) -->
+  <!-- Row 2 (y 270-420): PowerBoost 1000C (col2) -->
+  <!-- Row 3 (y 460-600): LiPo battery (col1) · WT32-SC01 Plus (col3) -->
+
+  <!-- Magnetic charging connector -->
+  <rect x="60" y="90" width="250" height="140" rx="16" fill="#7f8c8d" stroke="#5f6a6b" stroke-width="2"/>
+  <text x="185" y="118" text-anchor="middle" font-size="14" font-weight="700" fill="#ffffff">Magnetic pogo-pin</text>
+  <text x="185" y="136" text-anchor="middle" font-size="14" font-weight="700" fill="#ffffff">connector (optional)</text>
+  <text x="185" y="157" text-anchor="middle" font-size="10.5" fill="#eaeaea">Only needed with the LiPo below —</text>
+  <text x="185" y="172" text-anchor="middle" font-size="10.5" fill="#eaeaea">mounted through the case wall so</text>
+  <text x="185" y="187" text-anchor="middle" font-size="10.5" fill="#eaeaea">you can dock a charger without</text>
+  <text x="185" y="202" text-anchor="middle" font-size="10.5" fill="#eaeaea">opening it. Skip it and charge via</text>
+  <text x="185" y="217" text-anchor="middle" font-size="10.5" fill="#eaeaea">the PowerBoost's own micro-USB.</text>
+
+  <!-- Speaker -->
+  <rect x="700" y="90" width="250" height="140" rx="16" fill="#0f7b6c" stroke="#0b5d52" stroke-width="2"/>
+  <text x="825" y="128" text-anchor="middle" font-size="17" font-weight="700" fill="#ffffff">Speaker (optional)</text>
+  <text x="825" y="150" text-anchor="middle" font-size="12" fill="#c9f0e8">8 &#937;, 1 W, 2-pin JST</text>
+  <text x="825" y="172" text-anchor="middle" font-size="11" fill="#c9f0e8">Plugs into the onboard</text>
+  <text x="825" y="188" text-anchor="middle" font-size="11" fill="#c9f0e8">speaker connector</text>
+  <text x="825" y="204" text-anchor="middle" font-size="10" fill="#c9f0e8">(internal I2S DAC drives it)</text>
+
+  <!-- PowerBoost 1000C -->
+  <rect x="380" y="270" width="250" height="150" rx="16" fill="#d35400" stroke="#a84000" stroke-width="2"/>
+  <text x="505" y="298" text-anchor="middle" font-size="15" font-weight="700" fill="#ffffff">Adafruit PowerBoost 1000C</text>
+  <text x="505" y="317" text-anchor="middle" font-size="11" font-weight="700" fill="#ffe9d6">(optional — only needed with the LiPo)</text>
+  <text x="505" y="337" text-anchor="middle" font-size="11" fill="#ffe3cc">3.7V LiPo &#8594; 5.2V boost</text>
+  <text x="505" y="353" text-anchor="middle" font-size="11" fill="#ffe3cc">Charger + load-sharing</text>
+  <text x="505" y="373" text-anchor="middle" font-size="10" fill="#ffe3cc">(runs the console while charging)</text>
+
+  <!-- LiPo battery -->
+  <rect x="60" y="460" width="250" height="140" rx="16" fill="#e67e22" stroke="#b8630f" stroke-width="2"/>
+  <text x="185" y="500" text-anchor="middle" font-size="16" font-weight="700" fill="#ffffff">LiPo battery (optional)</text>
+  <text x="185" y="524" text-anchor="middle" font-size="12" fill="#ffe9d6">3.7V, JST-PH connector</text>
+  <text x="185" y="544" text-anchor="middle" font-size="11" fill="#ffe9d6">This is what you're actually adding —</text>
+  <text x="185" y="560" text-anchor="middle" font-size="11" fill="#ffe9d6">the other 2 boxes only support it</text>
+
+  <!-- WT32-SC01 Plus -->
+  <rect x="700" y="460" width="250" height="140" rx="16" fill="#0969da" stroke="#0550ae" stroke-width="2"/>
+  <text x="825" y="500" text-anchor="middle" font-size="17" font-weight="700" fill="#ffffff">WT32-SC01 Plus</text>
+  <text x="825" y="522" text-anchor="middle" font-size="12" fill="#cfe3ff">Console board</text>
+  <text x="825" y="544" text-anchor="middle" font-size="11" fill="#cfe3ff">USB-C power in (5V/GND)</text>
+  <text x="825" y="560" text-anchor="middle" font-size="11" fill="#cfe3ff">Onboard 2-pin speaker JST</text>
+
+  <!-- Wire: LiPo -> PowerBoost BAT (straight segments, right angle) -->
+  <polyline points="310,530 505,530 505,420" fill="none" stroke="#cf222e" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="310" cy="530" r="7" fill="#cf222e" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="505" cy="420" r="7" fill="#cf222e" stroke="#ffffff" stroke-width="2"/>
+  <text x="400" y="522" text-anchor="middle" font-size="12" font-weight="600" fill="#1b1f23">BAT (JST-PH)</text>
+
+  <!-- Wire: PowerBoost -> WT32-SC01 5V/GND out (enters left side of the console's top edge) -->
+  <polyline points="630,345 770,345 770,460" fill="none" stroke="#cf222e" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="630" cy="345" r="7" fill="#cf222e" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="770" cy="460" r="7" fill="#cf222e" stroke="#ffffff" stroke-width="2"/>
+  <text x="700" y="337" text-anchor="middle" font-size="12" font-weight="600" fill="#1b1f23">5V OUT / GND</text>
+  <text x="700" y="445" text-anchor="middle" font-size="10" fill="#57606a">into USB-C power-in</text>
+
+  <!-- Wire: Magnetic connector -> PowerBoost USB charge-in -->
+  <polyline points="185,230 185,345 380,345" fill="none" stroke="#57606a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="10,7"/>
+  <circle cx="185" cy="230" r="7" fill="#57606a" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="380" cy="345" r="7" fill="#57606a" stroke="#ffffff" stroke-width="2"/>
+  <text x="230" y="290" text-anchor="start" font-size="12" font-weight="600" fill="#1b1f23">USB 5V</text>
+  <text x="230" y="306" text-anchor="start" font-size="12" font-weight="600" fill="#1b1f23">charge-in*</text>
+
+  <!-- Wire: WT32-SC01 speaker JST -> Speaker (straight vertical, same column) -->
+  <line x1="825" y1="460" x2="825" y2="230" stroke="#57606a" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="825" cy="460" r="7" fill="#57606a" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="825" cy="230" r="7" fill="#57606a" stroke="#ffffff" stroke-width="2"/>
+  <text x="860" y="349" text-anchor="start" font-size="12" font-weight="600" fill="#1b1f23">SPK+</text>
+  <text x="860" y="365" text-anchor="start" font-size="12" font-weight="600" fill="#1b1f23">SPK-</text>
+
+  <!-- Legend -->
+  <g font-size="12" fill="#1b1f23">
+    <rect x="120" y="618" width="14" height="14" rx="3" fill="#cf222e"/><text x="139" y="629">Power (BAT / 5V / GND)</text>
+    <rect x="380" y="618" width="14" height="14" rx="3" fill="#57606a"/><text x="399" y="629">Audio (I2S / speaker)</text>
+    <rect x="620" y="618" width="14" height="14" rx="3" fill="#57606a"/>
+    <line x1="620" y1="625" x2="634" y2="625" stroke="#ffffff" stroke-width="2" stroke-dasharray="4,3"/>
+    <text x="639" y="629">USB charge-in* (optional add-on)</text>
+  </g>
+</svg>

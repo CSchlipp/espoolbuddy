@@ -1,0 +1,302 @@
+################################################################################
+# SpoolBuddy Console — WT32-SC01 Plus with PN532 NFC reader
+#
+# Hardware:
+#   Board:    WT32-SC01 Plus (ESP32-S3, 16 MB flash)
+#   Display:  ST7796S 480×320, 8080 parallel via LCD_CAM
+#             WR=GPIO47, D0-D7=GPIO9/46/3/8/18/17/16/15
+#   Touch:    FT6336U (FT5x06-compat) I2C SDA=GPIO6 SCL=GPIO5 INT=GPIO7
+#   Backlight:GPIO45
+#   NFC PN532 via SPI:
+#             SCK=GPIO13  MOSI=GPIO11  MISO=GPIO12  SS=GPIO10  IRQ=GPIO14
+################################################################################
+
+esphome:
+  name: spoolbuddy-console
+  friendly_name: SpoolBuddy Console
+  on_boot:
+    - priority: 600
+      then:
+        - logger.log: "SpoolBuddy booting..."
+        - lambda: bambuddy->configure_pm(false);  # lock min 80 MHz (APB stable) before display starts
+    # Apply initial tab state after NVS is up (restores printer selection + tab visibility)
+    - priority: -100
+      then:
+        - script.execute: apply_tab
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  framework:
+    type: esp-idf
+    version: recommended
+    sdkconfig_options:
+      # Run the CPU at the full 240 MHz for smooth LVGL rendering and fast HTTP/JSON.
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      # Larger 64 KB data cache with 64-byte lines — improves PSRAM throughput,
+      # which matters because the LVGL frame buffer lives in PSRAM.
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      # Extend the task watchdog — HTTP calls can stack up to ~9 s per loop cycle.
+      CONFIG_ESP_TASK_WDT_TIMEOUT_S: "30"
+      # Ships the Mozilla CA bundle for HTTPS certificate verification.
+      CONFIG_MBEDTLS_CERTIFICATE_BUNDLE: "y"
+      # ESP-IDF 5.x enables TLS 1.3 by default. Uncomment to fall back to TLS 1.2
+      #CONFIG_MBEDTLS_SSL_PROTO_TLS1_3: "n"
+      # Power management: CPU frequency scaling + automatic light sleep between
+      # FreeRTOS ticks (configure_pm() switches the profile on sleep/wake).
+      CONFIG_PM_ENABLE: "y"
+      # Required for light sleep — lets the idle task skip ticks while asleep.
+      CONFIG_FREERTOS_USE_TICKLESS_IDLE: "1"
+
+psram:
+  mode: quad
+  speed: 80MHz
+
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/CSchlipp/espoolbuddy.git
+      ref: main
+      path: components
+    components: [bambuddy_api, bambuddy_nfc]
+
+logger:
+  # Global level must be DEBUG so the Bambuddy components can emit DEBUG (a
+  # per-tag level may only be RAISED above the global level, never lowered).
+  # The noisy framework tags are raised back to INFO to keep the log readable
+  # while still tracing all Bambuddy HTTP requests/responses and NFC detail.
+  level: DEBUG
+  baud_rate: 115200
+  logs:
+    scheduler: INFO
+    component: INFO
+    sensor: INFO
+    light: INFO
+    lvgl: INFO
+    touchscreen: INFO
+    wifi: INFO
+    api: INFO
+    ota: INFO
+    mdns: INFO
+    # ESP-IDF TLS/HTTP internals: expected errors when backend is temporarily
+    # unreachable (select timeout, connection refused). Raising to WARN keeps
+    # the log clean without hiding our own bambuddy_* DEBUG traces.
+    esp-tls: WARN
+    transport_base: WARN
+    HTTP_CLIENT: WARN
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # AWAKE WiFi power-save mode. Sleep mode dynamically bumps this to MAX_MODEM
+  # (most aggressive) while idle and restores this value on wake (see
+  # set_low_power). `light` keeps decent awake battery + responsiveness; set
+  # `none` for snappiest awake (scale pushes / API) at higher awake current.
+  # (The old sleep crashes were an unfed task watchdog, since fixed — not WiFi.)
+  power_save_mode: light
+  on_connect:
+    - logger.log: "WiFi connected"
+  on_disconnect:
+    - logger.log: "WiFi disconnected"
+
+captive_portal:
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# reboot_timeout: 0s — device runs standalone; we must not reboot just because
+# Home Assistant isn't reachable.
+api:
+  encryption:
+    key: !secret api_encryption_key
+  reboot_timeout: 0s
+
+# ============================================================================
+# Time — SNTP (NTP) clock shown in the header. Non-Home-Assistant source; kept
+# on the ESP32-S3 internal RTC between syncs (not battery-backed, so the header
+# shows --:-- until the first sync after boot). Default servers: pool.ntp.org.
+# Change the timezone to match your location.
+# ============================================================================
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: Europe/Berlin
+
+
+# ============================================================================
+# I2C — FT6336U touch controller
+# ============================================================================
+i2c:
+  - id: i2c_bus
+    sda: GPIO6
+    scl: GPIO5
+    frequency: 400000
+
+# ============================================================================
+# SPI buses
+# ============================================================================
+spi:
+  # PN532 NFC — standard 4-wire SPI
+  - id: nfc_spi
+    clk_pin: GPIO13
+    mosi_pin: GPIO11
+    miso_pin: GPIO12
+
+  # ST7796S display — 8-bit 8080 parallel via LCD_CAM (octal SPI)
+  - id: octal_spi
+    type: octal
+    clk_pin: GPIO47           # WR strobe
+    data_pins:
+      - GPIO9
+      - number: GPIO46
+        ignore_strapping_warning: true
+      - number: GPIO3
+        ignore_strapping_warning: true
+      - GPIO8
+      - GPIO18
+      - GPIO17
+      - GPIO16
+      - GPIO15
+
+
+# ============================================================================
+# Sensors
+# ============================================================================
+sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    id: wifi_signal_sensor
+    update_interval: 300s
+
+  - platform: uptime
+    name: "Uptime"
+    id: uptime_sensor
+    update_interval: 300s
+
+# ============================================================================
+# Buttons
+# ============================================================================
+button:
+  - platform: template
+    name: "Tare Scale"
+    id: tare_button
+    on_press:
+      then:
+        - lambda: bambuddy->request_tare();
+
+  - platform: restart
+    name: "Restart"
+    id: restart_button
+
+# ============================================================================
+# Backlight
+# ============================================================================
+output:
+  - platform: ledc
+    pin: GPIO45
+    id: backlight_pwm
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    name: "Display Backlight"
+    id: display_backlight
+    restore_mode: ALWAYS_ON
+    default_transition_length: 0ms
+
+# ============================================================================
+# Display — ST7796S 480×320 via WT32-SC01-PLUS model
+# ============================================================================
+display:
+  - platform: mipi_spi
+    model: WT32-SC01-PLUS
+    id: main_display
+    spi_id: octal_spi
+    data_rate: 20MHz
+    reset_pin: GPIO4
+    invert_colors: true
+    auto_clear_enabled: false
+    update_interval: never
+
+# ============================================================================
+# Touch — FT6336U (FT5x06-compatible)
+# ============================================================================
+touchscreen:
+  - platform: ft5x06
+    id: touch_screen
+    i2c_id: i2c_bus
+    address: 0x38
+    interrupt_pin: GPIO7
+    update_interval: 16ms
+    on_touch:
+      - lambda: |-
+          id(display_backlight).turn_on()
+            .set_brightness(id(backlight_brightness_pct) / 100.0f)
+            .set_transition_length(0).perform();
+
+
+# ============================================================================
+# Audio — onboard I2S class-D amplifier ("speaker out")
+#   LRCLK/WS = GPIO35   BCLK = GPIO36   DOUT/DIN = GPIO37
+#   (these three are free only because we run the PSRAM in quad mode)
+# Short RTTTL chimes are fired from the UI interval lambda in
+# espoolbuddy/spoolbuddy_app.yaml: one when a tag is scanned (console PN532 *or*
+# a scale-pushed scan), and one when the scale settles on a real load.
+# ============================================================================
+i2s_audio:
+  - id: i2s_audio_bus
+    i2s_lrclk_pin: GPIO35
+    i2s_bclk_pin: GPIO36
+
+speaker:
+  - platform: i2s_audio
+    id: chime_speaker
+    i2s_audio_id: i2s_audio_bus
+    dac_type: external
+    i2s_dout_pin: GPIO37
+    channel: mono
+
+rtttl:
+  id: rtttl_player
+  speaker: chime_speaker
+  gain: 70%
+  on_finished_playback:
+    then:
+      - speaker.stop:
+          id: chime_speaker
+
+
+# ============================================================================
+# BambuddyAPI — backend connection + scale config
+# Edit these values to match your setup.
+# ============================================================================
+bambuddy_api:
+  id: bambuddy
+  backend_url: !secret bambuddy_backend_url
+  api_key: !secret bambuddy_api_key
+  hostname: "SpoolBuddy-Console"
+  # Which Bambuddy inventory backend to talk to — must match Settings → Spoolman
+  # in the Bambuddy web UI. "internal" (default) uses Bambuddy's own DB;
+  # "spoolman" delegates spool/tag/assignment calls to Bambuddy's Spoolman
+  # integration instead. Changing Bambuddy's setting later requires reflashing
+  # with the matching value here.
+  inventory_backend: internal   # internal | spoolman
+  heartbeat_interval: 10        # seconds — tag scan triggers an extra immediate heartbeat
+  scale_report_interval: 250    # ms
+  printer_poll_interval: 30     # seconds
+  # Deep-idle "sleep": sleep_timeout is controlled at runtime by the interval
+  # lambda in espoolbuddy/spoolbuddy_app.yaml (set_sleep_timeout from sleep_timeout_min
+  # global). sleep_factor stretches heartbeat + poll cadence while asleep.
+  sleep_factor: 6               # while asleep: heartbeat ×6 (10s→60s), poll ×6 (30s→180s)
+  # Header clock format: true = 24-hour (14:05), false = 12-hour (2:05 PM).
+  clock_24h: true
+
+
+packages:
+  app:    !include espoolbuddy/spoolbuddy_app.yaml
+  assets: !include espoolbuddy/spoolbuddy_assets.yaml
+  ui:     !include espoolbuddy/spoolbuddy_lvgl.yaml

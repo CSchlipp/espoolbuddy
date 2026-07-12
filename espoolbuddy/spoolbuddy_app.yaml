@@ -1,0 +1,1451 @@
+# Bump on every change (SemVer, staying in 0.x.y for now): 0.MINOR.PATCH —
+# MINOR for features/behaviour changes, PATCH for fixes. Shown bottom-right
+# of the Settings screen (sourced from this value via ESPHOME_PROJECT_VERSION).
+esphome:
+  project:
+    version: "0.22.15"
+
+
+# ============================================================================
+# Persistent globals
+# ============================================================================
+globals:
+  - id: selected_printer_idx
+    type: int
+    restore_value: yes
+    initial_value: '0'
+  - id: active_tab           # 0=AMS 1=NFC 2=Scale 3=Settings (AMS is default)
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: ams_page             # current pagination page (0-based)
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: modal_ams_id         # AMS unit id of the slot being viewed (-1 = none)
+    type: int
+    restore_value: no
+    initial_value: '-1'
+  - id: modal_tray_slot      # tray slot index of the slot being viewed (-1 = none)
+    type: int
+    restore_value: no
+    initial_value: '-1'
+  - id: confirm_action       # pending action for confirm_modal: 0=none 1=unlink tag 2=clear assignment
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: slot_assign_id       # spool ID chosen in the assign-to-empty-slot dialog
+    type: int
+    restore_value: no
+    initial_value: '1'
+  - id: nfc_assign_spool_id  # spool ID being typed in the NFC picker ID-input row
+    type: int
+    restore_value: no
+    initial_value: '1'
+  - id: cal_ref_weight       # calibration reference weight in grams (Scale tab +/- buttons)
+    type: float
+    restore_value: yes
+    initial_value: '100.0'
+  - id: nfc_unlinked_dismissed  # 1 while the user has dismissed the current unlinked tag; cleared on tag removal
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: nfc_weight_popup_open  # 1 while the Quick Weight popup is open (freezes TTL countdown)
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: nfc_sleep_mode       # NFC scanning while asleep: 0=Off 1=Slow(limited) 2=On
+    type: int
+    restore_value: yes
+    initial_value: '1'
+  - id: sound_enabled        # 1 = play tag-scan / weight-stable chimes, 0 = muted
+    type: int
+    restore_value: yes
+    initial_value: '1'
+  - id: wifi_sleep_mode      # WiFi during sleep: 0=PowerSave(MAX_MODEM, stays online) 1=Off(appears offline)
+    type: int
+    restore_value: yes
+    initial_value: '1'
+  - id: sleep_timeout_min    # Inactivity before deep sleep: 0=Never, 5-60 in 5-min steps
+    type: int
+    restore_value: yes
+    initial_value: '10'
+  - id: backlight_brightness_pct  # Active (awake) backlight brightness 25-100
+    type: int
+    restore_value: yes
+    initial_value: '100'
+  - id: is_sleeping          # true while in deep-idle sleep (used by scripts)
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+
+# ============================================================================
+# Diagnostic: power/wake state, reported to Home Assistant as text.
+# "Awake" (full brightness) → "Dim" (60 s idle, backlight 20%) → "Sleep"
+# (deep idle: backlight off + reduced cadence). Published on change by the
+# sleep state machine in the UI interval lambda below.
+# ============================================================================
+text_sensor:
+  - platform: template
+    name: "Power State"
+    id: power_state
+    entity_category: diagnostic
+    icon: "mdi:power-sleep"
+
+
+# ============================================================================
+# BambuddyNFC — PN532 via SPI
+# ============================================================================
+bambuddy_nfc:
+  id: nfc_reader
+  api_id: bambuddy
+  spi_id: nfc_spi
+  cs_pin: GPIO10
+  irq_pin:
+    number: GPIO14
+    mode: INPUT_PULLUP  # PN532 IRQ is open-drain; pull-up required
+  data_rate: 1MHz
+  spi_mode: 0
+  poll_interval: 300   # ms — used only in fallback polling mode; IRQ mode uses 10ms guard
+  miss_threshold: 3
+
+
+# ============================================================================
+# Tab switcher — shows the active content container and highlights its button
+# ============================================================================
+script:
+  - id: apply_tab
+    then:
+      - lambda: |-
+          // Restore printer selection from the NVS-backed global
+          bambuddy->set_selected_printer(id(selected_printer_idx));
+          int t = id(active_tab);
+          // Tab order: 0=AMS 1=NFC 2=Scale 3=Settings
+          lv_obj_t *content[4] = {id(content_ams), id(content_nfc),
+                                  id(content_scale), id(content_cfg)};
+          lv_obj_t *tic[4] = {id(tic_ams), id(tic_nfc),
+                              id(tic_scale), id(tic_cfg)};
+          for (int i = 0; i < 4; i++) {
+            if (i == t) lv_obj_clear_flag(content[i], LV_OBJ_FLAG_HIDDEN);
+            else        lv_obj_add_flag(content[i], LV_OBJ_FLAG_HIDDEN);
+            lv_color_t c = (i == t) ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8585B8);
+            if (i == 0)  // AMS tab is an image — recolour instead of text colour
+              lv_obj_set_style_img_recolor(tic[i], c, LV_PART_MAIN);
+            else
+              lv_obj_set_style_text_color(tic[i], c, LV_PART_MAIN);
+          }
+          // Always close modals when switching tabs
+          lv_obj_add_flag(id(ams_modal_card), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(cal_modal), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(assign_id_modal), LV_OBJ_FLAG_HIDDEN);
+          id(confirm_action) = 0;
+          // Sync the calibration reference weight label with the restored global
+          char cal_buf[10];
+          snprintf(cal_buf, sizeof(cal_buf), "%.0f g", id(cal_ref_weight));
+          lv_label_set_text(id(lbl_cal_weight), cal_buf);
+          // Settings tab shows the printer list directly (no sub-tabs).
+          // App version (bottom-right of Settings). ESPHOME_PROJECT_VERSION is a
+          // compile-time string from esphome.project.version, so the label and
+          // the project metadata can never drift apart.
+          lv_label_set_text(id(lbl_version), "v" ESPHOME_PROJECT_VERSION);
+          // Sync settings toggles and sleep/brightness widgets with restored globals.
+          id(update_nfc_sleep_btn).execute();
+          id(update_sound_btn).execute();
+          id(update_wifi_sleep_btn).execute();
+          id(update_sleep_timeout_lbl).execute();
+          id(update_backlight_brightness).execute();
+          // Close sleep subpage when switching away from settings
+          lv_obj_add_flag(id(content_sleep), LV_OBJ_FLAG_HIDDEN);
+
+  # Highlight the active segment of the Settings "NFC in sleep" Off/Slow/On row
+  # from the nfc_sleep_mode global. Called on boot/tab-switch (apply_tab) and tap.
+  - id: update_nfc_sleep_btn
+    then:
+      - lambda: |-
+          int m = id(nfc_sleep_mode);
+          lv_obj_t *btns[3] = {id(btn_nfc_off), id(btn_nfc_slow), id(btn_nfc_on)};
+          lv_obj_t *lbls[3] = {id(lbl_nfc_off), id(lbl_nfc_slow), id(lbl_nfc_on)};
+          for (int i = 0; i < 3; i++) {
+            bool active = (i == m);
+            lv_obj_set_style_bg_color(btns[i],
+                active ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
+            lv_obj_set_style_text_color(lbls[i],
+                active ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
+          }
+
+  # Refresh the Settings "Sound: On/Off" toggle from the sound_enabled global.
+  # Called on boot/tab-switch (apply_tab) and on tap.
+  - id: update_sound_btn
+    then:
+      - lambda: |-
+          bool on = id(sound_enabled);
+          lv_obj_set_style_bg_color(id(btn_sound_off),
+              !on ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
+          lv_obj_set_style_text_color(id(lbl_sound_off),
+              !on ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
+          lv_obj_set_style_bg_color(id(btn_sound_on),
+              on ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
+          lv_obj_set_style_text_color(id(lbl_sound_on),
+              on ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
+
+  # Refresh the Settings "WiFi in sleep" toggle from the wifi_sleep_mode global.
+  # Called on boot/tab-switch (apply_tab) and on tap.
+  - id: update_wifi_sleep_btn
+    then:
+      - lambda: |-
+          bool off = (id(wifi_sleep_mode) == 1);
+          lv_obj_set_style_bg_color(id(btn_wifi_ps),
+              !off ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
+          lv_obj_set_style_text_color(id(lbl_wifi_ps),
+              !off ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
+          lv_obj_set_style_bg_color(id(btn_wifi_off),
+              off ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
+          lv_obj_set_style_text_color(id(lbl_wifi_off),
+              off ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
+
+  # Refresh the sleep timeout label and the summary row on the main settings page.
+  - id: update_sleep_timeout_lbl
+    then:
+      - lambda: |-
+          int m = id(sleep_timeout_min);
+          char buf[12];
+          if (m == 0) snprintf(buf, sizeof(buf), "Never");
+          else        snprintf(buf, sizeof(buf), "%d min", m);
+          lv_label_set_text(id(lbl_sleep_timeout), buf);
+
+  # Apply the stored active brightness to the backlight, sync the slider + value label.
+  - id: update_backlight_brightness
+    then:
+      - lambda: |-
+          // Syncs the slider position and label to the stored global.
+          // Does NOT touch the backlight — brightness is only changed by the
+          // slider's on_value, boot_init, and wake handlers.  Calling turn_on()
+          // here (from apply_tab on every nav-tap) would override any slider
+          // change the user made during the same session.
+          int pct = id(backlight_brightness_pct);
+          if (pct < 25) pct = 25;
+          if (pct > 100) pct = 100;
+          // Guard: skip set if slider already shows the correct value to avoid
+          // spuriously re-triggering on_value (which would re-apply brightness).
+          if (lv_slider_get_value(id(sl_brightness)) != pct) {
+            lv_slider_set_value(id(sl_brightness), pct, LV_ANIM_OFF);
+          }
+          // Style the slider parts to match the theme
+          lv_obj_set_style_bg_color(id(sl_brightness), lv_color_hex(0x1B1B2A), LV_PART_MAIN);
+          lv_obj_set_style_bg_color(id(sl_brightness), lv_color_hex(0x4080FF), LV_PART_INDICATOR);
+          lv_obj_set_style_bg_color(id(sl_brightness), lv_color_hex(0x7BB4FF), LV_PART_KNOB);
+          lv_obj_set_style_border_color(id(sl_brightness), lv_color_hex(0x454572), LV_PART_MAIN);
+          lv_obj_set_style_border_width(id(sl_brightness), 1, LV_PART_MAIN);
+          lv_obj_set_style_radius(id(sl_brightness), 8, LV_PART_MAIN);
+          lv_obj_set_style_radius(id(sl_brightness), 8, LV_PART_INDICATOR);
+          lv_obj_set_style_radius(id(sl_brightness), 8, LV_PART_KNOB);
+          char buf[6];
+          snprintf(buf, sizeof(buf), "%d%%", pct);
+          lv_label_set_text(id(lbl_brightness_val), buf);
+
+  # Deferred WiFi-off + PM configure on sleep entry.
+  # Called 300 ms after the sleep state machine sets is_sleeping=true and the
+  # power_state "Sleep" publish has had time to flush to HA over TCP.
+  # Checks is_sleeping so a touch within the 300 ms window cancels cleanly.
+  - id: sleep_wifi_off
+    mode: single
+    then:
+      - delay: 300ms
+      - lambda: |-
+          if (!id(is_sleeping)) return;
+          if (id(wifi_sleep_mode) == 1) {
+            wifi::global_wifi_component->disable();
+            bambuddy->configure_pm(true);
+          }
+
+  - id: open_ams_modal
+    mode: restart
+    then:
+      - lambda: |-
+          int uid    = id(modal_ams_id);
+          int tslot  = id(modal_tray_slot);
+          if (uid < 0 || tslot < 0) return;
+          auto s = bambuddy->snapshot();
+          const bambuddy_api::AMSUnit *fu = nullptr;
+          const bambuddy_api::AMSTray *ft = nullptr;
+          for (const auto &unit : s.ams_units) {
+            if (unit.id != uid) continue;
+            fu = &unit;
+            for (const auto &tr : unit.trays) {
+              if (tr.slot == tslot) { ft = &tr; break; }
+            }
+            break;
+          }
+          // Open for physically-present slots and for assigned-but-empty slots
+          // (spool_id > 0), matching the AMS-overview "show spool" condition.
+          if (!fu || !ft || (!ft->present && ft->spool_id <= 0)) return;
+          const auto &unit = *fu;
+          const auto &tr   = *ft;
+          // Show the card BEFORE applying image styles.  In LVGL 9, style writes
+          // on widgets inside a hidden tree do not enter the dirty-area system, so
+          // the recolor is silently discarded and the images render transparent.
+          // Making the card visible first ensures every subsequent style write
+          // immediately marks the image area dirty and is included in the next frame.
+          lv_obj_clear_flag(id(ams_modal_card), LV_OBJ_FLAG_HIDDEN);
+          // Spool icon colour
+          unsigned long cv = tr.color_hex.empty() ? 0x555577
+                           : strtoul(tr.color_hex.c_str(), nullptr, 16);
+          lv_obj_set_style_img_recolor(    id(modal_spool_fill), lv_color_hex(cv),       LV_PART_MAIN);
+          lv_obj_set_style_img_recolor_opa(id(modal_spool_fill), LV_OPA_COVER,           LV_PART_MAIN);
+          // modal_spool_hub is a static bordered obj (the dark core) — no recolour.
+          // Material type — append subtype when available (e.g. "PLA Matte")
+          { std::string ts = tr.material_type.empty() ? "?" : tr.material_type;
+            if (!tr.subtype.empty()) { ts += " "; ts += tr.subtype; }
+            lv_label_set_text(id(modal_type), ts.c_str()); }
+          // Brand — show below type when known
+          lv_label_set_text(id(modal_brand), tr.brand.c_str());
+          // Colour swatch + name (fallback to hex if name unknown)
+          lv_obj_set_style_bg_color(id(modal_color_swatch), lv_color_hex(cv), LV_PART_MAIN);
+          { const char *cn = !tr.color_name.empty() ? tr.color_name.c_str() : nullptr;
+            char hx[10]; snprintf(hx, sizeof(hx), "#%06lX", cv);
+            lv_label_set_text(id(modal_colorhex), cn ? cn : hx); }
+          // Temp range
+          if (tr.nozzle_temp_min > 0 || tr.nozzle_temp_max > 0) {
+            char tb[24]; snprintf(tb, sizeof(tb), "%d \xE2\x80\x93 %d \xC2\xB0""C",
+                                  tr.nozzle_temp_min, tr.nozzle_temp_max);
+            lv_label_set_text(id(modal_temps), tb);
+          } else {
+            lv_label_set_text(id(modal_temps), "");
+          }
+          // AMS name (own field, scrolls if long) + slot number (own field) so a
+          // long custom name never truncates the slot.
+          { char nm[40];
+            if (!unit.custom_name.empty()) snprintf(nm, sizeof(nm), "%s", unit.custom_name.c_str());
+            else                           snprintf(nm, sizeof(nm), "AMS-%c", 'A' + (int)(unit.id % 26));
+            lv_label_set_text(id(modal_slotinfo), nm);
+            char sl[12]; snprintf(sl, sizeof(sl), "Slot %d", tr.slot + 1);
+            lv_label_set_text(id(modal_slotnum), sl); }
+          // Weight progress bar — shown only when label_weight_g is known
+          if (tr.label_weight_g > 0.0f) {
+            int total     = (int)(tr.label_weight_g + 0.5f);
+            int remaining = (int)(tr.remaining_g     + 0.5f);
+            lv_bar_set_range(id(modal_weight_bar), 0, total);
+            lv_bar_set_value(id(modal_weight_bar), remaining, LV_ANIM_OFF);
+            int wpct = (total > 0) ? (int)(100.0f * remaining / total + 0.5f) : 0;
+            lv_obj_set_style_bg_color(id(modal_weight_bar), lv_color_hex(bambuddy_api::remaining_bar_color(wpct)), LV_PART_INDICATOR);
+            char wc[12]; snprintf(wc, sizeof(wc), "%d g", remaining);
+            lv_label_set_text(id(modal_weight_cur), wc);
+            char wt[16]; snprintf(wt, sizeof(wt), "/ %d g", total);
+            lv_label_set_text(id(modal_weight_tot), wt);
+            lv_obj_clear_flag(id(modal_weight_bar), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(modal_weight_cur), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(modal_weight_tot), LV_OBJ_FLAG_HIDDEN);
+          } else {
+            lv_obj_add_flag(id(modal_weight_bar), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(modal_weight_cur), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(modal_weight_tot), LV_OBJ_FLAG_HIDDEN);
+          }
+          // Spool inventory ID — shown under icon in left column; hidden when unknown
+          if (tr.spool_id > 0) {
+            char ib[16]; snprintf(ib, sizeof(ib), "#%d", tr.spool_id);
+            lv_label_set_text(id(modal_spoolid), ib);
+            lv_obj_clear_flag(id(modal_spoolid), LV_OBJ_FLAG_HIDDEN);
+          } else {
+            lv_obj_add_flag(id(modal_spoolid), LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(id(modal_spoolid), "");
+          }
+
+  # Open the assign-by-id dialog for the empty slot in modal_ams_id/modal_tray_slot.
+  - id: slot_assign_open
+    then:
+      - lambda: |-
+          id(slot_assign_id) = 1;
+          lv_label_set_text(id(lbl_slot_assign_id), "ID: 1");
+          auto s = bambuddy->snapshot();
+          std::string amsname;
+          for (const auto &u : s.ams_units) {
+            if (u.id == id(modal_ams_id)) {
+              amsname = u.custom_name.empty()
+                        ? (std::string("AMS-") + (char)('A' + u.id % 26))
+                        : u.custom_name;
+              break;
+            }
+          }
+          if (amsname.empty()) amsname = "AMS";
+          char t[64];
+          snprintf(t, sizeof(t), "Assign to %s, Slot %d",
+                   amsname.c_str(), id(modal_tray_slot) + 1);
+          lv_label_set_text(id(slot_assign_title), t);
+          lv_obj_clear_flag(id(assign_id_modal), LV_OBJ_FLAG_HIDDEN);
+
+
+interval:
+  - interval: 400ms
+    then:
+      - lambda: |-
+          // Apply user-configured brightness on first tick after boot (no transition).
+          static bool boot_init = false;
+          if (!boot_init) {
+            boot_init = true;
+            int bpct = id(backlight_brightness_pct);
+            id(display_backlight).turn_on()
+              .set_brightness(bpct / 100.0f)
+              .set_transition_length(0).perform();
+          }
+
+          const bambuddy_api::DisplayState s = bambuddy->snapshot();
+
+          // Auto-switch to the NFC tab on:
+          //   (a) A new/different spool tag resolved to an inventory spool, OR
+          //   (b) A rising edge of "tag present but not yet linked"
+          static bool prev_spool_sel    = false;
+          static bool prev_tag_unlinked = false;
+          static std::string prev_scan_uid;
+          // UID that was on the reader when the user tapped "Discard" on a linked
+          // spool.  dismiss_spool() clears spool_selected but the tag stays present,
+          // so without this guard the unlinked panel would flash up immediately.
+          // Cleared once the tag physically leaves the reader.
+          static std::string dismissed_known_uid;
+          bool tag_unlinked = (s.nfc_state == bambuddy_api::NFCTagState::PRESENT
+                               && !s.spool_selected
+                               && !s.tag_resolving);  // suppress during backend lookup
+          bool switch_nfc = false;
+          if (s.spool_selected && (!prev_spool_sel || s.last_tag_uid != prev_scan_uid))
+            switch_nfc = true;
+          if (tag_unlinked && !prev_tag_unlinked
+              && !id(nfc_unlinked_dismissed)
+              && s.last_tag_uid != dismissed_known_uid)
+            switch_nfc = true;
+          if (switch_nfc && id(active_tab) != 1) {
+            id(active_tab) = 1; id(apply_tab).execute();
+          }
+          // Detect a "Discard on known tag": spool_selected just fell to false while
+          // the same tag is still present → record the UID so the unlinked panel
+          // is not shown while the physical tag remains on the reader.
+          // MUST be evaluated BEFORE prev_spool_sel is updated below.
+          if (prev_spool_sel && !s.spool_selected
+              && s.nfc_state == bambuddy_api::NFCTagState::PRESENT
+              && !s.last_tag_uid.empty()) {
+            dismissed_known_uid = s.last_tag_uid;
+          }
+          // Once the tag leaves the reader, forget the dismissed UID so a fresh
+          // placement of the same tag is treated normally again.
+          if (s.nfc_state != bambuddy_api::NFCTagState::PRESENT) {
+            dismissed_known_uid.clear();
+          }
+          prev_spool_sel    = s.spool_selected;
+          prev_tag_unlinked = tag_unlinked;
+          prev_scan_uid     = s.last_tag_uid;
+
+          // Wake the backlight to full brightness whenever a tag appears on the
+          // reader (mirrors the touch wake), so a scan lights the screen even if
+          // it had dimmed on idle.
+          static bool prev_nfc_present = false;
+          static std::string prev_bl_uid;
+          bool nfc_present = (s.nfc_state == bambuddy_api::NFCTagState::PRESENT);
+          if (nfc_present && (!prev_nfc_present || s.last_tag_uid != prev_bl_uid)) {
+            id(display_backlight).turn_on().set_brightness(id(backlight_brightness_pct) / 100.0f).set_transition_length(0).perform();
+            lv_disp_trig_activity(NULL);  // count a tag scan as activity so it wakes deep sleep
+          }
+          prev_nfc_present = nfc_present;
+          prev_bl_uid = s.last_tag_uid;
+
+          // Wake the backlight when a weight is placed on the scale (mirrors
+          // the tag wake above).  Track the lowest reading seen; a ≥5 g rise
+          // above that low point counts as "something was put on" even when
+          // the scale's smoothing filter ramps the value over several UI
+          // ticks.  The baseline follows decreases, so removing weight does
+          // NOT wake but re-arms the trigger for the next placement.
+          // lv_disp_trig_activity restarts the LVGL idle timer so the screen
+          // re-dims 60 s after the placement instead of staying on forever.
+          static float bl_weight_baseline = 1e9f;  // first tick: adopts current weight
+          if (s.weight_grams < bl_weight_baseline) bl_weight_baseline = s.weight_grams;
+          if (s.scale_ok && s.weight_grams - bl_weight_baseline >= 5.0f) {
+            id(display_backlight).turn_on().set_brightness(id(backlight_brightness_pct) / 100.0f).set_transition_length(0).perform();
+            lv_disp_trig_activity(NULL);
+            // Weight-placement is not a touch: hide the guard so the user can
+            // interact immediately after the screen wakes from a spool drop.
+            lv_obj_add_flag(id(wake_guard), LV_OBJ_FLAG_HIDDEN);
+            bl_weight_baseline = s.weight_grams;  // re-arm at the new level
+          }
+
+          // ---- Audio cues (onboard I2S amp — see spoolbuddy_console.yaml) ----
+          // Two short RTTTL chimes, edge-detected so each event plays once:
+          //   • Tag scan  — nfc_scan_generation bumps on every physical scan,
+          //     including scale-pushed ones (they route through on_tag_scanned),
+          //     so this one trigger covers both the console and the scale.
+          //   • Stable weight — rising edge of weight_stable while a real load
+          //     is on the pan (>5 g), so settling back to an empty/zeroed scale
+          //     stays silent.  Guarded by is_playing() so a near-simultaneous
+          //     settle does not clip the scan chime.
+          {
+            static uint32_t prev_audio_scan_gen = 0;
+            if (s.nfc_scan_generation != prev_audio_scan_gen) {
+              prev_audio_scan_gen = s.nfc_scan_generation;
+              if (id(sound_enabled) && !id(rtttl_player)->is_playing())
+                id(rtttl_player)->play("tag:d=16,o=6,b=180:e,b");
+            }
+            static bool prev_weight_stable = false;
+            bool stable_now = s.scale_ok && s.weight_stable;
+            if (stable_now && !prev_weight_stable && s.weight_grams >= 5.0f
+                && id(sound_enabled) && !id(rtttl_player)->is_playing()) {
+              id(rtttl_player)->play("stable:d=16,o=6,b=150:c,e,g");
+            }
+            prev_weight_stable = stable_now;
+          }
+
+          // ---- Sleep / wake (deep idle) ----
+          // Apply current sleep_timeout_min global to the backend each tick (cheap
+          // assignment; 0 = Never disables deep sleep).
+          bambuddy->set_sleep_timeout(id(sleep_timeout_min) * 60);
+          {
+            uint32_t sleep_after = bambuddy->sleep_timeout_ms();
+            uint32_t inactive = lv_disp_get_inactive_time(NULL);
+            bool sleeping = id(is_sleeping);
+            if (sleep_after == 0) {
+              id(is_sleeping) = false;  // feature disabled — never hold the sleep latch
+              sleeping = false;
+            } else {
+              if (!sleeping && inactive >= sleep_after) {
+                sleeping = true;
+                id(is_sleeping) = true;
+                bambuddy->set_low_power(true);
+                // Apply the user's "NFC in sleep" setting: 0=Off (stop scanning,
+                // RF field off), 1=Slow (reduced poll rate), 2=On (normal scan).
+                int nfc_mode = id(nfc_sleep_mode);
+                if (nfc_mode == 0)      id(nfc_reader)->set_scan_enabled(false);
+                else if (nfc_mode == 1) id(nfc_reader)->set_low_power(true);
+                // Show the wake guard so the first touch only wakes (does not
+                // also press a button underneath).
+                lv_obj_clear_flag(id(wake_guard), LV_OBJ_FLAG_HIDDEN);
+                id(display_backlight).turn_on().set_brightness(0.0f).set_transition_length(800).perform();
+                // Defer WiFi-off + PM configure by 300 ms so the power_state
+                // "Sleep" publish (below) has time to flush to HA over TCP first.
+                id(sleep_wifi_off).execute();
+              } else if (sleeping && inactive < sleep_after) {
+                id(is_sleeping) = false;
+                sleeping = false;
+                // Cancel the deferred WiFi-off if the user woke within 300 ms.
+                id(sleep_wifi_off).stop();
+                if (id(wifi_sleep_mode) == 1) {
+                  // Restore full CPU speed before re-enabling WiFi so the stack
+                  // initialises at 240 MHz, then force an immediate data refresh.
+                  bambuddy->configure_pm(false);
+                  wifi::global_wifi_component->enable();
+                }
+                // set_low_power(false) resets the HTTP poll timers to trigger an
+                // immediate refresh once the connection is up.
+                bambuddy->set_low_power(false);
+                id(nfc_reader)->set_scan_enabled(true);  // resume normal full-rate scanning
+                id(nfc_reader)->set_low_power(false);
+                id(display_backlight).turn_on().set_brightness(id(backlight_brightness_pct) / 100.0f).set_transition_length(150).perform();
+              }
+            }
+            // Power-state diagnostic → HA (published on change). Three tiers that
+            // mirror the backlight: Sleep (deep idle) > Dim (LVGL on_idle at 60 s,
+            // backlight 20%) > Awake. 60000 ms matches the lvgl `on_idle: 60s`.
+            // Published BEFORE the deferred sleep_wifi_off script runs, so HA
+            // receives "Sleep" while the connection is still up.
+            {
+              const char *st = sleeping ? "Sleep" : (inactive >= 60000 ? "Dim" : "Awake");
+              static const char *prev_st = nullptr;
+              if (st != prev_st) { prev_st = st; id(power_state).publish_state(st); }
+            }
+            // While asleep, skip ALL the LVGL widget updates below — the screen is
+            // off, so redrawing it is wasted CPU. This lets core 0 idle (WFI) far
+            // more. A wake resets inactivity, so the next tick falls through here
+            // and renders again immediately.
+            if (sleeping) return;
+          }
+
+          // ---- Header icons ----
+          lv_obj_set_style_text_color(id(ic_printer),
+              s.printer_connected ? lv_color_hex(0x4CAF50) : lv_color_hex(0xF44336),
+              LV_PART_MAIN);
+          bool wifi_up = (s.backend_state == bambuddy_api::BackendState::REGISTERED
+                       || s.backend_state == bambuddy_api::BackendState::CONNECTING);
+          lv_label_set_text(id(ic_wifi),
+              wifi_up ? "\U000F05A9" : "\U000F05AA");
+          lv_obj_set_style_text_color(id(ic_wifi),
+              wifi_up ? lv_color_hex(0x4CAF50) : lv_color_hex(0x8585B8),  // green/grey, matching the API + scale icons
+              LV_PART_MAIN);
+          bool api_ok = (s.backend_state == bambuddy_api::BackendState::REGISTERED);
+          lv_label_set_text(id(ic_api),
+              api_ok ? "\U000F0160" : "\U000F0164");
+          lv_obj_set_style_text_color(id(ic_api),
+              api_ok ? lv_color_hex(0x4CAF50) : lv_color_hex(0xF44336),
+              LV_PART_MAIN);
+          lv_obj_set_style_text_color(id(ic_scale),
+              s.scale_ok ? lv_color_hex(0x4CAF50) : lv_color_hex(0x8585B8),
+              LV_PART_MAIN);
+
+          // ---- Header clock (SNTP, on the internal RTC) ----
+          // Only rewrite the label when the displayed minute changes, so this
+          // 400 ms tick doesn't repaint the header every cycle.
+          {
+            static int prev_clock_min = -2;
+            auto now_t = id(sntp_time).now();
+            int cur_min = now_t.is_valid() ? (now_t.hour * 60 + now_t.minute) : -1;
+            if (cur_min != prev_clock_min) {
+              prev_clock_min = cur_min;
+              if (now_t.is_valid()) {
+                char cb[12];
+                if (bambuddy->clock_24h()) {
+                  snprintf(cb, sizeof(cb), "%02d:%02d", now_t.hour, now_t.minute);
+                } else {
+                  int h12 = now_t.hour % 12;
+                  if (h12 == 0) h12 = 12;
+                  snprintf(cb, sizeof(cb), "%d:%02d %s", h12, now_t.minute,
+                           now_t.hour < 12 ? "AM" : "PM");
+                }
+                lv_label_set_text(id(lbl_clock), cb);
+              } else {
+                lv_label_set_text(id(lbl_clock), "--:--");
+              }
+            }
+          }
+
+          // ---- Status vs clock (share one header slot) ----
+          // While a status message is active (held ~6 s after it changes) show it
+          // scrolling and hide the clock; otherwise show the clock.
+          {
+            static std::string last_status;
+            static uint32_t status_since = 0;
+            if (s.status_message != last_status) {
+              last_status = s.status_message;
+              status_since = millis();
+            }
+            bool show_msg = !s.status_message.empty() &&
+                            (millis() - status_since) <= 6000;
+            if (show_msg) {
+              lv_label_set_text(id(lbl_status), s.status_message.c_str());
+              lv_obj_clear_flag(id(lbl_status), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(lbl_clock), LV_OBJ_FLAG_HIDDEN);
+            } else {
+              lv_obj_add_flag(id(lbl_status), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_clear_flag(id(lbl_clock), LV_OBJ_FLAG_HIDDEN);
+            }
+          }
+
+          // ---- Scale tab ----
+          if (s.scale_ok) {
+            float w = s.weight_grams;
+            if (w > -0.3f && w < 0.3f) w = 0.0f;  // treat ±0.3 g noise as zero
+            char buf[20];
+            snprintf(buf, sizeof(buf), "%.1f g", w);
+            lv_label_set_text(id(lbl_weight), buf);
+            lv_label_set_text(id(lbl_weight_stable),
+                s.weight_stable ? "Stable" : "Settling");
+            lv_obj_set_y(id(lbl_weight_stable), 134);  // below the reading
+            lv_obj_clear_flag(id(btn_tare),      LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(btn_calibrate), LV_OBJ_FLAG_HIDDEN);
+          } else {
+            lv_label_set_text(id(lbl_weight), "");
+            lv_label_set_text(id(lbl_weight_stable), "No scale connected");
+            lv_obj_set_y(id(lbl_weight_stable), 80);   // center in the empty space
+            lv_obj_add_flag(id(btn_tare),      LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(btn_calibrate), LV_OBJ_FLAG_HIDDEN);
+          }
+
+          // ---- NFC: new-scan detection ----
+          // nfc_scan_generation is incremented by on_tag_scanned() on every
+          // physical tag placement.  When it advances, a new scan happened —
+          // clear nfc_unlinked_dismissed so the unlinked panel shows again.
+          // This handles the case where the user discards an unlinked tag,
+          // removes it, then places it again while the sticky TTL is still
+          // active (nfc_state stays PRESENT, so the else branch never fires
+          // and would never clear the flag without this explicit check).
+          {
+            static uint32_t prev_scan_gen = 0;
+            if (s.nfc_scan_generation != prev_scan_gen) {
+              id(nfc_unlinked_dismissed) = 0;
+              prev_scan_gen = s.nfc_scan_generation;
+              // Auto-switch from Scale tab to NFC tab on any new physical scan.
+              if (id(active_tab) == 2) {
+                id(active_tab) = 1; id(apply_tab).execute();
+              }
+            }
+          }
+
+          // ---- NFC tab (sticky spool) ----
+          if (s.spool_selected) {
+            lv_obj_add_flag(id(nfc_waiting), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(nfc_spool_box), LV_OBJ_FLAG_HIDDEN);
+            const bambuddy_api::FilamentInfo &fi = s.current_filament;
+
+            // Title: brand + material + subtype, e.g. "Bambu Lab PLA Matte"
+            std::string title;
+            if (!fi.brand.empty()) title = fi.brand + " ";
+            title += fi.material_type.empty() ? "Spool" : fi.material_type;
+            if (!fi.subtype.empty()) title += " " + fi.subtype;
+            lv_label_set_text(id(nfc_material), title.c_str());
+
+            // Colour name (fall back to spool name if none)
+            lv_label_set_text(id(nfc_colorname),
+                !fi.color_name.empty() ? fi.color_name.c_str() : fi.spool_name.c_str());
+
+            // Weight: "Xg (Y%)" — remaining grams + percentage, Bambuddy style
+            if (fi.label_weight_g > 0) {
+              float remaining = fi.label_weight_g - fi.weight_used_g;
+              float pct = (remaining / fi.label_weight_g) * 100.0f;
+              if (pct < 0.0f) pct = 0.0f;
+              if (pct > 100.0f) pct = 100.0f;
+              char wb[32];
+              snprintf(wb, sizeof(wb), "%.0fg (%.0f%%)", remaining, pct);
+              lv_label_set_text(id(nfc_weight), wb);
+              // Progress bar — width proportional to remaining %, colour-coded by level
+              int bar_w = (int)(pct / 100.0f * 280.0f);
+              lv_obj_set_width(id(nfc_progress_fill), bar_w);
+              lv_obj_set_style_bg_color(id(nfc_progress_fill), lv_color_hex(bambuddy_api::remaining_bar_color((int)(pct + 0.5f))), LV_PART_MAIN);
+              lv_obj_clear_flag(id(nfc_progress_track), LV_OBJ_FLAG_HIDDEN);
+            } else {
+              lv_label_set_text(id(nfc_weight), "");
+              lv_obj_add_flag(id(nfc_progress_track), LV_OBJ_FLAG_HIDDEN);
+            }
+
+            if (fi.spool_id > 0) {
+              char idbuf[24];
+              snprintf(idbuf, sizeof(idbuf), "#%d", fi.spool_id);
+              lv_label_set_text(id(nfc_spoolid), idbuf);
+            } else {
+              lv_label_set_text(id(nfc_spoolid), "");
+            }
+            // Tint the spool icon to the filament colour (the bar is colour-coded
+            // by remaining level above, like Bambuddy).
+            if (!fi.color_hex.empty()) {
+              unsigned long cv = strtoul(fi.color_hex.c_str(), nullptr, 16);
+              lv_obj_set_style_img_recolor(id(nfc_spool_fill), lv_color_hex(cv), LV_PART_MAIN);
+            } else {
+              lv_obj_set_style_img_recolor(id(nfc_spool_fill), lv_color_hex(0x444466), LV_PART_MAIN);
+            }
+
+            // ---- Tag format icon (top-left of spool box) ----
+            {
+              const std::string &fmt = fi.tag_format;
+              lv_obj_add_flag(id(nfc_icon_bambu), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(nfc_icon_opentag3d), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(nfc_icon_nfc), LV_OBJ_FLAG_HIDDEN);
+              if (fmt == "bambu_lab") {
+                lv_obj_clear_flag(id(nfc_icon_bambu), LV_OBJ_FLAG_HIDDEN);
+              } else if (fmt == "open_tag_3d") {
+                lv_obj_clear_flag(id(nfc_icon_opentag3d), LV_OBJ_FLAG_HIDDEN);
+              } else if (fmt == "ndef") {
+                lv_obj_clear_flag(id(nfc_icon_nfc), LV_OBJ_FLAG_HIDDEN);
+              }
+            }
+
+            // ---- TTL countdown (frozen while Quick Weight popup is open) ----
+            if (id(nfc_weight_popup_open) == 0 && s.spool_assign_expiry_ms > 0) {
+              uint32_t now_ms = millis();
+              int ttl_s = (s.spool_assign_expiry_ms > now_ms)
+                          ? (int)((s.spool_assign_expiry_ms - now_ms + 999) / 1000)
+                          : 0;
+              if (ttl_s > 0) {
+                char ttlbuf[16]; snprintf(ttlbuf, sizeof(ttlbuf), "%ds", ttl_s);
+                lv_label_set_text(id(nfc_ttl), ttlbuf);
+                lv_obj_clear_flag(id(nfc_ttl), LV_OBJ_FLAG_HIDDEN);
+              } else {
+                lv_obj_add_flag(id(nfc_ttl), LV_OBJ_FLAG_HIDDEN);
+              }
+            } else if (id(nfc_weight_popup_open) == 0) {
+              lv_obj_add_flag(id(nfc_ttl), LV_OBJ_FLAG_HIDDEN);
+            }
+            // (when popup is open the TTL label keeps its last displayed value)
+
+            // ---- Auto-assign success banner ----
+            if (s.assign_success) {
+              std::string msg = std::string("Assigned: ") + s.assign_slot_desc;
+              lv_label_set_text(id(nfc_assign_text), msg.c_str());
+              lv_obj_clear_flag(id(nfc_assign_banner), LV_OBJ_FLAG_HIDDEN);
+            } else {
+              lv_obj_add_flag(id(nfc_assign_banner), LV_OBJ_FLAG_HIDDEN);
+            }
+
+            // ---- Action row: Unlink | Quick Weight | Discard (single row, adaptive layout) ----
+            // All widths computed for 480px: margins=8, gaps=4
+            // 3 buttons: 8 + 152 + 4 + 152 + 4 + 152 + 8 = 480
+            // 2 buttons: 8 + 228 + 8 + 228 + 8 = 480
+            // 1 button : 8 + 464 + 8 = 480
+            if (fi.spool_id > 0 && s.scale_ok) {
+              // All three visible
+              lv_obj_clear_flag(id(btn_nfc_unlink), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_set_width(id(btn_nfc_unlink), 152);
+              lv_obj_clear_flag(id(btn_nfc_weight), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_set_x(id(btn_nfc_weight), 164);
+              lv_obj_set_width(id(btn_nfc_weight), 152);
+              lv_obj_set_x(id(btn_dismiss), 320);
+              lv_obj_set_width(id(btn_dismiss), 152);
+              // Live weight shortcut: show net (filament only) and total (spool+filament).
+              if (s.weight_stable && s.weight_grams > 5.0f) {
+                char wshort[48];
+                float net = std::max(0.0f, s.weight_grams - fi.core_weight_g);
+                if (fi.core_weight_g > 0.0f)
+                  snprintf(wshort, sizeof(wshort), "Quick Weight\n%.0fg (%.0fg)", net, s.weight_grams);
+                else
+                  snprintf(wshort, sizeof(wshort), "Quick Weight\n%.0f g", s.weight_grams);
+                lv_label_set_text(id(lbl_nfc_weight_btn), wshort);
+                lv_obj_set_style_text_color(id(lbl_nfc_weight_btn), lv_color_hex(0x4CAF50), LV_PART_MAIN);
+              } else {
+                lv_label_set_text(id(lbl_nfc_weight_btn), "Quick Weight");
+                lv_obj_set_style_text_color(id(lbl_nfc_weight_btn), lv_color_hex(0x4ECDC4), LV_PART_MAIN);
+              }
+            } else if (fi.spool_id > 0) {
+              // Unlink + Discard (no scale)
+              lv_obj_clear_flag(id(btn_nfc_unlink), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_set_width(id(btn_nfc_unlink), 228);
+              lv_obj_add_flag(id(btn_nfc_weight), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_set_x(id(btn_dismiss), 244);
+              lv_obj_set_width(id(btn_dismiss), 228);
+            } else {
+              // Discard only (unknown/unlinked spool)
+              lv_obj_add_flag(id(btn_nfc_unlink), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(btn_nfc_weight), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_set_x(id(btn_dismiss), 8);
+              lv_obj_set_width(id(btn_dismiss), 464);
+            }
+
+            // NFC write proposal banner
+            if (s.propose_nfc_write) {
+              lv_obj_clear_flag(id(nfc_write_banner), LV_OBJ_FLAG_HIDDEN);
+            } else {
+              lv_obj_add_flag(id(nfc_write_banner), LV_OBJ_FLAG_HIDDEN);
+            }
+
+            // ---- Quick Weight popup live update ----
+            if (id(nfc_weight_popup_open) == 1) {
+              if (s.scale_ok) {
+                char wbuf[16];
+                snprintf(wbuf, sizeof(wbuf), "%.0f g", s.weight_grams);
+                lv_label_set_text(id(nfc_wp_weight), wbuf);
+                lv_label_set_text(id(nfc_wp_stable),
+                    s.weight_stable ? "Stable" : "");
+                lv_obj_set_style_text_color(id(nfc_wp_stable),
+                    s.weight_stable ? lv_color_hex(0x4CAF50) : lv_color_hex(0x8585B8),
+                    LV_PART_MAIN);
+              } else {
+                lv_label_set_text(id(nfc_wp_weight), "---");
+                lv_label_set_text(id(nfc_wp_stable), "");
+              }
+            }
+
+            // Archive proposal popup (after Quick Weight, spool reads 0g remaining)
+            {
+              static bool prev_propose_archive = false;
+              if (s.propose_archive && !prev_propose_archive) {
+                std::string prop_info = fi.material_type.empty() ? "Spool" : fi.material_type;
+                if (!fi.subtype.empty()) prop_info += " " + fi.subtype;
+                if (!fi.brand.empty())   prop_info += " \xc2\xb7 " + fi.brand;
+                lv_label_set_text(id(nfc_archive_prop_info), prop_info.c_str());
+                lv_obj_clear_flag(id(nfc_archive_proposal_popup), LV_OBJ_FLAG_HIDDEN);
+              } else if (!s.propose_archive) {
+                lv_obj_add_flag(id(nfc_archive_proposal_popup), LV_OBJ_FLAG_HIDDEN);
+              }
+              prev_propose_archive = s.propose_archive;
+            }
+
+            // Make sure other NFC panels are hidden
+            lv_obj_add_flag(id(nfc_waiting),        LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(nfc_unlinked_panel), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(nfc_picker_panel),   LV_OBJ_FLAG_HIDDEN);
+
+          } else if (s.nfc_state == bambuddy_api::NFCTagState::PRESENT
+                     && !s.tag_resolving
+                     && !id(nfc_unlinked_dismissed)
+                     && s.last_tag_uid != dismissed_known_uid) {
+            // Tag present, backend lookup complete, not linked to any spool → unlinked panel.
+            // Suppressed when:
+            //   • nfc_unlinked_dismissed — user tapped "Discard" on the unlinked panel
+            //   • dismissed_known_uid match — user tapped "Discard" on a linked spool
+            //     (dismiss_spool() clears spool_selected while the tag is still present)
+            // Don't interrupt the picker if the user already opened it.
+            lv_obj_add_flag(id(nfc_waiting),                 LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(nfc_spool_box),               LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(nfc_archive_proposal_popup),  LV_OBJ_FLAG_HIDDEN);
+            bool picker_open = !lv_obj_has_flag(id(nfc_picker_panel), LV_OBJ_FLAG_HIDDEN);
+            if (!picker_open) {
+              lv_obj_clear_flag(id(nfc_unlinked_panel), LV_OBJ_FLAG_HIDDEN);
+              lv_label_set_text(id(nfc_unlinked_uid),
+                  s.last_tag_uid.empty() ? "" : ("UID " + s.last_tag_uid).c_str());
+              // TTL countdown (only shown while the tag has been removed but panel is sticky)
+              if (s.unlinked_tag_expiry_ms > 0) {
+                uint32_t now_ms = millis();
+                int ttl_s = (s.unlinked_tag_expiry_ms > now_ms)
+                            ? (int)((s.unlinked_tag_expiry_ms - now_ms + 999) / 1000) : 0;
+                if (ttl_s > 0) {
+                  char ttlbuf[24]; snprintf(ttlbuf, sizeof(ttlbuf), "Discards in %ds", ttl_s);
+                  lv_label_set_text(id(nfc_unlinked_ttl), ttlbuf);
+                } else {
+                  lv_label_set_text(id(nfc_unlinked_ttl), "");
+                }
+              } else {
+                lv_label_set_text(id(nfc_unlinked_ttl), "");
+              }
+            }
+          } else {
+            // Tag absent, or present-but-suppressed → show waiting state.
+            // Only clear nfc_unlinked_dismissed when the tag physically leaves;
+            // if it is still present but dismissed, keep the flag so the panel
+            // does not reappear on the next lambda tick.
+            if (s.nfc_state != bambuddy_api::NFCTagState::PRESENT) {
+              id(nfc_unlinked_dismissed) = 0;
+            }
+            lv_obj_add_flag(id(nfc_spool_box),               LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(nfc_unlinked_panel),          LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(nfc_archive_proposal_popup),  LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(nfc_picker_panel),            LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(nfc_write_banner),   LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(nfc_waiting),      LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(id(nfc_waiting),
+                s.tag_resolving ? "Identifying tag..." : "Waiting for tag...");
+          }
+
+          // ---- Spool picker: populate grid when recent_spools changes ----
+          {
+            static size_t prev_recent_count = SIZE_MAX;
+            static bool   prev_loading      = false;
+            static uint32_t prev_recent_gen = 0;
+            bool loading = s.recent_spools_loading;
+            size_t cnt   = s.recent_spools.size();
+            uint32_t gen = s.recent_spools_generation;
+
+            // gen bumps on every fetch, so a refresh repopulates the grid even
+            // when the count is unchanged or the fetch finished within one tick.
+            if (loading != prev_loading || cnt != prev_recent_count || gen != prev_recent_gen) {
+              prev_loading      = loading;
+              prev_recent_count = cnt;
+              prev_recent_gen   = gen;
+
+              // Loading / empty state
+              if (loading) {
+                lv_obj_clear_flag(id(nfc_picker_loading), LV_OBJ_FLAG_HIDDEN);
+                lv_label_set_text(id(nfc_picker_loading), "Loading...");
+              } else {
+                lv_obj_add_flag(id(nfc_picker_loading), LV_OBJ_FLAG_HIDDEN);
+              }
+
+              // Helper arrays for widget access
+              lv_obj_t *pb[9] = {
+                id(picker_btn_0), id(picker_btn_1), id(picker_btn_2),
+                id(picker_btn_3), id(picker_btn_4), id(picker_btn_5),
+                id(picker_btn_6), id(picker_btn_7), id(picker_btn_8)
+              };
+              lv_obj_t *pf[9] = {
+                id(picker_fill_0), id(picker_fill_1), id(picker_fill_2),
+                id(picker_fill_3), id(picker_fill_4), id(picker_fill_5),
+                id(picker_fill_6), id(picker_fill_7), id(picker_fill_8)
+              };
+              lv_obj_t *pm[9] = {
+                id(picker_mat_0), id(picker_mat_1), id(picker_mat_2),
+                id(picker_mat_3), id(picker_mat_4), id(picker_mat_5),
+                id(picker_mat_6), id(picker_mat_7), id(picker_mat_8)
+              };
+              lv_obj_t *pn[9] = {
+                id(picker_brand_0), id(picker_brand_1), id(picker_brand_2),
+                id(picker_brand_3), id(picker_brand_4), id(picker_brand_5),
+                id(picker_brand_6), id(picker_brand_7), id(picker_brand_8)
+              };
+              lv_obj_t *pid[9] = {
+                id(picker_id_0), id(picker_id_1), id(picker_id_2),
+                id(picker_id_3), id(picker_id_4), id(picker_id_5),
+                id(picker_id_6), id(picker_id_7), id(picker_id_8)
+              };
+
+              for (int si = 0; si < 9; si++) {
+                if (si < (int)cnt) {
+                  const auto &sp = s.recent_spools[si];
+                  lv_obj_set_user_data(pb[si], (void*)(intptr_t)sp.id);
+                  // Spool icon — recolour the fill layer to the filament colour
+                  unsigned long cv = sp.color_hex.empty()
+                                     ? 0x555577
+                                     : strtoul(sp.color_hex.c_str(), nullptr, 16);
+                  lv_obj_set_style_img_recolor(pf[si], lv_color_hex(cv), LV_PART_MAIN);
+                  lv_obj_set_style_img_recolor_opa(pf[si], LV_OPA_COVER, LV_PART_MAIN);
+                  lv_label_set_text(pm[si], sp.material.c_str());
+                  lv_label_set_text(pn[si], sp.brand.c_str());
+                  char idb[12];
+                  snprintf(idb, sizeof(idb), "#%d", sp.id);
+                  lv_label_set_text(pid[si], idb);
+                  lv_obj_clear_flag(pb[si], LV_OBJ_FLAG_HIDDEN);
+                } else {
+                  lv_obj_set_user_data(pb[si], (void*)(intptr_t)0);
+                  lv_obj_add_flag(pb[si], LV_OBJ_FLAG_HIDDEN);
+                }
+              }
+            }
+          }
+
+          // ---- AMS tab — dirty-check: skip all widget ops when data is unchanged ----
+          // lv_obj_set_y / hide / show / img_recolor all mark objects dirty and fight
+          // LVGL's scroll animation. Only execute when AMS data or active tab changes.
+          int n_ams = (int) s.ams_units.size();
+          {
+            static uint32_t prev_sig = 0xFFFFFFFF;
+            static int      prev_tab = -1;
+            int cur_tab = id(active_tab);
+            // Cheap FNV-1a-style signature over the fields that affect rendering.
+            uint32_t sig = (uint32_t)n_ams * 2654435761u ^ (uint32_t)s.dual_nozzle
+                         ^ ((uint32_t)id(ams_page) * 2246822519u)
+                         ^ ((uint32_t)s.tray_now   * 1500450271u);  // active spool highlight
+            for (int ui = 0; ui < n_ams; ui++) {
+              const auto &u = s.ams_units[ui];
+              sig ^= ((uint32_t)u.id * 40503u) ^ ((uint32_t)u.trays.size() * 6700417u)
+                   ^ ((uint32_t)(u.nozzle + 2) * 2860486313u);  // nozzle label changes
+              for (const auto &t : u.trays)
+                sig ^= ((uint32_t)t.present * 2246822519u)
+                     ^ ((uint32_t)(t.color_hex.empty() ? 0u : (uint8_t)t.color_hex[0]) * 3266489917u);
+            }
+            bool ams_dirty = (sig != prev_sig) || (cur_tab == 0 && prev_tab != 0);
+            prev_sig = sig;
+            prev_tab = cur_tab;
+
+            if (ams_dirty) {
+              lv_label_set_text(id(ams_empty), s.printers.empty() ? "No printer selected" : "No AMS data");
+              if (n_ams == 0) lv_obj_clear_flag(id(ams_empty), LV_OBJ_FLAG_HIDDEN);
+              else            lv_obj_add_flag(id(ams_empty), LV_OBJ_FLAG_HIDDEN);
+
+              // ---- Regular-row widget arrays (8 rows) ----
+              lv_obj_t *row[8]  = {id(ams_row0),id(ams_row1),id(ams_row2),id(ams_row3),
+                                    id(ams_row4),id(ams_row5),id(ams_row6),id(ams_row7)};
+              lv_obj_t *ric[8]  = {id(ams0_icon),id(ams1_icon),id(ams2_icon),id(ams3_icon),
+                                    id(ams4_icon),id(ams5_icon),id(ams6_icon),id(ams7_icon)};
+              lv_obj_t *rht[8]  = {id(ams0_hticon),id(ams1_hticon),id(ams2_hticon),id(ams3_hticon),
+                                    id(ams4_hticon),id(ams5_hticon),id(ams6_hticon),id(ams7_hticon)};
+              lv_obj_t *rvt[8]  = {id(ams0_vticon),id(ams1_vticon),id(ams2_vticon),id(ams3_vticon),
+                                    id(ams4_vticon),id(ams5_vticon),id(ams6_vticon),id(ams7_vticon)};
+              lv_obj_t *rnm[8]  = {id(ams0_name),id(ams1_name),id(ams2_name),id(ams3_name),
+                                    id(ams4_name),id(ams5_name),id(ams6_name),id(ams7_name)};
+              lv_obj_t *rth[8]  = {id(ams0_th),id(ams1_th),id(ams2_th),id(ams3_th),
+                                    id(ams4_th),id(ams5_th),id(ams6_th),id(ams7_th)};
+              lv_obj_t *rnz[8]  = {id(ams0_noz),id(ams1_noz),id(ams2_noz),id(ams3_noz),
+                                    id(ams4_noz),id(ams5_noz),id(ams6_noz),id(ams7_noz)};
+              lv_obj_t *rfill[8][4] = {
+                {id(ams0_0_fill),id(ams0_1_fill),id(ams0_2_fill),id(ams0_3_fill)},
+                {id(ams1_0_fill),id(ams1_1_fill),id(ams1_2_fill),id(ams1_3_fill)},
+                {id(ams2_0_fill),id(ams2_1_fill),id(ams2_2_fill),id(ams2_3_fill)},
+                {id(ams3_0_fill),id(ams3_1_fill),id(ams3_2_fill),id(ams3_3_fill)},
+                {id(ams4_0_fill),id(ams4_1_fill),id(ams4_2_fill),id(ams4_3_fill)},
+                {id(ams5_0_fill),id(ams5_1_fill),id(ams5_2_fill),id(ams5_3_fill)},
+                {id(ams6_0_fill),id(ams6_1_fill),id(ams6_2_fill),id(ams6_3_fill)},
+                {id(ams7_0_fill),id(ams7_1_fill),id(ams7_2_fill),id(ams7_3_fill)}};
+              lv_obj_t *ract[8][4] = {
+                {id(ams0_0_act),id(ams0_1_act),id(ams0_2_act),id(ams0_3_act)},
+                {id(ams1_0_act),id(ams1_1_act),id(ams1_2_act),id(ams1_3_act)},
+                {id(ams2_0_act),id(ams2_1_act),id(ams2_2_act),id(ams2_3_act)},
+                {id(ams3_0_act),id(ams3_1_act),id(ams3_2_act),id(ams3_3_act)},
+                {id(ams4_0_act),id(ams4_1_act),id(ams4_2_act),id(ams4_3_act)},
+                {id(ams5_0_act),id(ams5_1_act),id(ams5_2_act),id(ams5_3_act)},
+                {id(ams6_0_act),id(ams6_1_act),id(ams6_2_act),id(ams6_3_act)},
+                {id(ams7_0_act),id(ams7_1_act),id(ams7_2_act),id(ams7_3_act)}};
+              lv_obj_t *rhub[8][4] = {
+                {id(ams0_0_hub),id(ams0_1_hub),id(ams0_2_hub),id(ams0_3_hub)},
+                {id(ams1_0_hub),id(ams1_1_hub),id(ams1_2_hub),id(ams1_3_hub)},
+                {id(ams2_0_hub),id(ams2_1_hub),id(ams2_2_hub),id(ams2_3_hub)},
+                {id(ams3_0_hub),id(ams3_1_hub),id(ams3_2_hub),id(ams3_3_hub)},
+                {id(ams4_0_hub),id(ams4_1_hub),id(ams4_2_hub),id(ams4_3_hub)},
+                {id(ams5_0_hub),id(ams5_1_hub),id(ams5_2_hub),id(ams5_3_hub)},
+                {id(ams6_0_hub),id(ams6_1_hub),id(ams6_2_hub),id(ams6_3_hub)},
+                {id(ams7_0_hub),id(ams7_1_hub),id(ams7_2_hub),id(ams7_3_hub)}};
+              lv_obj_t *remp[8][4] = {
+                {id(ams0_0_empty),id(ams0_1_empty),id(ams0_2_empty),id(ams0_3_empty)},
+                {id(ams1_0_empty),id(ams1_1_empty),id(ams1_2_empty),id(ams1_3_empty)},
+                {id(ams2_0_empty),id(ams2_1_empty),id(ams2_2_empty),id(ams2_3_empty)},
+                {id(ams3_0_empty),id(ams3_1_empty),id(ams3_2_empty),id(ams3_3_empty)},
+                {id(ams4_0_empty),id(ams4_1_empty),id(ams4_2_empty),id(ams4_3_empty)},
+                {id(ams5_0_empty),id(ams5_1_empty),id(ams5_2_empty),id(ams5_3_empty)},
+                {id(ams6_0_empty),id(ams6_1_empty),id(ams6_2_empty),id(ams6_3_empty)},
+                {id(ams7_0_empty),id(ams7_1_empty),id(ams7_2_empty),id(ams7_3_empty)}};
+              lv_obj_t *rtype[8][4] = {
+                {id(ams0_0_type),id(ams0_1_type),id(ams0_2_type),id(ams0_3_type)},
+                {id(ams1_0_type),id(ams1_1_type),id(ams1_2_type),id(ams1_3_type)},
+                {id(ams2_0_type),id(ams2_1_type),id(ams2_2_type),id(ams2_3_type)},
+                {id(ams3_0_type),id(ams3_1_type),id(ams3_2_type),id(ams3_3_type)},
+                {id(ams4_0_type),id(ams4_1_type),id(ams4_2_type),id(ams4_3_type)},
+                {id(ams5_0_type),id(ams5_1_type),id(ams5_2_type),id(ams5_3_type)},
+                {id(ams6_0_type),id(ams6_1_type),id(ams6_2_type),id(ams6_3_type)},
+                {id(ams7_0_type),id(ams7_1_type),id(ams7_2_type),id(ams7_3_type)}};
+              lv_obj_t *rid_r[8][4] = {
+                {id(ams0_0_id),id(ams0_1_id),id(ams0_2_id),id(ams0_3_id)},
+                {id(ams1_0_id),id(ams1_1_id),id(ams1_2_id),id(ams1_3_id)},
+                {id(ams2_0_id),id(ams2_1_id),id(ams2_2_id),id(ams2_3_id)},
+                {id(ams3_0_id),id(ams3_1_id),id(ams3_2_id),id(ams3_3_id)},
+                {id(ams4_0_id),id(ams4_1_id),id(ams4_2_id),id(ams4_3_id)},
+                {id(ams5_0_id),id(ams5_1_id),id(ams5_2_id),id(ams5_3_id)},
+                {id(ams6_0_id),id(ams6_1_id),id(ams6_2_id),id(ams6_3_id)},
+                {id(ams7_0_id),id(ams7_1_id),id(ams7_2_id),id(ams7_3_id)}};
+              lv_obj_t *rhit[8][4] = {
+                {id(hit_r0s0),id(hit_r0s1),id(hit_r0s2),id(hit_r0s3)},
+                {id(hit_r1s0),id(hit_r1s1),id(hit_r1s2),id(hit_r1s3)},
+                {id(hit_r2s0),id(hit_r2s1),id(hit_r2s2),id(hit_r2s3)},
+                {id(hit_r3s0),id(hit_r3s1),id(hit_r3s2),id(hit_r3s3)},
+                {id(hit_r4s0),id(hit_r4s1),id(hit_r4s2),id(hit_r4s3)},
+                {id(hit_r5s0),id(hit_r5s1),id(hit_r5s2),id(hit_r5s3)},
+                {id(hit_r6s0),id(hit_r6s1),id(hit_r6s2),id(hit_r6s3)},
+                {id(hit_r7s0),id(hit_r7s1),id(hit_r7s2),id(hit_r7s3)}};
+              // ---- Pair-row widget arrays (5 pair rows, each with A and B side) ----
+              lv_obj_t *prow[5] = {id(ams_pair0),id(ams_pair1),id(ams_pair2),id(ams_pair3),id(ams_pair4)};
+              lv_obj_t *pa_ht[5]={id(pair0_a_ht),id(pair1_a_ht),id(pair2_a_ht),id(pair3_a_ht),id(pair4_a_ht)};
+              lv_obj_t *pa_vt[5]={id(pair0_a_vt),id(pair1_a_vt),id(pair2_a_vt),id(pair3_a_vt),id(pair4_a_vt)};
+              lv_obj_t *pa_nm[5]={id(pair0_a_name),id(pair1_a_name),id(pair2_a_name),id(pair3_a_name),id(pair4_a_name)};
+              lv_obj_t *pa_th[5]={id(pair0_a_th),id(pair1_a_th),id(pair2_a_th),id(pair3_a_th),id(pair4_a_th)};
+              lv_obj_t *pa_nz[5]={id(pair0_a_noz),id(pair1_a_noz),id(pair2_a_noz),id(pair3_a_noz),id(pair4_a_noz)};
+              lv_obj_t *pa_fi[5]={id(pair0_a_fill),id(pair1_a_fill),id(pair2_a_fill),id(pair3_a_fill),id(pair4_a_fill)};
+              lv_obj_t *pa_hu[5]={id(pair0_a_hub),id(pair1_a_hub),id(pair2_a_hub),id(pair3_a_hub),id(pair4_a_hub)};
+              lv_obj_t *pa_em[5]={id(pair0_a_emp),id(pair1_a_emp),id(pair2_a_emp),id(pair3_a_emp),id(pair4_a_emp)};
+              lv_obj_t *pa_ty[5]={id(pair0_a_type),id(pair1_a_type),id(pair2_a_type),id(pair3_a_type),id(pair4_a_type)};
+              lv_obj_t *pa_id[5]={id(pair0_a_id),id(pair1_a_id),id(pair2_a_id),id(pair3_a_id),id(pair4_a_id)};
+              lv_obj_t *pa_ac[5]={id(pair0_a_act),id(pair1_a_act),id(pair2_a_act),id(pair3_a_act),id(pair4_a_act)};
+              lv_obj_t *pb_ht[5]={id(pair0_b_ht),id(pair1_b_ht),id(pair2_b_ht),id(pair3_b_ht),id(pair4_b_ht)};
+              lv_obj_t *pb_vt[5]={id(pair0_b_vt),id(pair1_b_vt),id(pair2_b_vt),id(pair3_b_vt),id(pair4_b_vt)};
+              lv_obj_t *pb_nm[5]={id(pair0_b_name),id(pair1_b_name),id(pair2_b_name),id(pair3_b_name),id(pair4_b_name)};
+              lv_obj_t *pb_th[5]={id(pair0_b_th),id(pair1_b_th),id(pair2_b_th),id(pair3_b_th),id(pair4_b_th)};
+              lv_obj_t *pb_nz[5]={id(pair0_b_noz),id(pair1_b_noz),id(pair2_b_noz),id(pair3_b_noz),id(pair4_b_noz)};
+              lv_obj_t *pb_fi[5]={id(pair0_b_fill),id(pair1_b_fill),id(pair2_b_fill),id(pair3_b_fill),id(pair4_b_fill)};
+              lv_obj_t *pb_hu[5]={id(pair0_b_hub),id(pair1_b_hub),id(pair2_b_hub),id(pair3_b_hub),id(pair4_b_hub)};
+              lv_obj_t *pb_em[5]={id(pair0_b_emp),id(pair1_b_emp),id(pair2_b_emp),id(pair3_b_emp),id(pair4_b_emp)};
+              lv_obj_t *pb_ty[5]={id(pair0_b_type),id(pair1_b_type),id(pair2_b_type),id(pair3_b_type),id(pair4_b_type)};
+              lv_obj_t *pb_id[5]={id(pair0_b_id),id(pair1_b_id),id(pair2_b_id),id(pair3_b_id),id(pair4_b_id)};
+              lv_obj_t *pb_ac[5]={id(pair0_b_act),id(pair1_b_act),id(pair2_b_act),id(pair3_b_act),id(pair4_b_act)};
+              lv_obj_t *rbar[8][4] = {
+                {id(ams0_0_bar),id(ams0_1_bar),id(ams0_2_bar),id(ams0_3_bar)},
+                {id(ams1_0_bar),id(ams1_1_bar),id(ams1_2_bar),id(ams1_3_bar)},
+                {id(ams2_0_bar),id(ams2_1_bar),id(ams2_2_bar),id(ams2_3_bar)},
+                {id(ams3_0_bar),id(ams3_1_bar),id(ams3_2_bar),id(ams3_3_bar)},
+                {id(ams4_0_bar),id(ams4_1_bar),id(ams4_2_bar),id(ams4_3_bar)},
+                {id(ams5_0_bar),id(ams5_1_bar),id(ams5_2_bar),id(ams5_3_bar)},
+                {id(ams6_0_bar),id(ams6_1_bar),id(ams6_2_bar),id(ams6_3_bar)},
+                {id(ams7_0_bar),id(ams7_1_bar),id(ams7_2_bar),id(ams7_3_bar)}};
+              lv_obj_t *rbarf[8][4] = {
+                {id(ams0_0_barf),id(ams0_1_barf),id(ams0_2_barf),id(ams0_3_barf)},
+                {id(ams1_0_barf),id(ams1_1_barf),id(ams1_2_barf),id(ams1_3_barf)},
+                {id(ams2_0_barf),id(ams2_1_barf),id(ams2_2_barf),id(ams2_3_barf)},
+                {id(ams3_0_barf),id(ams3_1_barf),id(ams3_2_barf),id(ams3_3_barf)},
+                {id(ams4_0_barf),id(ams4_1_barf),id(ams4_2_barf),id(ams4_3_barf)},
+                {id(ams5_0_barf),id(ams5_1_barf),id(ams5_2_barf),id(ams5_3_barf)},
+                {id(ams6_0_barf),id(ams6_1_barf),id(ams6_2_barf),id(ams6_3_barf)},
+                {id(ams7_0_barf),id(ams7_1_barf),id(ams7_2_barf),id(ams7_3_barf)}};
+              lv_obj_t *pa_bar[5]={id(pair0_a_bar),id(pair1_a_bar),id(pair2_a_bar),id(pair3_a_bar),id(pair4_a_bar)};
+              lv_obj_t *pa_barf[5]={id(pair0_a_barf),id(pair1_a_barf),id(pair2_a_barf),id(pair3_a_barf),id(pair4_a_barf)};
+              lv_obj_t *pb_bar[5]={id(pair0_b_bar),id(pair1_b_bar),id(pair2_b_bar),id(pair3_b_bar),id(pair4_b_bar)};
+              lv_obj_t *pb_barf[5]={id(pair0_b_barf),id(pair1_b_barf),id(pair2_b_barf),id(pair3_b_barf),id(pair4_b_barf)};
+
+              lv_obj_add_flag(id(ams_hdr_l), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(ams_hdr_r), LV_OBJ_FLAG_HIDDEN);
+              const int STRIDE = 73, PER_PAGE = 3, PAGE_Y0 = 3;
+              int page = id(ams_page);
+              int ds = 0, reg_used = 0, pair_used = 0;
+
+              // Fill one side of a pair row from a single-slot unit.
+              auto fill_side = [&](const bambuddy_api::AMSUnit &unit,
+                                   lv_obj_t *p_ht, lv_obj_t *p_vt,
+                                   lv_obj_t *p_nm, lv_obj_t *p_th, lv_obj_t *p_nz,
+                                   lv_obj_t *p_fi, lv_obj_t *p_hu, lv_obj_t *p_em,
+                                   lv_obj_t *p_ac,
+                                   lv_obj_t *p_ty, lv_obj_t *p_id_lbl,
+                                   lv_obj_t *p_bar, lv_obj_t *p_barf,
+                                   const char *nz) {
+                if (unit.is_vt) { lv_obj_add_flag(p_ht, LV_OBJ_FLAG_HIDDEN);
+                                   lv_obj_clear_flag(p_vt, LV_OBJ_FLAG_HIDDEN); }
+                else             { lv_obj_clear_flag(p_ht, LV_OBJ_FLAG_HIDDEN);
+                                   lv_obj_add_flag(p_vt, LV_OBJ_FLAG_HIDDEN); }
+                { char nb[40];
+                  if (unit.is_vt) {
+                    if (nz[0]) snprintf(nb, sizeof(nb), "Ext-%s", nz);
+                    else        snprintf(nb, sizeof(nb), "Ext");
+                  } else if (!unit.custom_name.empty()) {
+                    snprintf(nb, sizeof(nb), "%s", unit.custom_name.c_str());
+                  } else {
+                    snprintf(nb, sizeof(nb), "AMS-%c", 'A' + (int)(unit.id % 26));
+                  }
+                  lv_label_set_text(p_nm, nb); }
+                if (unit.is_vt) {
+                  lv_label_set_text(p_th, "");
+                } else {
+                  char tb[24];
+                  snprintf(tb, sizeof(tb), "%.0f\u00B0\n%d%%", unit.temp, unit.humidity);
+                  lv_label_set_text(p_th, tb);
+                }
+                lv_label_set_text(p_nz, nz);
+                bool present = !unit.trays.empty() && unit.trays[0].present;
+                // Active check: which global tray ID does this single-slot unit occupy?
+                //   VT external:  global_id = unit.id (254 or 255)
+                //   AMS-HT:       global_id = unit.id directly (ids 128-135, NOT *4)
+                //   Other single: global_id = unit.id * 4 + 0
+                bool active = (s.tray_now != 255) &&
+                              (unit.is_vt ? (s.tray_now == unit.id)
+                                          : (unit.is_ht ? (s.tray_now == unit.id)
+                                                        : (s.tray_now == unit.id * 4)));
+                if (present) {
+                  const auto &tr = unit.trays[0];
+                  unsigned long cv = tr.color_hex.empty() ? 0x555577
+                                   : strtoul(tr.color_hex.c_str(), nullptr, 16);
+                  lv_obj_set_style_img_recolor(p_fi, lv_color_hex(cv), LV_PART_MAIN);
+                  lv_obj_clear_flag(p_fi, LV_OBJ_FLAG_HIDDEN);
+                  lv_obj_clear_flag(p_hu, LV_OBJ_FLAG_HIDDEN);
+                  lv_obj_add_flag(p_em, LV_OBJ_FLAG_HIDDEN);
+                  lv_label_set_text(p_ty, tr.material_type.empty() ? "?" : tr.material_type.c_str());
+                  if (tr.spool_id > 0) { char ib[16]; snprintf(ib, sizeof(ib), "#%d", tr.spool_id);
+                                         lv_label_set_text(p_id_lbl, ib); }
+                  else lv_label_set_text(p_id_lbl, "");
+                } else {
+                  lv_obj_add_flag(p_fi, LV_OBJ_FLAG_HIDDEN);
+                  lv_obj_add_flag(p_hu, LV_OBJ_FLAG_HIDDEN);
+                  lv_obj_clear_flag(p_em, LV_OBJ_FLAG_HIDDEN);
+                  lv_label_set_text(p_ty, ""); lv_label_set_text(p_id_lbl, "");
+                }
+                // Active-spool dashed ring overlay
+                if (active && present) {
+                  lv_obj_clear_flag(p_ac, LV_OBJ_FLAG_HIDDEN);
+                } else {
+                  lv_obj_add_flag(p_ac, LV_OBJ_FLAG_HIDDEN);
+                }
+                // Vertical fill bar — only shown when weight is known
+                if (present && !unit.trays.empty() && unit.trays[0].label_weight_g > 0.0f) {
+                  const auto &tr0 = unit.trays[0];
+                  float pct = std::max(0.0f, std::min(1.0f, tr0.remaining_g / tr0.label_weight_g));
+                  int fill_h = (int)(pct * 32.0f + 0.5f);
+                  lv_obj_set_height(p_barf, fill_h);
+                  lv_obj_set_y(p_barf, 38 - fill_h);
+                  lv_obj_set_style_bg_color(p_barf, lv_color_hex(bambuddy_api::remaining_bar_color((int)(pct * 100.0f + 0.5f))), LV_PART_MAIN);
+                  lv_obj_clear_flag(p_bar, LV_OBJ_FLAG_HIDDEN);
+                } else {
+                  lv_obj_add_flag(p_bar, LV_OBJ_FLAG_HIDDEN);
+                  lv_obj_set_height(p_barf, 0);
+                }
+              };
+
+              // Blank the B side when an odd single-slot unit has no partner.
+              auto blank_b = [&](int k) {
+                lv_obj_add_flag(pb_ht[k], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_add_flag(pb_vt[k], LV_OBJ_FLAG_HIDDEN);
+                lv_label_set_text(pb_nm[k], ""); lv_label_set_text(pb_th[k], "");
+                lv_label_set_text(pb_nz[k], "");
+                lv_obj_add_flag(pb_fi[k], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_add_flag(pb_hu[k], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_add_flag(pb_em[k], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_add_flag(pb_ac[k], LV_OBJ_FLAG_HIDDEN);
+                lv_label_set_text(pb_ty[k], ""); lv_label_set_text(pb_id[k], "");
+                lv_obj_add_flag(pb_bar[k], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_height(pb_barf[k], 0);
+              };
+
+              // Pending single-slot unit waiting for a pair partner (-1 = none).
+              int pending_u = -1;
+              const char *pending_nz = "";
+
+              // Flush pending single-slot unit, optionally paired with u_b.
+              auto flush_pending = [&](int u_b, const char *nz_b) {
+                if (pair_used >= 5) { pending_u = -1; return; }
+                int k = pair_used++;
+                int sp = ds - page * PER_PAGE;
+                ds++;
+                if (sp >= 0 && sp < PER_PAGE) {
+                  lv_obj_set_x(prow[k], 3);
+                  lv_obj_set_y(prow[k], PAGE_Y0 + sp * STRIDE);
+                  lv_obj_clear_flag(prow[k], LV_OBJ_FLAG_SCROLLABLE);
+                  lv_obj_clear_flag(prow[k], LV_OBJ_FLAG_HIDDEN);
+                  fill_side(s.ams_units[pending_u],
+                            pa_ht[k],pa_vt[k],pa_nm[k],pa_th[k],pa_nz[k],
+                            pa_fi[k],pa_hu[k],pa_em[k],pa_ac[k],pa_ty[k],pa_id[k],
+                            pa_bar[k],pa_barf[k], pending_nz);
+                  if (u_b >= 0)
+                    fill_side(s.ams_units[u_b],
+                              pb_ht[k],pb_vt[k],pb_nm[k],pb_th[k],pb_nz[k],
+                              pb_fi[k],pb_hu[k],pb_em[k],pb_ac[k],pb_ty[k],pb_id[k],
+                              pb_bar[k],pb_barf[k], nz_b);
+                  else
+                    blank_b(k);
+                } else {
+                  lv_obj_add_flag(prow[k], LV_OBJ_FLAG_HIDDEN);
+                }
+                pending_u = -1;
+              };
+
+              // Place one unit: multi-slot \u2192 regular row; single-slot \u2192 pair row.
+              auto place = [&](int u, const char *nz) {
+                const auto &unit = s.ams_units[u];
+                if (unit.is_ht || unit.is_vt) {
+                  if (pending_u < 0) { pending_u = u; pending_nz = nz; }
+                  else                flush_pending(u, nz);
+                } else {
+                  if (reg_used >= 8) return;
+                  int k = reg_used++;
+                  int sp = ds - page * PER_PAGE;
+                  ds++;
+                  if (sp >= 0 && sp < PER_PAGE) {
+                    lv_obj_set_x(row[k], 3);
+                    lv_obj_set_y(row[k], PAGE_Y0 + sp * STRIDE);
+                    lv_obj_clear_flag(row[k], LV_OBJ_FLAG_SCROLLABLE);
+                    lv_obj_clear_flag(row[k], LV_OBJ_FLAG_HIDDEN);
+                    { char nb[40];
+                      if (!unit.custom_name.empty()) snprintf(nb, sizeof(nb), "%s", unit.custom_name.c_str());
+                      else                           snprintf(nb, sizeof(nb), "AMS-%c", 'A' + (int)(unit.id % 26));
+                      lv_label_set_text(rnm[k], nb); }
+                    { char tb[24]; snprintf(tb, sizeof(tb), "%.0f\u00B0\n%d%%", unit.temp, unit.humidity);
+                      lv_label_set_text(rth[k], tb); }
+                    lv_label_set_text(rnz[k], nz);
+                    lv_obj_clear_flag(ric[k], LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_add_flag(rht[k], LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_add_flag(rvt[k], LV_OBJ_FLAG_HIDDEN);
+                    for (int j = 0; j < 4; j++) {
+                      // Show a spool when physically present OR assigned (so a
+                      // direct assign to an empty slot is visible). Truly-empty
+                      // slots (no assignment) open the assign-by-id dialog.
+                      bool pr = (j < (int)unit.trays.size()) &&
+                                (unit.trays[j].present || unit.trays[j].spool_id > 0);
+                      // Active (currently fed) spool: tray_now == ams_id*4 + slot
+                      bool active = (s.tray_now != 255) && (s.tray_now != 254) &&
+                                    (s.tray_now == unit.id * 4 + j);
+                      if (pr) {
+                        const auto &tr = unit.trays[j];
+                        unsigned long cv = tr.color_hex.empty() ? 0x555577
+                                         : strtoul(tr.color_hex.c_str(), nullptr, 16);
+                        lv_obj_set_style_img_recolor(rfill[k][j], lv_color_hex(cv), LV_PART_MAIN);
+                        lv_obj_clear_flag(rfill[k][j], LV_OBJ_FLAG_HIDDEN);
+                        lv_obj_clear_flag(rhub[k][j], LV_OBJ_FLAG_HIDDEN);
+                        lv_obj_add_flag(remp[k][j], LV_OBJ_FLAG_HIDDEN);
+                        lv_label_set_text(rtype[k][j], tr.material_type.empty() ? "?" : tr.material_type.c_str());
+                        if (tr.spool_id > 0) { char ib[16]; snprintf(ib, sizeof(ib), "#%d", tr.spool_id);
+                                               lv_label_set_text(rid_r[k][j], ib); }
+                        else lv_label_set_text(rid_r[k][j], "");
+                        lv_obj_set_user_data(rhit[k][j],
+                          (void*)(intptr_t)(((unsigned)unit.id << 16) | (unsigned)(tr.slot & 0xFF)));
+                        lv_obj_add_flag(rhit[k][j],   LV_OBJ_FLAG_CLICKABLE);
+                        lv_obj_clear_flag(rhit[k][j], LV_OBJ_FLAG_SCROLLABLE);
+                        // Vertical fill bar — only shown when weight is known
+                        if (tr.label_weight_g > 0.0f) {
+                          float pct = std::max(0.0f, std::min(1.0f, tr.remaining_g / tr.label_weight_g));
+                          int fill_h = (int)(pct * 32.0f + 0.5f);
+                          lv_obj_set_height(rbarf[k][j], fill_h);
+                          lv_obj_set_y(rbarf[k][j], 38 - fill_h);
+                          lv_obj_set_style_bg_color(rbarf[k][j], lv_color_hex(bambuddy_api::remaining_bar_color((int)(pct * 100.0f + 0.5f))), LV_PART_MAIN);
+                          lv_obj_clear_flag(rbar[k][j], LV_OBJ_FLAG_HIDDEN);
+                        } else {
+                          lv_obj_add_flag(rbar[k][j], LV_OBJ_FLAG_HIDDEN);
+                          lv_obj_set_height(rbarf[k][j], 0);
+                        }
+                      } else {
+                        lv_obj_add_flag(rfill[k][j], LV_OBJ_FLAG_HIDDEN);
+                        lv_obj_add_flag(rhub[k][j], LV_OBJ_FLAG_HIDDEN);
+                        lv_obj_clear_flag(remp[k][j], LV_OBJ_FLAG_HIDDEN);
+                        lv_label_set_text(rtype[k][j], ""); lv_label_set_text(rid_r[k][j], "");
+                        // Empty slot: pack ams_id+slot with bit 30 set so the hit
+                        // handler opens the assign-by-id dialog instead of the modal.
+                        lv_obj_set_user_data(rhit[k][j],
+                          (void*)(intptr_t)(0x40000000u | ((unsigned)unit.id << 16) | (unsigned)(j & 0xFF)));
+                        lv_obj_add_flag(rhit[k][j],   LV_OBJ_FLAG_CLICKABLE);
+                        lv_obj_clear_flag(rhit[k][j], LV_OBJ_FLAG_SCROLLABLE);
+                        lv_obj_add_flag(rbar[k][j], LV_OBJ_FLAG_HIDDEN);
+                        lv_obj_set_height(rbarf[k][j], 0);
+                      }
+                      // Active-spool dashed ring overlay
+                      if (active && pr) {
+                        lv_obj_clear_flag(ract[k][j], LV_OBJ_FLAG_HIDDEN);
+                      } else {
+                        lv_obj_add_flag(ract[k][j], LV_OBJ_FLAG_HIDDEN);
+                      }
+                    }
+                  } else {
+                    lv_obj_add_flag(row[k], LV_OBJ_FLAG_HIDDEN);
+                  }
+                }
+              };
+
+              // Route units in list order so the category sort applied by the
+              // backend component (regular AMS → AMS HT → Ext spools) is honoured
+              // on screen.  In dual-nozzle mode each row is tagged with its own
+              // nozzle letter (L/R) rather than grouping all-L-then-all-R — the
+              // old grouping floated a left-nozzle external spool above the AMS
+              // units, breaking the requested order.
+              for (int u = 0; u < n_ams; u++) {
+                const char *nz = "";
+                if (s.dual_nozzle) {
+                  int nv = s.ams_units[u].nozzle;
+                  nz = (nv == 1) ? "L" : (nv == 0) ? "R" : "";
+                }
+                place(u, nz);
+              }
+              if (pending_u >= 0) flush_pending(-1, "");
+
+              // Hide unused widget slots
+              for (int k = reg_used;  k < 8; k++) lv_obj_add_flag(row[k],  LV_OBJ_FLAG_HIDDEN);
+              for (int k = pair_used; k < 5; k++) lv_obj_add_flag(prow[k], LV_OBJ_FLAG_HIDDEN);
+
+              // Disable scrolling on the AMS container (nav buttons replace drag-scroll)
+              lv_obj_clear_flag(id(content_ams), LV_OBJ_FLAG_SCROLLABLE);
+
+              // Pagination nav bar
+              {
+                int total_slots = ds;
+                int max_page = (total_slots + PER_PAGE - 1) / PER_PAGE;
+                if (max_page < 1) max_page = 1;
+                if (page >= max_page) { id(ams_page) = max_page - 1; }
+                bool show_nav = (max_page > 1);
+                if (show_nav) {
+                  lv_obj_clear_flag(id(ams_pg_prev), LV_OBJ_FLAG_HIDDEN);
+                  lv_obj_clear_flag(id(ams_pg_next), LV_OBJ_FLAG_HIDDEN);
+                  lv_obj_clear_flag(id(ams_pg_label), LV_OBJ_FLAG_HIDDEN);
+                  if (page == 0)
+                    lv_obj_add_state(id(ams_pg_prev), LV_STATE_DISABLED);
+                  else
+                    lv_obj_clear_state(id(ams_pg_prev), LV_STATE_DISABLED);
+                  if (page >= max_page - 1)
+                    lv_obj_add_state(id(ams_pg_next), LV_STATE_DISABLED);
+                  else
+                    lv_obj_clear_state(id(ams_pg_next), LV_STATE_DISABLED);
+                  char pb[16]; snprintf(pb, sizeof(pb), "%d / %d", page + 1, max_page);
+                  lv_label_set_text(id(ams_pg_label), pb);
+                } else {
+                  lv_obj_add_flag(id(ams_pg_prev),  LV_OBJ_FLAG_HIDDEN);
+                  lv_obj_add_flag(id(ams_pg_next),  LV_OBJ_FLAG_HIDDEN);
+                  lv_obj_add_flag(id(ams_pg_label), LV_OBJ_FLAG_HIDDEN);
+                }
+              }
+            } // end if (ams_dirty)
+
+            // ---- AMS removed spool toast (runs every tick, not gated on ams_dirty) ----
+            {
+              bool toast_on = s.ams_removed_toast_expiry_ms > 0 &&
+                              millis() < s.ams_removed_toast_expiry_ms;
+              if (toast_on) {
+                lv_obj_clear_flag(id(ams_removed_toast), LV_OBJ_FLAG_HIDDEN);
+                lv_label_set_text(id(ams_removed_toast_lbl), s.ams_removed_spool_desc.c_str());
+              } else {
+                lv_obj_add_flag(id(ams_removed_toast), LV_OBJ_FLAG_HIDDEN);
+              }
+            }
+          } // end dirty-check block
+
+          // ---- Settings tab: printer list ----
+          {
+            int np = (int) s.printers.size();
+            int sel = s.selected_printer_idx;
+            lv_obj_t *pbtn[5] = {id(cfg_p0), id(cfg_p1), id(cfg_p2), id(cfg_p3), id(cfg_p4)};
+            lv_obj_t *pnm[5]  = {id(cfg_p0_n), id(cfg_p1_n), id(cfg_p2_n), id(cfg_p3_n), id(cfg_p4_n)};
+            lv_obj_t *pdot[5] = {id(cfg_p0_d), id(cfg_p1_d), id(cfg_p2_d), id(cfg_p3_d), id(cfg_p4_d)};
+            if (np == 0) lv_obj_clear_flag(id(cfg_empty), LV_OBJ_FLAG_HIDDEN);
+            else         lv_obj_add_flag(id(cfg_empty), LV_OBJ_FLAG_HIDDEN);
+            for (int i = 0; i < 5; i++) {
+              if (i >= np) { lv_obj_add_flag(pbtn[i], LV_OBJ_FLAG_HIDDEN); continue; }
+              lv_obj_clear_flag(pbtn[i], LV_OBJ_FLAG_HIDDEN);
+              lv_label_set_text(pnm[i], s.printers[i].name.c_str());
+              lv_obj_set_style_text_color(pnm[i],
+                  i == sel ? lv_color_hex(0x7BB4FF) : lv_color_hex(0xDDDDEE), LV_PART_MAIN);
+              lv_label_set_text(pdot[i], "\U000F0765");
+              // For the selected printer use printer_connected (from status API);
+              // for others fall back to the list-endpoint online field.
+              bool dot_ok = (i == sel) ? s.printer_connected : s.printers[i].online;
+              lv_obj_set_style_text_color(pdot[i],
+                  dot_ok ? lv_color_hex(0x4CAF50) : lv_color_hex(0xF44336),
+                  LV_PART_MAIN);
+            }
+            // Selected-printer summary line on the main Settings screen (the
+            // picker list above now lives in printer_modal).
+            if (np > 0 && sel >= 0 && sel < np) {
+              lv_label_set_text(id(lbl_printer_sel), s.printers[sel].name.c_str());
+              lv_obj_set_style_text_color(id(lbl_printer_sel_icon),
+                  s.printer_connected ? lv_color_hex(0x4CAF50) : lv_color_hex(0xF44336),
+                  LV_PART_MAIN);
+            } else {
+              lv_label_set_text(id(lbl_printer_sel), np > 0 ? "Select printer" : "No printers");
+              lv_obj_set_style_text_color(id(lbl_printer_sel_icon), lv_color_hex(0x666688), LV_PART_MAIN);
+            }
+          }
+

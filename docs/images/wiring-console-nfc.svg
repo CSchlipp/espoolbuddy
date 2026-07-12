@@ -1,0 +1,80 @@
+<svg viewBox="0 0 1000 700" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <rect x="0" y="0" width="1000" height="700" rx="16" fill="#ffffff" stroke="#d0d7de" stroke-width="2"/>
+
+  <text x="500" y="42" text-anchor="middle" font-size="24" font-weight="700" fill="#1b1f23">Console — WT32-SC01 Plus ↔ PN532 NFC reader (SPI)</text>
+  <text x="500" y="66" text-anchor="middle" font-size="14" fill="#57606a">Set the PN532 module to SPI mode (DIP switches / jumpers) — not I²C or UART</text>
+
+  <!-- Board -->
+  <rect x="70" y="110" width="280" height="460" rx="18" fill="#0969da" stroke="#0550ae" stroke-width="2"/>
+  <text x="210" y="146" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">WT32-SC01 Plus</text>
+  <text x="210" y="168" text-anchor="middle" font-size="12" fill="#cfe3ff">ESP32-S3 · Expansion Header</text>
+  <rect x="110" y="190" width="200" height="130" rx="8" fill="#eaf2ff" stroke="#0550ae" stroke-width="1.5"/>
+  <text x="210" y="260" text-anchor="middle" font-size="12" fill="#0550ae">3.5&quot; Touch Display</text>
+
+  <!-- Module -->
+  <rect x="650" y="280" width="280" height="340" rx="18" fill="#0f7b6c" stroke="#0b5d52" stroke-width="2"/>
+  <text x="790" y="312" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">PN532 NFC Reader</text>
+  <text x="790" y="334" text-anchor="middle" font-size="12" fill="#c9f0e8">SPI mode</text>
+
+  <!-- Wires: board pad x=350, module pad x=650 -->
+  <!-- 3V3 -->
+  <line x1="350" y1="320" x2="650" y2="320" stroke="#cf222e" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="350" cy="320" r="7" fill="#cf222e" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="650" cy="320" r="7" fill="#cf222e" stroke="#ffffff" stroke-width="2"/>
+  <text x="340" y="312" text-anchor="end" font-size="13" font-weight="600" fill="#1b1f23">3.3V</text>
+  <text x="660" y="312" text-anchor="start" font-size="13" font-weight="600" fill="#1b1f23">VCC</text>
+
+  <!-- GND -->
+  <line x1="350" y1="360" x2="650" y2="360" stroke="#24292f" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="350" cy="360" r="7" fill="#24292f" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="650" cy="360" r="7" fill="#24292f" stroke="#ffffff" stroke-width="2"/>
+  <text x="340" y="352" text-anchor="end" font-size="13" font-weight="600" fill="#1b1f23">GND</text>
+  <text x="660" y="352" text-anchor="start" font-size="13" font-weight="600" fill="#1b1f23">GND</text>
+
+  <!-- SCK -->
+  <line x1="350" y1="400" x2="650" y2="400" stroke="#0969da" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="350" cy="400" r="7" fill="#0969da" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="650" cy="400" r="7" fill="#0969da" stroke="#ffffff" stroke-width="2"/>
+  <text x="340" y="392" text-anchor="end" font-size="13" font-weight="600" fill="#1b1f23">GPIO13 · SCK</text>
+  <text x="660" y="392" text-anchor="start" font-size="13" font-weight="600" fill="#1b1f23">SCK</text>
+
+  <!-- MOSI -->
+  <line x1="350" y1="440" x2="650" y2="440" stroke="#1a7f37" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="350" cy="440" r="7" fill="#1a7f37" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="650" cy="440" r="7" fill="#1a7f37" stroke="#ffffff" stroke-width="2"/>
+  <text x="340" y="432" text-anchor="end" font-size="13" font-weight="600" fill="#1b1f23">GPIO11 · MOSI</text>
+  <text x="660" y="432" text-anchor="start" font-size="13" font-weight="600" fill="#1b1f23">MOSI</text>
+
+  <!-- MISO -->
+  <line x1="350" y1="480" x2="650" y2="480" stroke="#bf8700" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="350" cy="480" r="7" fill="#bf8700" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="650" cy="480" r="7" fill="#bf8700" stroke="#ffffff" stroke-width="2"/>
+  <text x="340" y="472" text-anchor="end" font-size="13" font-weight="600" fill="#1b1f23">GPIO12 · MISO</text>
+  <text x="660" y="472" text-anchor="start" font-size="13" font-weight="600" fill="#1b1f23">MISO</text>
+
+  <!-- CS -->
+  <line x1="350" y1="520" x2="650" y2="520" stroke="#8250df" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="350" cy="520" r="7" fill="#8250df" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="650" cy="520" r="7" fill="#8250df" stroke="#ffffff" stroke-width="2"/>
+  <text x="340" y="512" text-anchor="end" font-size="13" font-weight="600" fill="#1b1f23">GPIO10 · CS</text>
+  <text x="660" y="512" text-anchor="start" font-size="13" font-weight="600" fill="#1b1f23">SS</text>
+
+  <!-- IRQ (dashed) -->
+  <line x1="350" y1="560" x2="650" y2="560" stroke="#0b6e4f" stroke-width="4" stroke-linecap="round" stroke-dasharray="10,7"/>
+  <circle cx="350" cy="560" r="7" fill="#0b6e4f" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="650" cy="560" r="7" fill="#0b6e4f" stroke="#ffffff" stroke-width="2"/>
+  <text x="340" y="552" text-anchor="end" font-size="13" font-weight="600" fill="#1b1f23">GPIO14 · IRQ*</text>
+  <text x="660" y="552" text-anchor="start" font-size="13" font-weight="600" fill="#1b1f23">IRQ</text>
+
+  <!-- Legend -->
+  <g font-size="12" fill="#1b1f23">
+    <rect x="55" y="628" width="14" height="14" rx="3" fill="#cf222e"/><text x="74" y="639">Power (3.3V)</text>
+    <rect x="195" y="628" width="14" height="14" rx="3" fill="#24292f"/><text x="214" y="639">Ground</text>
+    <rect x="305" y="628" width="14" height="14" rx="3" fill="#0969da"/><text x="324" y="639">SPI Clock</text>
+    <rect x="415" y="628" width="14" height="14" rx="3" fill="#1a7f37"/><text x="434" y="639">MOSI</text>
+    <rect x="505" y="628" width="14" height="14" rx="3" fill="#bf8700"/><text x="524" y="639">MISO</text>
+    <rect x="595" y="628" width="14" height="14" rx="3" fill="#8250df"/><text x="614" y="639">Chip Select</text>
+    <rect x="720" y="628" width="14" height="14" rx="3" fill="#0b6e4f"/><text x="739" y="639">IRQ*</text>
+  </g>
+  <text x="500" y="672" text-anchor="middle" font-size="12" fill="#57606a">* IRQ is open-drain — the firmware enables an internal pull-up automatically. Wiring it is optional (falls back to polling every 300 ms if omitted).</text>
+</svg>

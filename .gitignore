@@ -1,0 +1,17 @@
+# ESPHome build artifacts
+.esphome/
+build/
+
+# Secrets — never commit
+secrets.yaml
+
+# macOS
+.DS_Store
+
+# Editor files
+*.swp
+*~
+.vscode/
+.idea/
+*.pyc
+__pycache__/

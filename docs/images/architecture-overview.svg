@@ -1,0 +1,95 @@
+<svg viewBox="0 0 1000 820" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrowTeal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0f7b6c"/>
+    </marker>
+    <marker id="arrowPurple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8250df"/>
+    </marker>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0969da"/>
+    </marker>
+    <marker id="arrowGray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1000" height="820" rx="16" fill="#ffffff" stroke="#d0d7de" stroke-width="2"/>
+
+  <text x="500" y="32" text-anchor="middle" font-size="24" font-weight="700" fill="#1b1f23">How it fits together</text>
+  <text x="500" y="55" text-anchor="middle" font-size="14" fill="#57606a">Two independent ESPHome devices talking to one Bambuddy backend</text>
+
+  <!-- Repo boundary: this repository builds firmware for BOTH devices below -->
+  <rect x="40" y="90" width="920" height="210" rx="20" fill="none" stroke="#8250df" stroke-width="2.5" stroke-dasharray="12,8"/>
+  <rect x="270" y="75" width="460" height="24" fill="#ffffff"/>
+  <text x="500" y="92" text-anchor="middle" font-size="13" font-weight="700" fill="#8250df">This repo (espoolbuddy) — firmware + YAML for both devices below</text>
+
+  <!-- Scale -->
+  <rect x="70" y="120" width="280" height="160" rx="16" fill="#0f7b6c" stroke="#0b5d52" stroke-width="2"/>
+  <text x="210" y="150" text-anchor="middle" font-size="18" font-weight="700" fill="#ffffff">SpoolBuddy Scale</text>
+  <text x="210" y="170" text-anchor="middle" font-size="12" fill="#c9f0e8">HX711 + PN532 · headless</text>
+  <rect x="110" y="180" width="200" height="22" rx="4" fill="#000000" fill-opacity="0.25"/>
+  <text x="210" y="195" text-anchor="middle" font-size="11.5" fill="#ffffff">spoolbuddy_scale.yaml</text>
+  <text x="210" y="222" text-anchor="middle" font-size="11" fill="#c9f0e8">Own HTTP server :80 (tare / cal)</text>
+  <text x="210" y="238" text-anchor="middle" font-size="11" fill="#c9f0e8">Can run standalone, no console needed</text>
+
+  <!-- Console -->
+  <rect x="650" y="120" width="280" height="160" rx="16" fill="#0969da" stroke="#0550ae" stroke-width="2"/>
+  <text x="790" y="150" text-anchor="middle" font-size="18" font-weight="700" fill="#ffffff">SpoolBuddy Console</text>
+  <text x="790" y="170" text-anchor="middle" font-size="12" fill="#cfe3ff">WT32-SC01 Plus · display + PN532</text>
+  <rect x="690" y="180" width="200" height="22" rx="4" fill="#000000" fill-opacity="0.25"/>
+  <text x="790" y="195" text-anchor="middle" font-size="11.5" fill="#ffffff">spoolbuddy_console.yaml</text>
+  <text x="790" y="222" text-anchor="middle" font-size="11" fill="#cfe3ff">Listens on :8080 for scale pushes</text>
+  <text x="790" y="238" text-anchor="middle" font-size="11" fill="#cfe3ff">Only device that talks to Bambuddy</text>
+
+  <!-- Bambuddy backend (external) -->
+  <rect x="650" y="340" width="280" height="150" rx="16" fill="#24292f" stroke="#000000" stroke-width="2"/>
+  <text x="790" y="372" text-anchor="middle" font-size="17" font-weight="700" fill="#ffffff">Bambuddy backend</text>
+  <text x="790" y="392" text-anchor="middle" font-size="12" fill="#d0d7de">Raspberry Pi / Docker / server</text>
+  <text x="790" y="414" text-anchor="middle" font-size="11" fill="#8b949e">External — separate project, not in this repo</text>
+  <text x="790" y="430" text-anchor="middle" font-size="10.5" fill="#8b949e">github.com/maziggy/bambuddy</text>
+
+  <!-- Bambu Lab printer (external) -->
+  <rect x="650" y="560" width="280" height="130" rx="16" fill="#57606a" stroke="#3d444d" stroke-width="2"/>
+  <text x="790" y="592" text-anchor="middle" font-size="17" font-weight="700" fill="#ffffff">Bambu Lab printer</text>
+  <text x="790" y="612" text-anchor="middle" font-size="12" fill="#eaeef2">AMS unit</text>
+  <text x="790" y="632" text-anchor="middle" font-size="11" fill="#d0d7de">External hardware</text>
+
+  <!-- Wire A: Scale -> Console (push) -->
+  <circle cx="350" cy="170" r="6" fill="#0f7b6c" stroke="#ffffff" stroke-width="2"/>
+  <line x1="350" y1="170" x2="644" y2="170" stroke="#0f7b6c" stroke-width="4" marker-end="url(#arrowTeal)"/>
+  <text x="500" y="158" text-anchor="middle" font-size="12" font-weight="600" fill="#1b1f23">weight · NFC scans · heartbeat</text>
+  <text x="500" y="146" text-anchor="middle" font-size="10" fill="#57606a">pushed to console :8080</text>
+
+  <!-- Wire B: Console -> Scale (commands) -->
+  <circle cx="650" cy="230" r="6" fill="#8250df" stroke="#ffffff" stroke-width="2"/>
+  <line x1="650" y1="230" x2="356" y2="230" stroke="#8250df" stroke-width="4" marker-end="url(#arrowPurple)"/>
+  <text x="500" y="250" text-anchor="middle" font-size="12" font-weight="600" fill="#1b1f23">tare · calibrate · write_tag</text>
+  <text x="500" y="264" text-anchor="middle" font-size="10" fill="#57606a">delivered via scale's :80 or heartbeat reply</text>
+
+  <!-- Wire C: Console -> Bambuddy backend -->
+  <circle cx="790" cy="280" r="6" fill="#0969da" stroke="#ffffff" stroke-width="2"/>
+  <line x1="790" y1="280" x2="790" y2="334" stroke="#0969da" stroke-width="4" marker-end="url(#arrowBlue)"/>
+  <text x="810" y="300" text-anchor="start" font-size="11" font-weight="600" fill="#1b1f23">HTTPS/HTTP</text>
+  <text x="810" y="316" text-anchor="start" font-size="10" fill="#57606a">heartbeat, spool inventory, AMS state</text>
+
+  <!-- Wire D: Bambuddy backend -> Printer -->
+  <circle cx="790" cy="490" r="6" fill="#57606a" stroke="#ffffff" stroke-width="2"/>
+  <line x1="790" y1="490" x2="790" y2="554" stroke="#57606a" stroke-width="4" marker-end="url(#arrowGray)"/>
+  <text x="810" y="510" text-anchor="start" font-size="11" font-weight="600" fill="#1b1f23">AMS / cloud</text>
+  <text x="810" y="526" text-anchor="start" font-size="10" fill="#57606a">or LAN API</text>
+
+  <!-- Legend -->
+  <g font-size="12" fill="#1b1f23">
+    <rect x="55" y="730" width="26" height="4" fill="#0f7b6c"/><text x="88" y="736">Scale &#8594; Console (push)</text>
+    <rect x="295" y="730" width="26" height="4" fill="#8250df"/><text x="328" y="736">Console &#8594; Scale (commands)</text>
+    <rect x="565" y="730" width="26" height="4" fill="#0969da"/><text x="598" y="736">Console &#8594; Bambuddy</text>
+    <rect x="765" y="730" width="26" height="4" fill="#57606a"/><text x="798" y="736">Bambuddy &#8594; Printer</text>
+  </g>
+  <g font-size="12" fill="#1b1f23">
+    <line x1="55" y1="760" x2="81" y2="760" stroke="#8250df" stroke-width="2.5" stroke-dasharray="6,4"/>
+    <text x="88" y="765">Dashed box = this repository's code</text>
+  </g>
+
+  <text x="500" y="795" text-anchor="middle" font-size="12" fill="#57606a">The Scale is optional — it can run standalone on its own HTTP server (:80) with no Console at all, losing only the Bambuddy integration.</text>
+</svg>

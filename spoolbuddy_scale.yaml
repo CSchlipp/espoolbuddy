@@ -1,0 +1,283 @@
+################################################################################
+# SpoolBuddy Scale — ESPHome Configuration
+# Target: ESP32-S3 headless scale device (HX711 + PN532 NFC, no display)
+#
+# Architecture:
+#   • scale_mode: true  — this device does NOT connect to BamBuddy at all.
+#     It exposes a tiny HTTP server (port 80) for tare/calibrate commands:
+#       POST /tare     → apply tare, persist to NVS
+#       POST /calibrate → body: {"reference_weight_grams": N}
+#   • Weight readings and NFC events are PUSHED to the console (port 8080) instead
+#     of being polled.  The console relays them to BamBuddy under its own device_id.
+#   • write_tag / tare / calibrate commands are delivered in the /scale/heartbeat
+#     response; the scale performs them locally and pushes the result back.
+#   • Tare offset and calibration factor are stored in NVS (namespace "spoolbuddy")
+#     so they survive reboots with no server dependency.
+#
+# Hardware connections (adjust GPIO numbers to match your wiring):
+#   Scale:  HX711 (DOUT=GPIO5, CLK=GPIO4)
+#   NFC:    PN532 via SPI (SCK=GPIO15, MOSI=GPIO17, MISO=GPIO16, CS=GPIO18, IRQ=GPIO8)
+################################################################################
+
+esphome:
+  name: spoolbuddy-scale
+  friendly_name: SpoolBuddy Scale
+  on_boot:
+    priority: 600
+    then:
+      - logger.log: "SpoolBuddy Scale booting (scale_mode)..."
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  framework:
+    type: esp-idf
+    version: recommended
+    sdkconfig_options:
+      # Extend the task watchdog — HTTP server callbacks can take a few hundred ms.
+      CONFIG_ESP_TASK_WDT_TIMEOUT_S: "30"
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/CSchlipp/espoolbuddy.git
+      ref: main
+      path: components
+    components: [bambuddy_api, bambuddy_nfc]
+
+logger:
+  level: INFO
+  baud_rate: 115200
+
+wifi:
+  id: wifi_comp
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none
+  on_connect:
+    - logger.log: "WiFi connected"
+    - lambda: bambuddy->restart_scale_server();
+  on_disconnect:
+    - logger.log: "WiFi disconnected"
+
+captive_portal:
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# Optional: Home Assistant native API (exposes the sensor entity)
+api:
+  encryption:
+    key: !secret api_encryption_key
+  reboot_timeout: 0s   # scale runs standalone; never reboot just because HA isn't there
+
+# ============================================================================
+# BambuddyAPI — scale server mode
+# No backend_url / api_key required; starts HTTP server on port 80 instead.
+# ============================================================================
+bambuddy_api:
+  id: bambuddy
+  # No backend_url / api_key — this device never contacts BamBuddy directly
+  hostname: "SpoolBuddy-Scale"
+  scale_mode: true    # starts HTTP server for tare/cal; persists cal in NVS
+  scale_report_interval: 100 # ms — weight push cadence to the console
+  # Push weight + NFC events to the console instead of waiting to be polled.
+  console_url: "http://spoolbuddy-console.local"
+
+# ============================================================================
+# SPI bus — PN532 NFC reader
+# ============================================================================
+spi:
+  - id: spi_bus
+    clk_pin: GPIO15
+    mosi_pin: GPIO17
+    miso_pin: GPIO16
+
+# ============================================================================
+# BambuddyNFC — PN532 NFC reader
+# Tag scan / remove events are pushed to the console (/scale/nfc/tag-scanned,
+# /scale/nfc/tag-removed).  The console relays them to BamBuddy.
+# ============================================================================
+bambuddy_nfc:
+  id: nfc_reader
+  api_id: bambuddy
+  spi_id: spi_bus
+  cs_pin: GPIO18
+  irq_pin:
+    number: GPIO8
+    mode: INPUT_PULLUP  # PN532 IRQ is open-drain; pull-up required
+  data_rate: 1MHz
+  spi_mode: 0
+  poll_interval: 300   # ms — used only in fallback polling mode; IRQ mode uses 10ms guard
+  miss_threshold: 3    # consecutive no-tag responses before declaring tag removed
+
+# ============================================================================
+# Buttons
+# ============================================================================
+button:
+  - platform: template
+    name: "Tare Scale"
+    id: tare_button
+    # local_tare() reads the current ADC reading as the new zero-point and saves
+    # it to NVS immediately.  No network call needed.
+    on_press:
+      then:
+        - lambda: bambuddy->local_tare();
+
+  - platform: restart
+    name: "Restart"
+    id: restart_button
+
+# ============================================================================
+# Stability-detector state (see the HX711 on_value lambda + 250 ms interval)
+# ============================================================================
+globals:
+  - id: scale_last_change_ms   # millis() of the last >=0.3 g change (0 = none yet)
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  - id: scale_last_grams       # most recent emitted weight, re-pushed when stable
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: scale_is_stable        # latched true once the reading has been frozen long enough
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+# ============================================================================
+# HX711 scale sensor — weight in grams
+# ============================================================================
+sensor:
+  - platform: hx711
+    name: "Spool Weight"
+    id: spool_weight
+    dout_pin: GPIO5
+    clk_pin: GPIO4
+    gain: 128
+    update_interval: 200ms   # 10 SPS = 100 ms/conv; 200 ms gives 100 ms margin
+                              # so scheduler jitter (WiFi TX, NFC) never races the ADC
+    unit_of_measurement: "g"
+    accuracy_decimals: 1
+    filters:
+      # 1. Median(5): reject spike outliers before they enter the averager.
+      #    First value arrives after 3 samples (300 ms); full window at 5 (500 ms).
+      - median:
+          window_size: 5
+          send_every: 1
+      # 2. SMA(10): smooth the clean stream over a ~2 s window; emit every 400 ms.
+      #    (window_size halved from 20 to 10 because update_interval doubled to
+      #    200 ms — keeps the same ~2 s smoothing window, emits every 2 samples.)
+      - sliding_window_moving_average:
+          window_size: 10
+          send_every: 2
+      # 3. Load-cell polarity: ADC goes negative when weight is added.
+      #    Negate so the rest of the pipeline always operates on positive values.
+      #    If readings still go negative under load, remove this filter instead.
+      - multiply: -1
+      # 4. Coarse ADC → grams mapping (placeholder).
+      #    Real zero-point (tare_f) and slope (cal_factor) are stored in NVS and
+      #    applied at HTTP-serve time; this just needs to be a consistent linear map.
+      - calibrate_linear:
+          - 0 -> 0
+          - 1000000 -> 1000
+      # 5. Delta(0.3 g): suppress sub-0.3 g jitter so the displayed value is
+      #    rock-solid when the scale is loaded but undisturbed.
+      - delta: 0.3
+    on_value:
+      then:
+        - lambda: |-
+            // A new emission means the filtered reading just moved by >=0.3 g —
+            // the delta(0.3) filter above blocks anything smaller — so the scale
+            // is NOT settled.  We cannot detect "stable" here: once the value
+            // holds steady the delta filter stops emitting, so settled == the
+            // absence of on_value calls.  Record the change time and report
+            // unstable now; the 250 ms interval below latches stable once the
+            // reading has been frozen long enough and pushes the final value.
+            float grams = x;
+            id(scale_last_grams)     = grams;
+            id(scale_last_change_ms) = millis();
+            id(scale_is_stable)      = false;
+            // on_scale_reading() updates display_state_ (weight/stable).
+            // In scale_mode the SCALE_READING job enqueue is skipped
+            // automatically, so no BamBuddy traffic is generated here.
+            bambuddy->on_scale_reading(grams, false, 0);
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    id: wifi_signal_sensor
+    update_interval: 60s
+
+  - platform: uptime
+    name: "Uptime"
+    id: uptime_sensor
+    update_interval: 10s
+
+# ============================================================================
+# On-board WS2812 RGB LED — status indicator
+#   Green = WiFi up + console heartbeat OK (connected)
+#   Blue  = WiFi up, but console unreachable
+#   Red   = WiFi not connected
+# ESP32-S3-DevKitC-1: WS2812B on GPIO48
+# ============================================================================
+light:
+  - platform: esp32_rmt_led_strip
+    id: status_led
+    name: "Status LED"
+    internal: true          # not exposed to Home Assistant
+    pin: GPIO48
+    num_leds: 1
+    chipset: WS2812
+    rgb_order: GRB
+    restore_mode: ALWAYS_OFF
+
+interval:
+  # Stability detector.  The HX711 pipeline's delta(0.3) filter stops emitting
+  # on_value once the reading is steady, so "stable" cannot be edge-detected
+  # from the sensor stream — it must be timed.  When the last >=0.3 g change was
+  # >= 750 ms ago (≈2 missed 400 ms SMA emissions), declare the weight stable
+  # and push it once: the value is frozen, so no on_value will do it for us.
+  - interval: 250ms
+    then:
+      - lambda: |-
+          if (!id(scale_is_stable) && id(scale_last_change_ms) != 0 &&
+              (millis() - id(scale_last_change_ms)) >= 750) {
+            id(scale_is_stable) = true;
+            bambuddy->on_scale_reading(id(scale_last_grams), true, 0);
+          }
+
+  - interval: 1s
+    then:
+      - lambda: |-
+          bool wifi_ok    = id(wifi_comp).is_connected();
+          bool console_ok = bambuddy->is_console_connected(5000);
+
+          // Determine state (0=no WiFi, 1=WiFi only, 2=fully connected)
+          int state = !wifi_ok ? 0 : (!console_ok ? 1 : 2);
+
+          // Log on state transitions only
+          static int prev_state = -1;
+          if (state != prev_state) {
+            prev_state = state;
+            if (state == 0)
+              ESP_LOGI("status_led", "No WiFi — LED red");
+            else if (state == 1)
+              ESP_LOGI("status_led", "WiFi up, console absent — LED blue");
+            else
+              ESP_LOGI("status_led", "WiFi up, console connected — LED green");
+          }
+
+          float r, g, b;
+          if (state == 0) {
+            r = 1.0f; g = 0.0f; b = 0.0f;  // red  — no WiFi
+          } else if (state == 1) {
+            r = 0.0f; g = 0.4f; b = 1.0f;  // blue — WiFi up, console absent
+          } else {
+            r = 0.0f; g = 1.0f; b = 0.0f;  // green — fully connected
+          }
+          auto call = id(status_led).turn_on();
+          call.set_rgb(r, g, b);
+          call.set_brightness(0.15f);        // dim — it's just a status dot
+          call.set_transition_length(400);
+          call.perform();
