@@ -24,6 +24,7 @@ esphome:
   friendly_name: SpoolBuddy Scale
   project:
     name: espoolbuddy.scale
+    version: "0.22.15"
   on_boot:
     priority: 600
     then:
