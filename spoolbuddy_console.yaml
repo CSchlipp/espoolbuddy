@@ -14,6 +14,8 @@
 esphome:
   name: spoolbuddy-console
   friendly_name: SpoolBuddy Console
+  project:
+    name: espoolbuddy.console
   on_boot:
     - priority: 600
       then:
