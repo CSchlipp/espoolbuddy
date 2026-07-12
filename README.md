@@ -100,6 +100,7 @@ network; nothing of theirs lives in this repo.
 
 ## 3D printed case
 
+### Regular case (without battery or speaker)
 This firmware doesn't require any particular case — it works with **any
 existing SpoolEase case model**, since the console hardware (WT32-SC01 Plus +
 PN532) and mounting are the same. See SpoolEase's own
@@ -107,8 +108,9 @@ PN532) and mounting are the same. See SpoolEase's own
 and [scale case](https://makerworld.com/en/models/1323092-spoolease-scale-nfc-rfid-filament-weight-scale)
 on MakerWorld.
 
-If you want the optional battery bundle (LiPo + PowerBoost 1000C + magnetic
-charging connector, see [above](#console-optional-speaker--battery-power)),
+### Handheld Case with optional battery and/or speaker
+If you want the optional **battery bundle (LiPo + PowerBoost 1000C + magnetic
+charging connector**, see [above](#console-optional-speaker--battery-power)),
 that's mainly designed around **my own case**, which has a battery
 compartment and a cutout for the magnetic pogo-pin connector that the stock
 SpoolEase case doesn't. This case is available at [Makerworld](https://makerworld.com/en/models/3043887-nfc-handheld-case-bambuddy-spoolease-and-more#profileId-3423196). The battery
