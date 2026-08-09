@@ -1857,6 +1857,9 @@ lvgl:
                           then:
                             - lambda: |-
                                 id(plate_clear_popup_open) = 0;
+                                // Suppress the popup until awaiting_plate_clear is next observed
+                                // false — see the interval lambda in spoolbuddy_app.yaml.
+                                id(plate_clear_dismissed) = 1;
                                 lv_obj_add_flag(id(plate_clear_popup), LV_OBJ_FLAG_HIDDEN);
                                 bambuddy->dismiss_plate_clear_popup();
                         widgets:

@@ -316,15 +316,13 @@ class BambuddyAPIComponent : public Component {
   // Build-plate-clear confirmation popup (gated by a runtime settings toggle
   // in the YAML). confirm_plate_cleared() optimistically clears the local
   // flag and notifies the backend via POST /api/v1/printers/{id}/clear-plate.
-  // dismiss_plate_clear_popup() (the "Discard" button) only clears the local
-  // flag — the backend is not notified, so the popup can reappear on the next
-  // poll if the backend still reports awaiting_plate_clear.
+  // dismiss_plate_clear_popup() (the "Discard" button) does NOT touch
+  // awaiting_plate_clear — the backend is not notified, so its flag stays
+  // true until it's actually cleared some other way. The YAML-side
+  // plate_clear_dismissed global (not this flag) is what suppresses the
+  // popup from reappearing on the next poll while it's still true.
   void confirm_plate_cleared();
-  void dismiss_plate_clear_popup() {
-    lock_state();
-    display_state_.awaiting_plate_clear = false;
-    unlock_state();
-  }
+  void dismiss_plate_clear_popup() { set_status("Plate clear dismissed"); }
   void dismiss_archive_proposal() {
     lock_state();
     display_state_.propose_archive = false;

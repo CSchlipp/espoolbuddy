@@ -70,6 +70,10 @@ globals:
     type: int
     restore_value: no
     initial_value: '0'
+  - id: plate_clear_dismissed  # 1 after "Discard" — suppresses the popup until the backend's
+    type: int                  # awaiting_plate_clear flag is next observed false (re-arms it)
+    restore_value: no
+    initial_value: '0'
   - id: wifi_sleep_mode      # WiFi during sleep: 0=PowerSave(MAX_MODEM, stays online) 1=Off(appears offline)
     type: int
     restore_value: yes
@@ -588,14 +592,31 @@ interval:
           // whatever tab is active (like the wake guard) so it isn't tied to the
           // NFC/AMS/Scale content switching. plate_clear_popup_open guards
           // against re-showing every tick while it's already up.
+          //
+          // plate_clear_dismissed: set by the popup's "Discard" button (which,
+          // unlike Confirm, does not notify the backend) so the still-true
+          // awaiting_plate_clear flag doesn't just pop the same popup back up
+          // on the next status poll. It's only cleared once awaiting_plate_clear
+          // is actually observed false (the plate-clear was resolved some other
+          // way, e.g. from the backend UI) — that re-arms the popup for the next
+          // time the flag transitions to true.
           if (s.awaiting_plate_clear && id(plate_clear_confirm_enabled)
-              && !id(plate_clear_popup_open)) {
+              && !id(plate_clear_popup_open) && !id(plate_clear_dismissed)) {
             id(plate_clear_popup_open) = 1;
             lv_obj_clear_flag(id(plate_clear_popup), LV_OBJ_FLAG_HIDDEN);
-          } else if (!s.awaiting_plate_clear && id(plate_clear_popup_open)) {
-            // Backend-side flag cleared (e.g. confirmed from elsewhere) — close it.
-            id(plate_clear_popup_open) = 0;
-            lv_obj_add_flag(id(plate_clear_popup), LV_OBJ_FLAG_HIDDEN);
+            // A completed print usually triggers this popup — a short rising
+            // "success" chime on the same rising edge that opens it.
+            if (id(sound_enabled) && !id(rtttl_player)->is_playing())
+              id(rtttl_player)->play("success:d=8,o=6,b=180:c,e,g,c7");
+          } else if (!s.awaiting_plate_clear) {
+            // Backend-side flag cleared (confirmed here or from elsewhere) —
+            // close the popup if it's still open, and re-arm the discard
+            // suppression for the next time the flag goes true again.
+            if (id(plate_clear_popup_open)) {
+              id(plate_clear_popup_open) = 0;
+              lv_obj_add_flag(id(plate_clear_popup), LV_OBJ_FLAG_HIDDEN);
+            }
+            id(plate_clear_dismissed) = 0;
           }
 
           // ---- Header icons ----
