@@ -125,4 +125,9 @@ font:
       - "\U000F0396"   # nfc    (NFC tab)
       - "\U000F0493"   # cog    (Settings tab)
       - "\U000F003C"   # archive (empty-spool popup)
-
+  - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
+    id: mdi_48
+    size: 48
+    bpp: 4
+    glyphs:
+      - "\U000F1276"   # magnify-scan (plate-clear confirm popup)

@@ -436,6 +436,9 @@ void BambuddyAPIComponent::http_task_loop() {
         case HttpJob::ARCHIVE_SPOOL:
           api_archive_spool(job.i1);
           break;
+        case HttpJob::CLEAR_PLATE:
+          api_clear_plate(job.s1);
+          break;
       }
     }
 
@@ -1823,8 +1826,10 @@ void BambuddyAPIComponent::api_get_printer_status(const std::string &printer_id)
     return;
   }
   bool connected = parse_json_bool(resp, "connected", false);
+  bool awaiting_plate_clear = parse_json_bool(resp, "awaiting_plate_clear", false);
   lock_state();
   display_state_.printer_connected = connected;
+  display_state_.awaiting_plate_clear = awaiting_plate_clear;
   unlock_state();
   ESP_LOGD(TAG, "Printer %s connected=%s", printer_id.c_str(), connected ? "true" : "false");
 }
@@ -3777,6 +3782,32 @@ void BambuddyAPIComponent::api_archive_spool(int spool_id) {
   } else {
     ESP_LOGW(TAG, "api_archive_spool %d: failed", spool_id);
     set_status("Archive failed");
+  }
+}
+
+void BambuddyAPIComponent::confirm_plate_cleared() {
+  lock_state();
+  std::string printer_id = display_state_.selected_printer_id;
+  display_state_.awaiting_plate_clear = false;  // optimistic — popup closes immediately
+  unlock_state();
+  if (printer_id.empty()) return;
+  HttpJob job;
+  job.kind = HttpJob::CLEAR_PLATE;
+  job.s1   = printer_id;
+  enqueue_job(job);
+}
+
+void BambuddyAPIComponent::api_clear_plate(const std::string &printer_id) {
+  if (printer_id.empty()) return;
+  std::string path = "/printers/" + printer_id + "/clear-plate";
+  std::string resp;
+  bool ok = http_post_api(path, "", resp);
+  if (ok) {
+    ESP_LOGI(TAG, "api_clear_plate %s: ok", printer_id.c_str());
+    set_status("Plate clear confirmed");
+  } else {
+    ESP_LOGW(TAG, "api_clear_plate %s: failed", printer_id.c_str());
+    set_status("Plate clear failed");
   }
 }
 

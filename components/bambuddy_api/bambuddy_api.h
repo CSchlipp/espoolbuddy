@@ -177,6 +177,10 @@ struct DisplayState {
   int selected_printer_idx{0};
   std::string selected_printer_id;
   bool printer_connected{false};
+  // True when the backend reports the printer is waiting for the user to
+  // physically clear the build plate (awaiting_plate_clear on GET
+  // /api/v1/printers/{id}/status). Drives the almost-full-screen confirm popup.
+  bool awaiting_plate_clear{false};
 
 
   std::vector<AMSUnit> ams_units;
@@ -308,6 +312,17 @@ class BambuddyAPIComponent : public Component {
 
   // Archive a spool; dismiss_archive_proposal() cancels without action.
   void archive_spool(int spool_id);
+
+  // Build-plate-clear confirmation popup (gated by a runtime settings toggle
+  // in the YAML). confirm_plate_cleared() optimistically clears the local
+  // flag and notifies the backend via POST /api/v1/printers/{id}/clear-plate.
+  // dismiss_plate_clear_popup() (the "Discard" button) does NOT touch
+  // awaiting_plate_clear — the backend is not notified, so its flag stays
+  // true until it's actually cleared some other way. The YAML-side
+  // plate_clear_dismissed global (not this flag) is what suppresses the
+  // popup from reappearing on the next poll while it's still true.
+  void confirm_plate_cleared();
+  void dismiss_plate_clear_popup() { set_status("Plate clear dismissed"); }
   void dismiss_archive_proposal() {
     lock_state();
     display_state_.propose_archive = false;
@@ -463,6 +478,7 @@ class BambuddyAPIComponent : public Component {
       UPDATE_CALIBRATION,      // POST /calibration/set-factor (reference + measured net)
       UPDATE_SPOOL_WEIGHT,     // PATCH /inventory/spools/{id} {"weight_used": X}
       ARCHIVE_SPOOL,           // POST /inventory/spools/{id}/archive
+      CLEAR_PLATE,             // POST /api/v1/printers/{id}/clear-plate
       // Scale push mode: scale → console (only processed when scale_mode_)
       SCALE_PUSH_WEIGHT,       // POST {console_url}/scale/weight
       SCALE_PUSH_NFC_SCANNED,  // POST {console_url}/scale/nfc/tag-scanned
@@ -626,6 +642,9 @@ class BambuddyAPIComponent : public Component {
                     const std::string &tray_uuid, const std::string &tag_type);
   void api_update_spool_weight(int spool_id, float remaining_g);
   void api_archive_spool(int spool_id);
+  // POST /api/v1/printers/{id}/clear-plate — notifies the backend the build
+  // plate has been physically cleared.
+  void api_clear_plate(const std::string &printer_id);
   // Create a minimal PLA spool linked to uid.
   // Internal: single POST /inventory/spools with tag_uid in the body.
   // Spoolman: POST /spoolman/inventory/spools has no tag field, so this does
