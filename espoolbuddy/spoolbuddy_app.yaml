@@ -3,7 +3,7 @@
 # of the Settings screen (sourced from this value via ESPHOME_PROJECT_VERSION).
 esphome:
   project:
-    version: "0.22.15"
+    version: "0.23.0"
 
 
 # ============================================================================
@@ -62,6 +62,14 @@ globals:
     type: int
     restore_value: yes
     initial_value: '1'
+  - id: plate_clear_confirm_enabled  # 1 = show the build-plate-clear confirm popup, 0 = disabled
+    type: int
+    restore_value: yes
+    initial_value: '0'
+  - id: plate_clear_popup_open  # 1 while the plate-clear popup is on screen (guards re-showing it)
+    type: int
+    restore_value: no
+    initial_value: '0'
   - id: wifi_sleep_mode      # WiFi during sleep: 0=PowerSave(MAX_MODEM, stays online) 1=Off(appears offline)
     type: int
     restore_value: yes
@@ -154,11 +162,14 @@ script:
           // Sync settings toggles and sleep/brightness widgets with restored globals.
           id(update_nfc_sleep_btn).execute();
           id(update_sound_btn).execute();
+          id(update_plateclear_btn).execute();
           id(update_wifi_sleep_btn).execute();
           id(update_sleep_timeout_lbl).execute();
           id(update_backlight_brightness).execute();
-          // Close sleep subpage when switching away from settings
+          // Close the Settings subpages when switching away from settings
           lv_obj_add_flag(id(content_sleep), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(content_system), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(content_features), LV_OBJ_FLAG_HIDDEN);
 
   # Highlight the active segment of the Settings "NFC in sleep" Off/Slow/On row
   # from the nfc_sleep_mode global. Called on boot/tab-switch (apply_tab) and tap.
@@ -189,6 +200,22 @@ script:
           lv_obj_set_style_bg_color(id(btn_sound_on),
               on ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
           lv_obj_set_style_text_color(id(lbl_sound_on),
+              on ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
+
+  # Refresh the Settings "Confirm Plate Clear: Off/On" toggle from the
+  # plate_clear_confirm_enabled global. Called on boot/tab-switch (apply_tab)
+  # and on tap.
+  - id: update_plateclear_btn
+    then:
+      - lambda: |-
+          bool on = id(plate_clear_confirm_enabled);
+          lv_obj_set_style_bg_color(id(btn_plateclear_off),
+              !on ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
+          lv_obj_set_style_text_color(id(lbl_plateclear_off),
+              !on ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
+          lv_obj_set_style_bg_color(id(btn_plateclear_on),
+              on ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
+          lv_obj_set_style_text_color(id(lbl_plateclear_on),
               on ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
 
   # Refresh the Settings "WiFi in sleep" toggle from the wifi_sleep_mode global.
@@ -554,6 +581,21 @@ interval:
             // more. A wake resets inactivity, so the next tick falls through here
             // and renders again immediately.
             if (sleeping) return;
+          }
+
+          // ---- Build-plate-clear confirmation popup ----
+          // Gated by the "Confirm Plate Clear" settings toggle. Shown on top of
+          // whatever tab is active (like the wake guard) so it isn't tied to the
+          // NFC/AMS/Scale content switching. plate_clear_popup_open guards
+          // against re-showing every tick while it's already up.
+          if (s.awaiting_plate_clear && id(plate_clear_confirm_enabled)
+              && !id(plate_clear_popup_open)) {
+            id(plate_clear_popup_open) = 1;
+            lv_obj_clear_flag(id(plate_clear_popup), LV_OBJ_FLAG_HIDDEN);
+          } else if (!s.awaiting_plate_clear && id(plate_clear_popup_open)) {
+            // Backend-side flag cleared (e.g. confirmed from elsewhere) — close it.
+            id(plate_clear_popup_open) = 0;
+            lv_obj_add_flag(id(plate_clear_popup), LV_OBJ_FLAG_HIDDEN);
           }
 
           // ---- Header icons ----

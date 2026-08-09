@@ -280,209 +280,58 @@ lvgl:
                         radius: 0
                         scrollbar_mode: "OFF"
 
-                    # ==== Settings rows (top-aligned): Printer | NFC in sleep | Sound ====
-                    # ---- Row: selected printer (tap the value to open the picker popup) ----
+                    # ==== Settings menu: two category rows opening full-page subpages ====
+                    # ---- Row: System (printer, brightness, sleep, reboot) ----
                     - obj:
                         x: 0
                         y: 36
                         width: 480
-                        height: 38
+                        height: 42
                         bg_opa: TRANSP
                         border_width: 0
                         pad_all: 0
                         scrollbar_mode: "OFF"
                         widgets:
-                          - label:
-                              x: 14
-                              width: 110
-                              text: "Printer"
-                              text_font: roboto_16
-                              text_color: 0xAAAAAA
-                              align: LEFT_MID
                           - button:
-                              id: btn_printer_pick
-                              x: 150
+                              id: btn_system_page
+                              x: 8
                               y: 3
-                              width: 320
-                              height: 32
+                              width: 464
+                              height: 36
                               styles: sty_card
                               scrollbar_mode: "OFF"
                               on_click:
                                 then:
-                                  - lambda: 'lv_obj_clear_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);'
+                                  - lambda: 'lv_obj_clear_flag(id(content_system), LV_OBJ_FLAG_HIDDEN);'
                               widgets:
-                                - label: {id: lbl_printer_sel_icon, x: 8, width: 24, text: "\U000F0765", text_font: mdi_24, text_color: 0x666688, align: LEFT_MID}
-                                - label: {id: lbl_printer_sel, x: 38, width: 228, text: "—", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT, align: LEFT_MID}
-                                - label: {x: 296, width: 24, text: "\U000F0142", text_font: mdi_24, text_color: 0x7B9EFF, align: LEFT_MID}
+                                - label: {x: 16, width: 400, text: "System", text_font: roboto_16, text_color: 0xDDDDEE, align: LEFT_MID}
+                                - label: {x: 424, width: 24, text: "\U000F0142", text_font: mdi_24, text_color: 0x7B9EFF, align: LEFT_MID}
 
-                    # ---- Row: Sound on/off (Off | On segments) ----
+                    # ---- Row: Features (sound, plate-clear confirm) ----
                     - obj:
                         x: 0
-                        y: 78
+                        y: 82
                         width: 480
-                        height: 38
+                        height: 42
                         bg_opa: TRANSP
                         border_width: 0
                         pad_all: 0
                         scrollbar_mode: "OFF"
                         widgets:
-                          - label:
-                              x: 14
-                              width: 130
-                              text: "Sound"
-                              text_font: roboto_16
-                              text_color: 0xAAAAAA
-                              align: LEFT_MID
                           - button:
-                              id: btn_sound_off
-                              x: 150
+                              id: btn_features_page
+                              x: 8
                               y: 3
-                              width: 158
-                              height: 32
+                              width: 464
+                              height: 36
                               styles: sty_card
                               scrollbar_mode: "OFF"
                               on_click:
                                 then:
-                                  - lambda: 'id(sound_enabled) = 0;'
-                                  - script.execute: update_sound_btn
+                                  - lambda: 'lv_obj_clear_flag(id(content_features), LV_OBJ_FLAG_HIDDEN);'
                               widgets:
-                                - label: {id: lbl_sound_off, text: "Off", text_font: roboto_16, text_color: 0x8888AA, align: CENTER}
-                          - button:
-                              id: btn_sound_on
-                              x: 312
-                              y: 3
-                              width: 158
-                              height: 32
-                              styles: sty_card
-                              scrollbar_mode: "OFF"
-                              on_click:
-                                then:
-                                  - lambda: 'id(sound_enabled) = 1;'
-                                  - script.execute: update_sound_btn
-                              widgets:
-                                - label: {id: lbl_sound_on, text: "On", text_font: roboto_16, text_color: 0x8888AA, align: CENTER}
-
-                    # ---- Row: Backlight brightness (slider 25–100%, 5% steps) ----
-                    - obj:
-                        x: 0
-                        y: 120
-                        width: 480
-                        height: 38
-                        bg_opa: TRANSP
-                        border_width: 0
-                        pad_all: 0
-                        scrollbar_mode: "OFF"
-                        widgets:
-                          - label:
-                              x: 14
-                              width: 130
-                              text: "Brightness"
-                              text_font: roboto_16
-                              text_color: 0xAAAAAA
-                              align: LEFT_MID
-                          - slider:
-                              id: sl_brightness
-                              x: 148
-                              y: 11
-                              width: 274
-                              height: 16
-                              min_value: 25
-                              max_value: 100
-                              value: 100
-                              on_value:
-                                then:
-                                  - lambda: |-
-                                      // Snap to 5% steps and store. Inline to avoid circular
-                                      // trigger: update_backlight_brightness → lv_slider_set_value
-                                      // → on_value → update_backlight_brightness → ...
-                                      int snapped = ((x + 2) / 5) * 5;
-                                      if (snapped < 25) snapped = 25;
-                                      if (snapped > 100) snapped = 100;
-                                      id(backlight_brightness_pct) = snapped;
-                                      id(display_backlight).turn_on()
-                                        .set_brightness(snapped / 100.0f)
-                                        .set_transition_length(50).perform();
-                                      char buf[6];
-                                      snprintf(buf, sizeof(buf), "%d%%", snapped);
-                                      lv_label_set_text(id(lbl_brightness_val), buf);
-                          - label:
-                              id: lbl_brightness_val
-                              x: 430
-                              width: 46
-                              text: "100%"
-                              text_font: roboto_16
-                              text_color: 0xDDDDEE
-                              text_align: RIGHT
-                              align: LEFT_MID
-
-                    # ---- Row: Sleep settings (opens sleep subpage) ----
-                    - obj:
-                        x: 0
-                        y: 162
-                        width: 480
-                        height: 38
-                        bg_opa: TRANSP
-                        border_width: 0
-                        pad_all: 0
-                        scrollbar_mode: "OFF"
-                        widgets:
-                          - label:
-                              x: 14
-                              width: 110
-                              text: "Sleep"
-                              text_font: roboto_16
-                              text_color: 0xAAAAAA
-                              align: LEFT_MID
-                          - button:
-                              id: btn_sleep_page
-                              x: 150
-                              y: 3
-                              width: 320
-                              height: 32
-                              styles: sty_card
-                              scrollbar_mode: "OFF"
-                              on_click:
-                                then:
-                                  - lambda: 'lv_obj_clear_flag(id(content_sleep), LV_OBJ_FLAG_HIDDEN);'
-                              widgets:
-                                - label: {x: 8, width: 280, text: "Sleep settings", text_font: roboto_16, text_color: 0xDDDDEE, align: LEFT_MID}
-                                - label: {x: 296, width: 24, text: "\U000F0142", text_font: mdi_24, text_color: 0x7B9EFF, align: LEFT_MID}
-
-                    # ---- Row: System (reboot — confirms via confirm_modal) ----
-                    - obj:
-                        x: 0
-                        y: 204
-                        width: 480
-                        height: 38
-                        bg_opa: TRANSP
-                        border_width: 0
-                        pad_all: 0
-                        scrollbar_mode: "OFF"
-                        widgets:
-                          - label:
-                              x: 14
-                              width: 110
-                              text: "System"
-                              text_font: roboto_16
-                              text_color: 0xAAAAAA
-                              align: LEFT_MID
-                          - button:
-                              id: btn_reboot
-                              x: 150
-                              y: 3
-                              width: 320
-                              height: 32
-                              styles: sty_card
-                              scrollbar_mode: "OFF"
-                              on_click:
-                                then:
-                                  - lambda: |-
-                                      id(confirm_action) = 3;
-                                      lv_label_set_text(id(confirm_msg), "Reboot the console now?");
-                                      lv_label_set_text(id(confirm_ok_lbl), "Reboot");
-                                      lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
-                              widgets:
-                                - label: {text: "Reboot", text_font: roboto_16, text_color: 0xFF8888, align: CENTER}
+                                - label: {x: 16, width: 400, text: "Features", text_font: roboto_16, text_color: 0xDDDDEE, align: LEFT_MID}
+                                - label: {x: 424, width: 24, text: "\U000F0142", text_font: mdi_24, text_color: 0x7B9EFF, align: LEFT_MID}
 
                     # ---- App version (bottom-right; text set in apply_tab from
                     #      esphome.project.version via ESPHOME_PROJECT_VERSION) ----
@@ -495,7 +344,379 @@ lvgl:
                         y: 6
                         align: TOP_LEFT
 
-                    # ---- Sleep settings subpage (overlays full content_cfg area) ----
+                    # ---- System subpage (overlays full content_cfg area) ----
+                    # Printer | Brightness | Sleep (opens the nested content_sleep
+                    # subpage) | Reboot (confirms via confirm_modal).
+                    - obj:
+                        id: content_system
+                        x: 0
+                        y: 0
+                        width: 480
+                        height: 250
+                        bg_color: 0x12121A
+                        bg_opa: COVER
+                        border_width: 0
+                        radius: 0
+                        pad_all: 0
+                        scrollbar_mode: "OFF"
+                        hidden: true
+                        widgets:
+                          # Header with back button
+                          - obj:
+                              x: 0
+                              y: 0
+                              width: 480
+                              height: 28
+                              styles: sty_bar
+                              scrollbar_mode: "OFF"
+                              widgets:
+                                - button:
+                                    x: 0
+                                    y: 0
+                                    width: 40
+                                    height: 28
+                                    bg_opa: TRANSP
+                                    border_width: 0
+                                    radius: 0
+                                    pad_all: 0
+                                    scrollbar_mode: "OFF"
+                                    on_click:
+                                      then:
+                                        - lambda: 'lv_obj_add_flag(id(content_system), LV_OBJ_FLAG_HIDDEN);'
+                                    widgets:
+                                      - label: {text: "\U000F0141", text_font: mdi_24, text_color: 0x7B9EFF, align: CENTER}
+                                - label:
+                                    x: 0
+                                    width: 480
+                                    text: "System"
+                                    text_font: roboto_20
+                                    text_color: 0x7B9EFF
+                                    text_align: CENTER
+                                    align: CENTER
+                          # Separator
+                          - obj:
+                              x: 0
+                              y: 28
+                              width: 480
+                              height: 1
+                              bg_color: 0x454572
+                              bg_opa: COVER
+                              border_width: 0
+                              radius: 0
+                              scrollbar_mode: "OFF"
+
+                          # ---- Row: selected printer (tap the value to open the picker popup) ----
+                          - obj:
+                              x: 0
+                              y: 36
+                              width: 480
+                              height: 38
+                              bg_opa: TRANSP
+                              border_width: 0
+                              pad_all: 0
+                              scrollbar_mode: "OFF"
+                              widgets:
+                                - label:
+                                    x: 14
+                                    width: 110
+                                    text: "Printer"
+                                    text_font: roboto_16
+                                    text_color: 0xAAAAAA
+                                    align: LEFT_MID
+                                - button:
+                                    id: btn_printer_pick
+                                    x: 150
+                                    y: 3
+                                    width: 320
+                                    height: 32
+                                    styles: sty_card
+                                    scrollbar_mode: "OFF"
+                                    on_click:
+                                      then:
+                                        - lambda: 'lv_obj_clear_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);'
+                                    widgets:
+                                      - label: {id: lbl_printer_sel_icon, x: 8, width: 24, text: "\U000F0765", text_font: mdi_24, text_color: 0x666688, align: LEFT_MID}
+                                      - label: {id: lbl_printer_sel, x: 38, width: 228, text: "—", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT, align: LEFT_MID}
+                                      - label: {x: 296, width: 24, text: "\U000F0142", text_font: mdi_24, text_color: 0x7B9EFF, align: LEFT_MID}
+
+                          # ---- Row: Backlight brightness (slider 25–100%, 5% steps) ----
+                          - obj:
+                              x: 0
+                              y: 78
+                              width: 480
+                              height: 38
+                              bg_opa: TRANSP
+                              border_width: 0
+                              pad_all: 0
+                              scrollbar_mode: "OFF"
+                              widgets:
+                                - label:
+                                    x: 14
+                                    width: 130
+                                    text: "Brightness"
+                                    text_font: roboto_16
+                                    text_color: 0xAAAAAA
+                                    align: LEFT_MID
+                                - slider:
+                                    id: sl_brightness
+                                    x: 148
+                                    y: 11
+                                    width: 274
+                                    height: 16
+                                    min_value: 25
+                                    max_value: 100
+                                    value: 100
+                                    on_value:
+                                      then:
+                                        - lambda: |-
+                                            // Snap to 5% steps and store. Inline to avoid circular
+                                            // trigger: update_backlight_brightness → lv_slider_set_value
+                                            // → on_value → update_backlight_brightness → ...
+                                            int snapped = ((x + 2) / 5) * 5;
+                                            if (snapped < 25) snapped = 25;
+                                            if (snapped > 100) snapped = 100;
+                                            id(backlight_brightness_pct) = snapped;
+                                            id(display_backlight).turn_on()
+                                              .set_brightness(snapped / 100.0f)
+                                              .set_transition_length(50).perform();
+                                            char buf[6];
+                                            snprintf(buf, sizeof(buf), "%d%%", snapped);
+                                            lv_label_set_text(id(lbl_brightness_val), buf);
+                                - label:
+                                    id: lbl_brightness_val
+                                    x: 430
+                                    width: 46
+                                    text: "100%"
+                                    text_font: roboto_16
+                                    text_color: 0xDDDDEE
+                                    text_align: RIGHT
+                                    align: LEFT_MID
+
+                          # ---- Row: Sleep settings (opens the nested sleep subpage) ----
+                          - obj:
+                              x: 0
+                              y: 120
+                              width: 480
+                              height: 38
+                              bg_opa: TRANSP
+                              border_width: 0
+                              pad_all: 0
+                              scrollbar_mode: "OFF"
+                              widgets:
+                                - label:
+                                    x: 14
+                                    width: 110
+                                    text: "Sleep"
+                                    text_font: roboto_16
+                                    text_color: 0xAAAAAA
+                                    align: LEFT_MID
+                                - button:
+                                    id: btn_sleep_page
+                                    x: 150
+                                    y: 3
+                                    width: 320
+                                    height: 32
+                                    styles: sty_card
+                                    scrollbar_mode: "OFF"
+                                    on_click:
+                                      then:
+                                        - lambda: 'lv_obj_clear_flag(id(content_sleep), LV_OBJ_FLAG_HIDDEN);'
+                                    widgets:
+                                      - label: {x: 8, width: 280, text: "Sleep settings", text_font: roboto_16, text_color: 0xDDDDEE, align: LEFT_MID}
+                                      - label: {x: 296, width: 24, text: "\U000F0142", text_font: mdi_24, text_color: 0x7B9EFF, align: LEFT_MID}
+
+                          # ---- Row: Reboot (confirms via confirm_modal) ----
+                          - obj:
+                              x: 0
+                              y: 162
+                              width: 480
+                              height: 38
+                              bg_opa: TRANSP
+                              border_width: 0
+                              pad_all: 0
+                              scrollbar_mode: "OFF"
+                              widgets:
+                                - label:
+                                    x: 14
+                                    width: 110
+                                    text: "Reboot"
+                                    text_font: roboto_16
+                                    text_color: 0xAAAAAA
+                                    align: LEFT_MID
+                                - button:
+                                    id: btn_reboot
+                                    x: 150
+                                    y: 3
+                                    width: 320
+                                    height: 32
+                                    styles: sty_card
+                                    scrollbar_mode: "OFF"
+                                    on_click:
+                                      then:
+                                        - lambda: |-
+                                            id(confirm_action) = 3;
+                                            lv_label_set_text(id(confirm_msg), "Reboot the console now?");
+                                            lv_label_set_text(id(confirm_ok_lbl), "Reboot");
+                                            lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+                                    widgets:
+                                      - label: {text: "Reboot", text_font: roboto_16, text_color: 0xFF8888, align: CENTER}
+
+                    # ---- Features subpage (overlays full content_cfg area) ----
+                    # Sound | Plate Clear confirmation toggle.
+                    - obj:
+                        id: content_features
+                        x: 0
+                        y: 0
+                        width: 480
+                        height: 250
+                        bg_color: 0x12121A
+                        bg_opa: COVER
+                        border_width: 0
+                        radius: 0
+                        pad_all: 0
+                        scrollbar_mode: "OFF"
+                        hidden: true
+                        widgets:
+                          # Header with back button
+                          - obj:
+                              x: 0
+                              y: 0
+                              width: 480
+                              height: 28
+                              styles: sty_bar
+                              scrollbar_mode: "OFF"
+                              widgets:
+                                - button:
+                                    x: 0
+                                    y: 0
+                                    width: 40
+                                    height: 28
+                                    bg_opa: TRANSP
+                                    border_width: 0
+                                    radius: 0
+                                    pad_all: 0
+                                    scrollbar_mode: "OFF"
+                                    on_click:
+                                      then:
+                                        - lambda: 'lv_obj_add_flag(id(content_features), LV_OBJ_FLAG_HIDDEN);'
+                                    widgets:
+                                      - label: {text: "\U000F0141", text_font: mdi_24, text_color: 0x7B9EFF, align: CENTER}
+                                - label:
+                                    x: 0
+                                    width: 480
+                                    text: "Features"
+                                    text_font: roboto_20
+                                    text_color: 0x7B9EFF
+                                    text_align: CENTER
+                                    align: CENTER
+                          # Separator
+                          - obj:
+                              x: 0
+                              y: 28
+                              width: 480
+                              height: 1
+                              bg_color: 0x454572
+                              bg_opa: COVER
+                              border_width: 0
+                              radius: 0
+                              scrollbar_mode: "OFF"
+
+                          # ---- Row: Sound on/off (Off | On segments) ----
+                          - obj:
+                              x: 0
+                              y: 36
+                              width: 480
+                              height: 38
+                              bg_opa: TRANSP
+                              border_width: 0
+                              pad_all: 0
+                              scrollbar_mode: "OFF"
+                              widgets:
+                                - label:
+                                    x: 14
+                                    width: 130
+                                    text: "Sound"
+                                    text_font: roboto_16
+                                    text_color: 0xAAAAAA
+                                    align: LEFT_MID
+                                - button:
+                                    id: btn_sound_off
+                                    x: 150
+                                    y: 3
+                                    width: 158
+                                    height: 32
+                                    styles: sty_card
+                                    scrollbar_mode: "OFF"
+                                    on_click:
+                                      then:
+                                        - lambda: 'id(sound_enabled) = 0;'
+                                        - script.execute: update_sound_btn
+                                    widgets:
+                                      - label: {id: lbl_sound_off, text: "Off", text_font: roboto_16, text_color: 0x8888AA, align: CENTER}
+                                - button:
+                                    id: btn_sound_on
+                                    x: 312
+                                    y: 3
+                                    width: 158
+                                    height: 32
+                                    styles: sty_card
+                                    scrollbar_mode: "OFF"
+                                    on_click:
+                                      then:
+                                        - lambda: 'id(sound_enabled) = 1;'
+                                        - script.execute: update_sound_btn
+                                    widgets:
+                                      - label: {id: lbl_sound_on, text: "On", text_font: roboto_16, text_color: 0x8888AA, align: CENTER}
+
+                          # ---- Row: Confirm Plate Clear on/off (Off | On segments) ----
+                          - obj:
+                              x: 0
+                              y: 78
+                              width: 480
+                              height: 38
+                              bg_opa: TRANSP
+                              border_width: 0
+                              pad_all: 0
+                              scrollbar_mode: "OFF"
+                              widgets:
+                                - label:
+                                    x: 14
+                                    width: 130
+                                    text: "Plate Clear"
+                                    text_font: roboto_16
+                                    text_color: 0xAAAAAA
+                                    align: LEFT_MID
+                                - button:
+                                    id: btn_plateclear_off
+                                    x: 150
+                                    y: 3
+                                    width: 158
+                                    height: 32
+                                    styles: sty_card
+                                    scrollbar_mode: "OFF"
+                                    on_click:
+                                      then:
+                                        - lambda: 'id(plate_clear_confirm_enabled) = 0;'
+                                        - script.execute: update_plateclear_btn
+                                    widgets:
+                                      - label: {id: lbl_plateclear_off, text: "Off", text_font: roboto_16, text_color: 0x8888AA, align: CENTER}
+                                - button:
+                                    id: btn_plateclear_on
+                                    x: 312
+                                    y: 3
+                                    width: 158
+                                    height: 32
+                                    styles: sty_card
+                                    scrollbar_mode: "OFF"
+                                    on_click:
+                                      then:
+                                        - lambda: 'id(plate_clear_confirm_enabled) = 1;'
+                                        - script.execute: update_plateclear_btn
+                                    widgets:
+                                      - label: {id: lbl_plateclear_on, text: "On", text_font: roboto_16, text_color: 0x8888AA, align: CENTER}
+
+                    # ---- Sleep settings subpage (nested — opened from within
+                    #      content_system; overlays the full content_cfg area) ----
                     - obj:
                         id: content_sleep
                         x: 0
@@ -1555,6 +1776,110 @@ lvgl:
                             - lambda: "lv_obj_add_flag(id(assign_id_modal), LV_OBJ_FLAG_HIDDEN);"
                         widgets:
                           - label: {text: "Cancel", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
+
+              # ================ PLATE CLEAR POPUP =============================
+              # Almost-full-screen confirmation shown when the backend reports
+              # awaiting_plate_clear (gated by the "Plate Clear" settings toggle;
+              # see plate_clear_confirm_enabled / update_plateclear_btn and the
+              # show/hide logic in the interval lambda). Confirm notifies the
+              # backend via bambuddy->confirm_plate_cleared(); Discard just
+              # closes the popup locally without notifying the backend.
+              - obj:
+                  id: plate_clear_popup
+                  x: 20
+                  y: 20
+                  width: 440
+                  height: 280
+                  bg_color: 0x1B5E20
+                  bg_opa: COVER
+                  border_color: 0x4CAF50
+                  border_width: 3
+                  border_opa: COVER
+                  radius: 16
+                  pad_all: 0
+                  scrollbar_mode: "OFF"
+                  shadow_width: 20
+                  shadow_offset_x: 0
+                  shadow_offset_y: 8
+                  shadow_spread: 2
+                  shadow_color: 0x000000
+                  shadow_opa: COVER
+                  hidden: true
+                  widgets:
+                    # align: TOP_MID treats x/y as an offset from the centred
+                    # anchor point, not an absolute coordinate — combined with
+                    # a nonzero x that silently shifts the "centred" text off
+                    # centre. Use TOP_LEFT (absolute x) with a width/x pair
+                    # that's symmetric within the 440px popup instead, and let
+                    # text_align: CENTER centre the text inside that box.
+                    - label:
+                        x: 16
+                        y: 30
+                        width: 408
+                        height: 48
+                        text: "\U000F1276"
+                        text_font: mdi_48
+                        text_color: 0xFFFFFF
+                        text_align: CENTER
+                        align: TOP_LEFT
+                    - label:
+                        x: 16
+                        y: 96
+                        width: 408
+                        text: "Build Plate Clear"
+                        text_font: roboto_28
+                        text_color: 0xFFFFFF
+                        text_align: CENTER
+                        align: TOP_LEFT
+                    - label:
+                        x: 32
+                        y: 158
+                        width: 376
+                        height: 56
+                        text: "Please confirm that the build plate has been cleared."
+                        text_font: roboto_16
+                        text_color: 0xE8F5E9
+                        text_align: CENTER
+                        long_mode: WRAP
+                        align: TOP_LEFT
+                    - button:
+                        id: btn_plateclear_discard
+                        x: 20
+                        y: 228
+                        width: 190
+                        height: 40
+                        bg_color: 0x0F3D14
+                        border_color: 0xA5D6A7
+                        border_width: 2
+                        radius: 6
+                        scrollbar_mode: "OFF"
+                        on_click:
+                          then:
+                            - lambda: |-
+                                id(plate_clear_popup_open) = 0;
+                                lv_obj_add_flag(id(plate_clear_popup), LV_OBJ_FLAG_HIDDEN);
+                                bambuddy->dismiss_plate_clear_popup();
+                        widgets:
+                          - label: {text: "Discard", text_font: roboto_16, text_color: 0xE8F5E9, align: CENTER}
+                    - button:
+                        id: btn_plateclear_confirm
+                        x: 230
+                        y: 228
+                        width: 190
+                        height: 40
+                        bg_color: 0xFFFFFF
+                        border_color: 0xFFFFFF
+                        border_width: 2
+                        radius: 6
+                        scrollbar_mode: "OFF"
+                        on_click:
+                          then:
+                            - lambda: |-
+                                id(plate_clear_popup_open) = 0;
+                                lv_obj_add_flag(id(plate_clear_popup), LV_OBJ_FLAG_HIDDEN);
+                                bambuddy->confirm_plate_cleared();
+                        widgets:
+                          - label: {text: "Confirm", text_font: roboto_16, text_color: 0x1B5E20, align: CENTER}
 
               # ================ WAKE GUARD ====================================
               # Full-screen transparent overlay that sits on top of all other
