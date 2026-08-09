@@ -1,0 +1,22 @@
+# Single firmware version (SemVer) shared by every device variant (console,
+# Panda Touch console, scale). Bump on every change — MAJOR for breaking
+# changes, MINOR for features/behaviour changes, PATCH for fixes — regardless
+# of which device(s) the change touched. Included as a package from each
+# entry-point YAML so there is exactly one number to update.
+esphome:
+  project:
+    version: "0.24.0"
+
+# Reports the same version to Home Assistant (via the native api: component,
+# already present in every entry-point YAML) as a diagnostic text sensor.
+# ESPHOME_PROJECT_VERSION is a compile-time macro derived from the version
+# above — same source of truth as the LVGL Settings screen's version label.
+text_sensor:
+  - platform: template
+    name: "Firmware Version"
+    id: firmware_version
+    entity_category: diagnostic
+    icon: "mdi:chip"
+    update_interval: 3600s
+    lambda: |-
+      return {ESPHOME_PROJECT_VERSION};

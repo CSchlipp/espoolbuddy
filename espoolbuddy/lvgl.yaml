@@ -1,0 +1,2629 @@
+# ============================================================================
+# LVGL — resolution-independent SpoolBuddy UI
+#
+# Sized/laid out via LVGL flex containers + percentage sizing so the same
+# tree works on both the 480x320 WT32-SC01 Plus and a future larger panel.
+# Screen width/height/rotation come from the entry-point YAML's
+# `substitutions:` block (screen_width/screen_height/screen_rotation) and are
+# consumed in exactly two places below: the lvgl: rotation key and the root
+# page obj's width/height. Everything below the root sizes relative to its
+# parent via flex/percent, not the screen.
+#
+#   Header       fixed height   title + status message + wifi/api icons
+#   Content slot flex_grow: 1   one of 4 stacked containers (Scale/NFC/AMS/Cfg)
+#   Bottom nav   fixed height   4 icon buttons
+# ============================================================================
+lvgl:
+  displays:
+    - main_display
+  touchscreens:
+    - touch_screen
+  # 100% (not the usual 50%): the console needs LVGL software rotation
+  # (its native panel is portrait, rotated 90° to landscape — Panda Touch
+  # needs no rotation and skips this entirely). Software-rotating a
+  # fractional-screen draw buffer means most redraws are stitched from
+  # multiple partial, rotated blits; a fresh reveal of an oddly-sized,
+  # non-full-width widget (e.g. a 156x51 picker tile) is exactly the kind
+  # of partial rect that class of bug tends to hit. A full-frame buffer
+  # makes every redraw a single whole-canvas blit, sidestepping it.
+  buffer_size: 100%
+  color_depth: 16
+  rotation: ${screen_rotation}
+  bg_color: 0x12121A
+  default_font: roboto_16
+
+  style_definitions:
+    - id: sty_bar
+      bg_color: 0x0D0D16
+      bg_opa: COVER
+      border_width: 0
+      pad_all: 0
+    - id: sty_panel
+      bg_color: 0x12121A
+      bg_opa: COVER
+      border_width: 0
+      pad_all: 0
+    - id: sty_card
+      bg_color: 0x1B1B2A
+      bg_opa: COVER
+      border_width: 0
+      radius: 6
+      pad_all: 0
+    - id: sty_ams_row
+      bg_color: 0x1B1B2A
+      bg_opa: COVER
+      border_width: 1
+      border_color: 0x454572
+      border_opa: COVER
+      radius: 6
+      pad_all: 0
+    - id: sty_navbtn
+      bg_color: 0x0D0D16
+      bg_opa: COVER
+      border_width: 0
+      radius: 0
+      pad_all: 0
+    - id: sty_accent_btn
+      bg_color: 0x1A2A50
+      border_color: 0x4A7ACC
+      border_width: 1
+      text_color: 0x7BB4FF
+      radius: 6
+
+  pages:
+    - id: main_page
+      widgets:
+        - obj:
+            width: ${screen_width}
+            height: ${screen_height}
+            bg_color: 0x12121A
+            border_width: 0
+            pad_all: 0
+            scrollbar_mode: "OFF"
+            widgets:
+
+              # ---------------- MAIN FLEX COLUMN ----------------
+              # Header (fixed height) / content slot (flex_grow, one of 4
+              # stacked tab panels shown at a time) / bottom nav (fixed
+              # height). Modals and the wake guard are declared as siblings
+              # of this wrapper (further down), NOT inside it, so a flex
+              # layout on this wrapper doesn't try to stack them as flow
+              # items instead of freely positioned overlays.
+              - obj:
+                  width: 100%
+                  height: 100%
+                  bg_opa: TRANSP
+                  border_width: 0
+                  pad_all: 0
+                  scrollbar_mode: "OFF"
+                  layout:
+                    type: flex
+                    flex_flow: column
+                    # Header/content/nav must butt flush -- LVGL's default obj
+                    # style has a non-zero pad_row, which otherwise inserts an
+                    # unwanted gap between every flex child here and pushes the
+                    # bottom nav (and AMS/settings content) off-screen.
+                    pad_row: 0
+                  widgets:
+
+                    # ---------------- HEADER ----------------
+                    # Title (left) + scrolling status message (middle,
+                    # flex_grow so it fills whatever space is left) +
+                    # wifi/api/scale/printer status icons (right, their own
+                    # nested flex row so mutual spacing comes from
+                    # pad_column instead of hardcoded x offsets).
+                    - obj:
+                        width: 100%
+                        height: 30
+                        styles: sty_bar
+                        scrollbar_mode: "OFF"
+                        layout:
+                          type: flex
+                          flex_flow: row
+                          flex_align_cross: center
+                        pad_left: 8
+                        widgets:
+                          # "EspoolBuddy" — pun on ESP(32) + SpoolBuddy. The
+                          # "Esp" is highlighted via LVGL recolor.
+                          - label:
+                              text: "#4ECDC4 Esp#oolBuddy"
+                              text_font: roboto_20
+                              text_color: 0xE0E0FF
+                              recolor: true
+                          # Clock + status share one flex-grow slot between the
+                          # title and the status icons. The UI interval lambda
+                          # shows the status message (scrolling) when there is
+                          # one, else the clock. This inner obj is NOT itself a
+                          # flex container, so the two labels' own align still
+                          # works to center them within it.
+                          - obj:
+                              flex_grow: 1
+                              height: 100%
+                              bg_opa: TRANSP
+                              border_width: 0
+                              pad_all: 0
+                              scrollbar_mode: "OFF"
+                              widgets:
+                                - label:
+                                    id: lbl_status
+                                    width: 100%
+                                    text: ""
+                                    text_font: roboto_12
+                                    text_color: 0xCCCCDD
+                                    long_mode: SCROLL_CIRCULAR
+                                    text_align: CENTER
+                                    align: CENTER
+                                    hidden: true
+                                - label:
+                                    id: lbl_clock
+                                    width: 100%
+                                    text: "--:--"
+                                    text_font: roboto_16
+                                    text_color: 0xE0E0FF
+                                    long_mode: SCROLL_CIRCULAR
+                                    text_align: CENTER
+                                    align: CENTER
+                          - obj:
+                              height: 100%
+                              bg_opa: TRANSP
+                              border_width: 0
+                              pad_all: 0
+                              pad_right: 4
+                              scrollbar_mode: "OFF"
+                              layout:
+                                type: flex
+                                flex_flow: row
+                                flex_align_cross: center
+                                pad_column: 4
+                              widgets:
+                                - label:
+                                    id: ic_wifi
+                                    width: 28
+                                    text: "\U000F05AA"
+                                    text_font: mdi_24
+                                    text_color: 0x8585B8
+                                - label:
+                                    id: ic_api
+                                    width: 28
+                                    text: "\U000F0164"
+                                    text_font: mdi_24
+                                    text_color: 0x8585B8
+                                - label:
+                                    id: ic_scale
+                                    width: 28
+                                    text: "\U000F0472"
+                                    text_font: mdi_24
+                                    text_color: 0x8585B8
+                                - label:
+                                    id: ic_printer
+                                    width: 28
+                                    text: "\U000F042B"
+                                    text_font: mdi_24
+                                    text_color: 0x8585B8
+
+                    # ---------------- CONTENT SLOT ----------------
+                    # Holds the 4 stacked tab panels (only one visible at a
+                    # time via `hidden:` toggled by apply_tab in
+                    # app.yaml — untouched here). This obj is NOT
+                    # itself a flex container: each panel is width/height
+                    # 100% and, with no layout on the parent, defaults to
+                    # position (0,0) — i.e. the 4 panels overlap exactly as
+                    # they did with explicit x:0/y:0 before.
+                    - obj:
+                        flex_grow: 1
+                        width: 100%
+                        bg_opa: TRANSP
+                        border_width: 0
+                        pad_all: 0
+                        scrollbar_mode: "OFF"
+                        widgets:
+
+                          # ================ CONTENT: SCALE ================
+                          - obj:
+                              id: content_scale
+                              width: 100%
+                              height: 100%
+                              styles: sty_panel
+                              scrollbar_mode: "OFF"
+                              hidden: true
+                              widgets:
+                                # ---- Hero content group — WEIGHT title/value/status,
+                                # centered as a block (matches the NFC tab's proven
+                                # nfc_spool_box/nfc_unlinked_panel pattern: absolute
+                                # align:CENTER above an absolute BOTTOM_MID button row —
+                                # not flex-column-with-grow, which could overflow the
+                                # panel and clip the button row when content is tall). ----
+                                - obj:
+                                    id: scale_hero_group
+                                    align: CENTER
+                                    width: 100%
+                                    height: SIZE_CONTENT
+                                    bg_opa: TRANSP
+                                    border_width: 0
+                                    pad_all: 0
+                                    scrollbar_mode: "OFF"
+                                    layout:
+                                      type: flex
+                                      flex_flow: column
+                                      flex_align_cross: center
+                                      pad_row: 10
+                                    widgets:
+                                      - label:
+                                          width: 100%
+                                          text: "WEIGHT"
+                                          text_font: roboto_16
+                                          text_color: 0x7B9EFF
+                                          text_align: CENTER
+                                      - label:
+                                          id: lbl_weight
+                                          width: 100%
+                                          text: ""
+                                          text_font: roboto_40
+                                          text_color: 0x4ECDC4
+                                          text_align: CENTER
+                                      # No fixed y any more — this label is a normal
+                                      # flex item now. Previously an app.yaml lambda
+                                      # repositioned it (lv_obj_set_y 134/80)
+                                      # depending on scale-connected state; that
+                                      # should become a LV_OBJ_FLAG_HIDDEN toggle
+                                      # instead, which flex will reflow around
+                                      # automatically (hidden flex items don't
+                                      # reserve space).
+                                      - label:
+                                          id: lbl_weight_stable
+                                          width: 100%
+                                          text: ""
+                                          text_font: roboto_16
+                                          text_color: 0x8888AA
+                                          text_align: CENTER
+
+                                # ---- Action buttons — pinned to the bottom ----
+                                - obj:
+                                    align: BOTTOM_MID
+                                    y: -6
+                                    width: 100%
+                                    height: 50
+                                    bg_opa: TRANSP
+                                    border_width: 0
+                                    pad_all: 0
+                                    pad_left: 8
+                                    pad_right: 8
+                                    scrollbar_mode: "OFF"
+                                    layout:
+                                      type: flex
+                                      flex_flow: row
+                                      pad_column: 8
+                                    widgets:
+                                      - button:
+                                          id: btn_tare
+                                          flex_grow: 1
+                                          height: 50
+                                          styles: sty_accent_btn
+                                          on_click:
+                                            then:
+                                              - lambda: bambuddy->request_tare();
+                                          widgets:
+                                            - label:
+                                                text: "TARE"
+                                                text_font: roboto_16
+                                                text_color: 0x7BB4FF
+                                                align: CENTER
+                                      - button:
+                                          id: btn_calibrate
+                                          flex_grow: 1
+                                          height: 50
+                                          styles: sty_accent_btn
+                                          on_click:
+                                            then:
+                                              - lambda: |-
+                                                  char buf[10];
+                                                  snprintf(buf, sizeof(buf), "%.0f g", id(cal_ref_weight));
+                                                  lv_label_set_text(id(lbl_cal_weight), buf);
+                                                  lv_obj_clear_flag(id(cal_modal), LV_OBJ_FLAG_HIDDEN);
+                                          widgets:
+                                            - label:
+                                                text: "CALIBRATE"
+                                                text_font: roboto_16
+                                                text_color: 0x7BB4FF
+                                                align: CENTER
+
+                          - !include lvgl/tab_nfc.yaml
+
+                          - !include lvgl/tab_ams.yaml
+
+                          # ================ CONTENT: SETTINGS ================
+                          - obj:
+                              id: content_cfg
+                              width: 100%
+                              height: 100%
+                              styles: sty_panel
+                              scrollbar_mode: "OFF"
+                              hidden: true
+                              widgets:
+                                # Non-flex wrapper: holds the normal top-to-
+                                # bottom flow (header/separator/menu list).
+                                # Kept as a distinct child (rather than making
+                                # content_cfg itself flex) so lbl_version and
+                                # the 3 full-panel subpage overlays below can
+                                # stay freely/absolutely positioned siblings.
+                                - obj:
+                                    width: 100%
+                                    height: 100%
+                                    bg_opa: TRANSP
+                                    border_width: 0
+                                    pad_all: 0
+                                    scrollbar_mode: "OFF"
+                                    layout:
+                                      type: flex
+                                      flex_flow: column
+                                    widgets:
+                                      - obj:
+                                          width: 100%
+                                          height: 28
+                                          styles: sty_bar
+                                          scrollbar_mode: "OFF"
+                                          widgets:
+                                            - label:
+                                                width: 100%
+                                                text: "Settings"
+                                                text_font: roboto_20
+                                                pad_top: 5
+                                                text_color: 0x7B9EFF
+                                                text_align: CENTER
+                                                align: CENTER
+                                      - obj:
+                                          width: 100%
+                                          height: 1
+                                          bg_color: 0x454572
+                                          bg_opa: COVER
+                                          border_width: 0
+                                          radius: 0
+                                          scrollbar_mode: "OFF"
+
+                                      # ==== Settings menu: category rows opening full-page subpages ====
+                                      - obj:
+                                          width: 100%
+                                          flex_grow: 1
+                                          bg_opa: TRANSP
+                                          border_width: 0
+                                          pad_left: 8
+                                          pad_right: 8
+                                          pad_top: 8
+                                          scrollbar_mode: "OFF"
+                                          layout:
+                                            type: grid
+                                            grid_columns: ["FR(1)"]
+                                            grid_rows: ["FR(1)", "FR(1)", "FR(1)", "FR(1)"]
+                                            grid_cell_x_align: stretch
+                                            grid_cell_y_align: stretch
+                                            pad_row: 10
+                                          widgets:
+                                            - button:
+                                                id: btn_system_page
+                                                grid_cell_row_pos: 0
+                                                grid_cell_column_pos: 0
+                                                styles: sty_card
+                                                scrollbar_mode: "OFF"
+                                                layout:
+                                                  type: flex
+                                                  flex_flow: row
+                                                  flex_align_cross: center
+                                                  flex_align_track: center
+                                                pad_left: 16
+                                                pad_right: 16
+                                                on_click:
+                                                  then:
+                                                    - lambda: 'lv_obj_clear_flag(id(content_system), LV_OBJ_FLAG_HIDDEN);'
+                                                widgets:
+                                                  - label: {flex_grow: 1, text: "System", text_font: roboto_16, pad_top: 4, text_color: 0xDDDDEE}
+                                                  - label: {text: "\U000F0142", text_font: mdi_24, pad_top: 6, text_color: 0x7B9EFF}
+                                            - button:
+                                                id: btn_features_page
+                                                grid_cell_row_pos: 1
+                                                grid_cell_column_pos: 0
+                                                styles: sty_card
+                                                scrollbar_mode: "OFF"
+                                                layout:
+                                                  type: flex
+                                                  flex_flow: row
+                                                  flex_align_cross: center
+                                                  flex_align_track: center
+                                                pad_left: 16
+                                                pad_right: 16
+                                                on_click:
+                                                  then:
+                                                    - lambda: 'lv_obj_clear_flag(id(content_features), LV_OBJ_FLAG_HIDDEN);'
+                                                widgets:
+                                                  - label: {flex_grow: 1, text: "Features", text_font: roboto_16, pad_top: 4, text_color: 0xDDDDEE}
+                                                  - label: {text: "\U000F0142", text_font: mdi_24, pad_top: 6, text_color: 0x7B9EFF}
+
+                                # ---- App version (bottom-left; text set in apply_tab from
+                                #      esphome.project.version via ESPHOME_PROJECT_VERSION).
+                                #      Absolute sibling — content_cfg has no layout set, so
+                                #      x/y/align still apply here unchanged. ----
+                                - label:
+                                    id: lbl_version
+                                    text: ""
+                                    text_font: roboto_12
+                                    text_color: 0x8585B8
+                                    x: 10
+                                    y: 6
+                                    align: TOP_LEFT
+
+                                # ---- System subpage (overlays full content_cfg area) ----
+                                # Printer | Brightness | Sleep (opens the nested content_sleep
+                                # subpage) | Reboot (confirms via confirm_modal). Absolute
+                                # overlay sibling (width/height 100%, no x/y needed since a
+                                # non-flex parent defaults children to (0,0)); flex column
+                                # internally for its own header/separator/rows.
+                                - obj:
+                                    id: content_system
+                                    width: 100%
+                                    height: 100%
+                                    bg_color: 0x12121A
+                                    bg_opa: COVER
+                                    border_width: 0
+                                    radius: 0
+                                    pad_all: 0
+                                    scrollbar_mode: "OFF"
+                                    hidden: true
+                                    layout:
+                                      type: flex
+                                      flex_flow: column
+                                      pad_row: 6
+                                    widgets:
+                                      # Header with back button
+                                      - obj:
+                                          width: 100%
+                                          height: 28
+                                          styles: sty_bar
+                                          scrollbar_mode: "OFF"
+                                          widgets:
+                                            - button:
+                                                width: 40
+                                                height: 28
+                                                bg_opa: TRANSP
+                                                border_width: 0
+                                                radius: 0
+                                                pad_all: 0
+                                                scrollbar_mode: "OFF"
+                                                on_click:
+                                                  then:
+                                                    - lambda: 'lv_obj_add_flag(id(content_system), LV_OBJ_FLAG_HIDDEN);'
+                                                widgets:
+                                                  - label: {text: "\U000F0141", text_font: mdi_24, text_color: 0x7B9EFF, align: CENTER}
+                                            - label:
+                                                width: 100%
+                                                text: "System"
+                                                text_font: roboto_20
+                                                pad_top: 5
+                                                text_color: 0x7B9EFF
+                                                text_align: CENTER
+                                                align: CENTER
+                                      # Separator
+                                      - obj:
+                                          width: 100%
+                                          height: 1
+                                          bg_color: 0x454572
+                                          bg_opa: COVER
+                                          border_width: 0
+                                          radius: 0
+                                          scrollbar_mode: "OFF"
+
+                                      - obj:
+                                          id: content_system_rows
+                                          width: 100%
+                                          flex_grow: 1
+                                          bg_opa: TRANSP
+                                          border_width: 0
+                                          pad_all: 0
+                                          scrollbar_mode: "OFF"
+                                          layout:
+                                            type: grid
+                                            grid_columns: ["FR(1)"]
+                                            grid_rows: ["FR(1)", "FR(1)", "FR(1)", "FR(1)"]
+                                            grid_cell_x_align: stretch
+                                            grid_cell_y_align: stretch
+                                            pad_row: 6
+                                          widgets:
+                                            # ---- Row: selected printer (tap the value to open the picker popup) ----
+                                            - obj:
+                                                grid_cell_row_pos: 0
+                                                grid_cell_column_pos: 0
+                                                bg_opa: TRANSP
+                                                border_width: 0
+                                                pad_left: 14
+                                                pad_top: 0
+                                                pad_bottom: 0
+                                                pad_right: 10
+                                                scrollbar_mode: "OFF"
+                                                layout:
+                                                  type: flex
+                                                  flex_flow: row
+                                                  flex_align_cross: center
+                                                  flex_align_track: center
+                                                  pad_column: 8
+                                                widgets:
+                                                  - label:
+                                                      width: 110
+                                                      text: "Printer"
+                                                      text_font: roboto_16
+                                                      pad_top: 4
+                                                      text_color: 0xAAAAAA
+                                                  - button:
+                                                      id: btn_printer_pick
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      layout:
+                                                        type: flex
+                                                        flex_flow: row
+                                                        flex_align_cross: center
+                                                        pad_column: 6
+                                                      pad_left: 8
+                                                      pad_right: 8
+                                                      on_click:
+                                                        then:
+                                                          - lambda: 'lv_obj_clear_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);'
+                                                      widgets:
+                                                        - label: {id: lbl_printer_sel_icon, width: 24, text: "\U000F0765", text_font: mdi_24, pad_top: 6, text_color: 0x666688}
+                                                        - label: {id: lbl_printer_sel, flex_grow: 1, text: "—", text_font: roboto_16, pad_top: 4, text_color: 0xDDDDEE, long_mode: DOT}
+                                                        - label: {text: "\U000F0142", text_font: mdi_24, pad_top: 6, text_color: 0x7B9EFF}
+
+                                            # ---- Row: Backlight brightness (slider 25–100%, 5% steps) ----
+                                            - obj:
+                                                grid_cell_row_pos: 1
+                                                grid_cell_column_pos: 0
+                                                bg_opa: TRANSP
+                                                border_width: 0
+                                                pad_left: 14
+                                                pad_top: 0
+                                                pad_bottom: 0
+                                                pad_right: 10
+                                                scrollbar_mode: "OFF"
+                                                layout:
+                                                  type: flex
+                                                  flex_flow: row
+                                                  flex_align_cross: center
+                                                  flex_align_track: center
+                                                  pad_column: 10
+                                                widgets:
+                                                  - label:
+                                                      width: 130
+                                                      text: "Brightness"
+                                                      text_font: roboto_16
+                                                      pad_top: 4
+                                                      text_color: 0xAAAAAA
+                                                  - slider:
+                                                      id: sl_brightness
+                                                      flex_grow: 1
+                                                      height: 16
+                                                      min_value: 25
+                                                      max_value: 100
+                                                      value: 100
+                                                      on_value:
+                                                        then:
+                                                          - lambda: |-
+                                                              // Snap to 5% steps and store. Inline to avoid circular
+                                                              // trigger: update_backlight_brightness → lv_slider_set_value
+                                                              // → on_value → update_backlight_brightness → ...
+                                                              int snapped = ((x + 2) / 5) * 5;
+                                                              if (snapped < 25) snapped = 25;
+                                                              if (snapped > 100) snapped = 100;
+                                                              id(backlight_brightness_pct) = snapped;
+                                                              id(display_backlight).turn_on()
+                                                                .set_brightness(snapped / 100.0f)
+                                                                .set_transition_length(50).perform();
+                                                              char buf[6];
+                                                              snprintf(buf, sizeof(buf), "%d%%", snapped);
+                                                              lv_label_set_text(id(lbl_brightness_val), buf);
+                                                  - label:
+                                                      id: lbl_brightness_val
+                                                      width: 50
+                                                      text: "100%"
+                                                      text_font: roboto_16
+                                                      pad_top: 4
+                                                      text_color: 0xDDDDEE
+                                                      text_align: RIGHT
+
+                                            # ---- Row: Sleep settings (opens the nested sleep subpage) ----
+                                            - obj:
+                                                grid_cell_row_pos: 2
+                                                grid_cell_column_pos: 0
+                                                bg_opa: TRANSP
+                                                border_width: 0
+                                                pad_left: 14
+                                                pad_top: 0
+                                                pad_bottom: 0
+                                                pad_right: 10
+                                                scrollbar_mode: "OFF"
+                                                layout:
+                                                  type: flex
+                                                  flex_flow: row
+                                                  flex_align_cross: center
+                                                  flex_align_track: center
+                                                  pad_column: 8
+                                                widgets:
+                                                  - label:
+                                                      width: 110
+                                                      text: "Sleep"
+                                                      text_font: roboto_16
+                                                      pad_top: 4
+                                                      text_color: 0xAAAAAA
+                                                  - button:
+                                                      id: btn_sleep_page
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      layout:
+                                                        type: flex
+                                                        flex_flow: row
+                                                        flex_align_cross: center
+                                                      pad_left: 8
+                                                      pad_right: 8
+                                                      on_click:
+                                                        then:
+                                                          - lambda: 'lv_obj_clear_flag(id(content_sleep), LV_OBJ_FLAG_HIDDEN);'
+                                                      widgets:
+                                                        - label: {flex_grow: 1, text: "Sleep settings", text_font: roboto_16, pad_top: 4, text_color: 0xDDDDEE}
+                                                        - label: {text: "\U000F0142", text_font: mdi_24, pad_top: 6, text_color: 0x7B9EFF}
+
+                                            # ---- Row: Reboot (confirms via confirm_modal) ----
+                                            - obj:
+                                                grid_cell_row_pos: 3
+                                                grid_cell_column_pos: 0
+                                                bg_opa: TRANSP
+                                                border_width: 0
+                                                pad_left: 14
+                                                pad_top: 0
+                                                pad_bottom: 0
+                                                pad_right: 10
+                                                scrollbar_mode: "OFF"
+                                                layout:
+                                                  type: flex
+                                                  flex_flow: row
+                                                  flex_align_cross: center
+                                                  flex_align_track: center
+                                                  pad_column: 8
+                                                widgets:
+                                                  - label:
+                                                      width: 110
+                                                      text: "Reboot"
+                                                      text_font: roboto_16
+                                                      pad_top: 4
+                                                      text_color: 0xAAAAAA
+                                                  - button:
+                                                      id: btn_reboot
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - lambda: |-
+                                                              id(confirm_action) = 3;
+                                                              lv_label_set_text(id(confirm_msg), "Reboot the console now?");
+                                                              lv_label_set_text(id(confirm_ok_lbl), "Reboot");
+                                                              lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+                                                      widgets:
+                                                        - label: {text: "Reboot", text_font: roboto_16, pad_top: 4, text_color: 0xFF8888, align: CENTER}
+
+                                # ---- Features subpage (overlays full content_cfg area) ----
+                                # Sound | Plate Clear confirmation toggle.
+                                - obj:
+                                    id: content_features
+                                    width: 100%
+                                    height: 100%
+                                    bg_color: 0x12121A
+                                    bg_opa: COVER
+                                    border_width: 0
+                                    radius: 0
+                                    pad_all: 0
+                                    scrollbar_mode: "OFF"
+                                    hidden: true
+                                    layout:
+                                      type: flex
+                                      flex_flow: column
+                                      pad_row: 6
+                                    widgets:
+                                      # Header with back button
+                                      - obj:
+                                          width: 100%
+                                          height: 28
+                                          styles: sty_bar
+                                          scrollbar_mode: "OFF"
+                                          widgets:
+                                            - button:
+                                                width: 40
+                                                height: 28
+                                                bg_opa: TRANSP
+                                                border_width: 0
+                                                radius: 0
+                                                pad_all: 0
+                                                scrollbar_mode: "OFF"
+                                                on_click:
+                                                  then:
+                                                    - lambda: 'lv_obj_add_flag(id(content_features), LV_OBJ_FLAG_HIDDEN);'
+                                                widgets:
+                                                  - label: {text: "\U000F0141", text_font: mdi_24, text_color: 0x7B9EFF, align: CENTER}
+                                            - label:
+                                                width: 100%
+                                                text: "Features"
+                                                text_font: roboto_20
+                                                pad_top: 5
+                                                text_color: 0x7B9EFF
+                                                text_align: CENTER
+                                                align: CENTER
+                                      # Separator
+                                      - obj:
+                                          width: 100%
+                                          height: 1
+                                          bg_color: 0x454572
+                                          bg_opa: COVER
+                                          border_width: 0
+                                          radius: 0
+                                          scrollbar_mode: "OFF"
+
+                                      - obj:
+                                          id: content_features_rows
+                                          width: 100%
+                                          flex_grow: 1
+                                          bg_opa: TRANSP
+                                          border_width: 0
+                                          pad_all: 0
+                                          scrollbar_mode: "OFF"
+                                          layout:
+                                            type: grid
+                                            grid_columns: ["FR(1)"]
+                                            grid_rows: ["FR(1)", "FR(1)", "FR(1)", "FR(1)"]
+                                            grid_cell_x_align: stretch
+                                            grid_cell_y_align: stretch
+                                            pad_row: 6
+                                          widgets:
+                                            # ---- Row: Sound on/off (Off | On segments) ----
+                                            - obj:
+                                                id: row_sound_toggle
+                                                grid_cell_row_pos: 0
+                                                grid_cell_column_pos: 0
+                                                bg_opa: TRANSP
+                                                border_width: 0
+                                                pad_left: 14
+                                                pad_top: 0
+                                                pad_bottom: 0
+                                                pad_right: 10
+                                                scrollbar_mode: "OFF"
+                                                layout:
+                                                  type: flex
+                                                  flex_flow: row
+                                                  flex_align_cross: center
+                                                  flex_align_track: center
+                                                  pad_column: 8
+                                                widgets:
+                                                  - label:
+                                                      width: 130
+                                                      text: "Sound"
+                                                      text_font: roboto_16
+                                                      pad_top: 4
+                                                      text_color: 0xAAAAAA
+                                                  - button:
+                                                      id: btn_sound_off
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - lambda: 'id(sound_enabled) = 0;'
+                                                          - script.execute: update_sound_btn
+                                                      widgets:
+                                                        - label: {id: lbl_sound_off, text: "Off", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+                                                  - button:
+                                                      id: btn_sound_on
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - lambda: 'id(sound_enabled) = 1;'
+                                                          - script.execute: update_sound_btn
+                                                      widgets:
+                                                        - label: {id: lbl_sound_on, text: "On", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+
+                                            # ---- Row: Confirm Plate Clear on/off (Off | On segments) ----
+                                            - obj:
+                                                id: row_plateclear_toggle
+                                                grid_cell_row_pos: 1
+                                                grid_cell_column_pos: 0
+                                                bg_opa: TRANSP
+                                                border_width: 0
+                                                pad_left: 14
+                                                pad_top: 0
+                                                pad_bottom: 0
+                                                pad_right: 10
+                                                scrollbar_mode: "OFF"
+                                                layout:
+                                                  type: flex
+                                                  flex_flow: row
+                                                  flex_align_cross: center
+                                                  flex_align_track: center
+                                                  pad_column: 8
+                                                widgets:
+                                                  - label:
+                                                      width: 130
+                                                      text: "Plate Clear Popup"
+                                                      text_font: roboto_16
+                                                      long_mode: DOT
+                                                      pad_top: 4
+                                                      text_color: 0xAAAAAA
+                                                  - button:
+                                                      id: btn_plateclear_off
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - lambda: 'id(plate_clear_confirm_enabled) = 0;'
+                                                          - script.execute: update_plateclear_btn
+                                                      widgets:
+                                                        - label: {id: lbl_plateclear_off, text: "Off", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+                                                  - button:
+                                                      id: btn_plateclear_on
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - lambda: 'id(plate_clear_confirm_enabled) = 1;'
+                                                          - script.execute: update_plateclear_btn
+                                                      widgets:
+                                                        - label: {id: lbl_plateclear_on, text: "On", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+
+                                # ---- Sleep settings subpage (nested — opened from within
+                                #      content_system; overlays the full content_cfg area) ----
+                                - obj:
+                                    id: content_sleep
+                                    width: 100%
+                                    height: 100%
+                                    bg_color: 0x12121A
+                                    bg_opa: COVER
+                                    border_width: 0
+                                    radius: 0
+                                    pad_all: 0
+                                    scrollbar_mode: "OFF"
+                                    hidden: true
+                                    layout:
+                                      type: flex
+                                      flex_flow: column
+                                      pad_row: 6
+                                    widgets:
+                                      # Header with back button
+                                      - obj:
+                                          width: 100%
+                                          height: 28
+                                          styles: sty_bar
+                                          scrollbar_mode: "OFF"
+                                          widgets:
+                                            - button:
+                                                width: 40
+                                                height: 28
+                                                bg_opa: TRANSP
+                                                border_width: 0
+                                                radius: 0
+                                                pad_all: 0
+                                                scrollbar_mode: "OFF"
+                                                on_click:
+                                                  then:
+                                                    - lambda: 'lv_obj_add_flag(id(content_sleep), LV_OBJ_FLAG_HIDDEN);'
+                                                widgets:
+                                                  - label: {text: "\U000F0141", text_font: mdi_24, text_color: 0x7B9EFF, align: CENTER}
+                                            - label:
+                                                width: 100%
+                                                text: "Sleep Settings"
+                                                text_font: roboto_20
+                                                pad_top: 5
+                                                text_color: 0x7B9EFF
+                                                text_align: CENTER
+                                                align: CENTER
+                                      # Separator
+                                      - obj:
+                                          width: 100%
+                                          height: 1
+                                          bg_color: 0x454572
+                                          bg_opa: COVER
+                                          border_width: 0
+                                          radius: 0
+                                          scrollbar_mode: "OFF"
+
+                                      - obj:
+                                          id: content_sleep_rows
+                                          width: 100%
+                                          flex_grow: 1
+                                          bg_opa: TRANSP
+                                          border_width: 0
+                                          pad_all: 0
+                                          scrollbar_mode: "OFF"
+                                          layout:
+                                            type: grid
+                                            grid_columns: ["FR(1)"]
+                                            grid_rows: ["FR(1)", "FR(1)", "FR(1)", "FR(1)"]
+                                            grid_cell_x_align: stretch
+                                            grid_cell_y_align: stretch
+                                            pad_row: 6
+                                          widgets:
+                                            # ---- Row: Inactivity timeout (-/value/+) ----
+                                            - obj:
+                                                grid_cell_row_pos: 0
+                                                grid_cell_column_pos: 0
+                                                bg_opa: TRANSP
+                                                border_width: 0
+                                                pad_left: 14
+                                                pad_top: 0
+                                                pad_bottom: 0
+                                                pad_right: 10
+                                                scrollbar_mode: "OFF"
+                                                layout:
+                                                  type: flex
+                                                  flex_flow: row
+                                                  flex_align_cross: center
+                                                  flex_align_track: center
+                                                  pad_column: 8
+                                                widgets:
+                                                  - label:
+                                                      width: 130
+                                                      text: "Inactivity"
+                                                      text_font: roboto_16
+                                                      pad_top: 4
+                                                      text_color: 0xAAAAAA
+                                                  - button:
+                                                      id: btn_sleep_dec
+                                                      width: 44
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - lambda: |-
+                                                              int m = id(sleep_timeout_min);
+                                                              if (m == 0) return;
+                                                              else if (m <= 5) m = 0;
+                                                              else m -= 5;
+                                                              id(sleep_timeout_min) = m;
+                                                              id(update_sleep_timeout_lbl).execute();
+                                                      widgets:
+                                                        - label: {text: "-", text_font: roboto_20, pad_top: 5, text_color: 0xDDDDEE, align: CENTER}
+                                                  - label:
+                                                      id: lbl_sleep_timeout
+                                                      flex_grow: 1
+                                                      text: "10 min"
+                                                      text_font: roboto_16
+                                                      pad_top: 4
+                                                      text_color: 0xDDDDEE
+                                                      text_align: CENTER
+                                                  - button:
+                                                      id: btn_sleep_inc
+                                                      width: 44
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - lambda: |-
+                                                              int m = id(sleep_timeout_min);
+                                                              if (m >= 60) return;
+                                                              else if (m == 0) m = 5;
+                                                              else m += 5;
+                                                              id(sleep_timeout_min) = m;
+                                                              id(update_sleep_timeout_lbl).execute();
+                                                      widgets:
+                                                        - label: {text: "+", text_font: roboto_20, pad_top: 5, text_color: 0xDDDDEE, align: CENTER}
+
+                                            # ---- Row: NFC in sleep (Off | Slow | On) ----
+                                            - obj:
+                                                id: row_nfc_sleep_toggle
+                                                grid_cell_row_pos: 1
+                                                grid_cell_column_pos: 0
+                                                bg_opa: TRANSP
+                                                border_width: 0
+                                                pad_left: 14
+                                                pad_top: 0
+                                                pad_bottom: 0
+                                                pad_right: 10
+                                                scrollbar_mode: "OFF"
+                                                layout:
+                                                  type: flex
+                                                  flex_flow: row
+                                                  flex_align_cross: center
+                                                  flex_align_track: center
+                                                  pad_column: 6
+                                                widgets:
+                                                  - label:
+                                                      width: 130
+                                                      text: "NFC in sleep"
+                                                      text_font: roboto_16
+                                                      pad_top: 4
+                                                      text_color: 0xAAAAAA
+                                                  - button:
+                                                      id: btn_nfc_off
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - lambda: 'id(nfc_sleep_mode) = 0;'
+                                                          - script.execute: update_nfc_sleep_btn
+                                                      widgets:
+                                                        - label: {id: lbl_nfc_off, text: "Off", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+                                                  - button:
+                                                      id: btn_nfc_slow
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - lambda: 'id(nfc_sleep_mode) = 1;'
+                                                          - script.execute: update_nfc_sleep_btn
+                                                      widgets:
+                                                        - label: {id: lbl_nfc_slow, text: "Slow", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+                                                  - button:
+                                                      id: btn_nfc_on
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - lambda: 'id(nfc_sleep_mode) = 2;'
+                                                          - script.execute: update_nfc_sleep_btn
+                                                      widgets:
+                                                        - label: {id: lbl_nfc_on, text: "On", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+
+                                            # ---- Row: WiFi in sleep (Power Save | Off) ----
+                                            - obj:
+                                                id: row_wifi_sleep_toggle
+                                                grid_cell_row_pos: 2
+                                                grid_cell_column_pos: 0
+                                                bg_opa: TRANSP
+                                                border_width: 0
+                                                pad_left: 14
+                                                pad_top: 0
+                                                pad_bottom: 0
+                                                pad_right: 10
+                                                scrollbar_mode: "OFF"
+                                                layout:
+                                                  type: flex
+                                                  flex_flow: row
+                                                  flex_align_cross: center
+                                                  flex_align_track: center
+                                                  pad_column: 8
+                                                widgets:
+                                                  - label:
+                                                      width: 130
+                                                      text: "WiFi in sleep"
+                                                      text_font: roboto_16
+                                                      pad_top: 4
+                                                      text_color: 0xAAAAAA
+                                                  - button:
+                                                      id: btn_wifi_ps
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - lambda: 'id(wifi_sleep_mode) = 0;'
+                                                          - script.execute: update_wifi_sleep_btn
+                                                      widgets:
+                                                        - label: {id: lbl_wifi_ps, text: "Power Save", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+                                                  - button:
+                                                      id: btn_wifi_off
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - lambda: 'id(wifi_sleep_mode) = 1;'
+                                                          - script.execute: update_wifi_sleep_btn
+                                                      widgets:
+                                                        - label: {id: lbl_wifi_off, text: "Off", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+
+                    # ---------------- BOTTOM NAV ----------------
+                    - obj:
+                        width: 100%
+                        height: 40
+                        styles: sty_bar
+                        scrollbar_mode: "OFF"
+                        layout:
+                          type: flex
+                          flex_flow: row
+                        widgets:
+                          - button:
+                              flex_grow: 1
+                              height: 40
+                              styles: sty_navbtn
+                              on_click:
+                                then:
+                                  - lambda: id(active_tab) = 0;
+                                  - script.execute: apply_tab
+                              widgets:
+                                - image:
+                                    id: tic_ams
+                                    src: img_ams_tab
+                                    align: CENTER
+                                    image_recolor: 0x4ECDC4
+                                    image_recolor_opa: COVER
+                          - button:
+                              flex_grow: 1
+                              height: 40
+                              styles: sty_navbtn
+                              on_click:
+                                then:
+                                  - lambda: id(active_tab) = 1;
+                                  - script.execute: apply_tab
+                              widgets:
+                                - label:
+                                    id: tic_nfc
+                                    text: "\U000F0396"
+                                    text_font: mdi_30
+                                    text_color: 0x8585B8
+                                    align: CENTER
+                          - button:
+                              flex_grow: 1
+                              height: 40
+                              styles: sty_navbtn
+                              on_click:
+                                then:
+                                  - lambda: id(active_tab) = 2;
+                                  - script.execute: apply_tab
+                              widgets:
+                                - label:
+                                    id: tic_scale
+                                    text: "\U000F0472"
+                                    text_font: mdi_30
+                                    text_color: 0x8585B8
+                                    align: CENTER
+                          - button:
+                              flex_grow: 1
+                              height: 40
+                              styles: sty_navbtn
+                              on_click:
+                                then:
+                                  - lambda: id(active_tab) = 3;
+                                  - script.execute: apply_tab
+                              widgets:
+                                - label:
+                                    id: tic_cfg
+                                    text: "\U000F0493"
+                                    text_font: mdi_30
+                                    text_color: 0x8585B8
+                                    align: CENTER
+
+              # ================ SPOOL DETAIL MODAL ================
+              # Single card — no full-screen dim backdrop. Sized as a
+              # percentage of the screen and centered, so it scales with
+              # screen size instead of being pinned to 480x320 pixel math.
+              # The inner two-column info grid (icon + brand/type/color/
+              # temp/slot/weight fields) is left in absolute x/y: it is a
+              # genuinely dense 2D data layout, not a simple row stack, and
+              # converting it is out of scope here — only the outer sizing/
+              # centering and the bottom button row were converted to
+              # flex/percent.
+              - obj:
+                  id: ams_modal_card
+                  # Fixed, not %: the inner two-column info grid below is
+                  # intentionally left in absolute x/y (out of scope for the
+                  # flex conversion, see comment above), calibrated for a
+                  # 440px-wide card (12px margins + 416px content row). A
+                  # percentage width here made the card narrower than its
+                  # own content on real hardware, pushing the button row and
+                  # weight bar past the right edge into the border. Only the
+                  # outer centering (align: CENTER, resolution-independent)
+                  # was converted; width stays matched to the fixed content.
+                  width: 440
+                  height: 226
+                  align: CENTER
+                  bg_color: 0x1A1A2C
+                  bg_opa: COVER
+                  border_color: 0x8585B8
+                  border_width: 2
+                  border_opa: COVER
+                  radius: 12
+                  pad_all: 0
+                  scrollbar_mode: "OFF"
+                  shadow_width: 16
+                  shadow_offset_x: 0
+                  shadow_offset_y: 6
+                  shadow_spread: 2
+                  shadow_color: 0x000000
+                  shadow_opa: COVER
+                  hidden: true
+                  widgets:
+                    # ---- Spool icon (80×80) — left column ----
+                    - obj:
+                        x: 12
+                        y: 12
+                        width: 80
+                        height: 80
+                        bg_opa: TRANSP
+                        border_width: 0
+                        pad_all: 0
+                        scrollbar_mode: "OFF"
+                        widgets:
+                          - image: {id: modal_spool_fill,  src: img_spool_fill_lg,  align: CENTER, image_recolor: 0x6666AA, image_recolor_opa: COVER}
+                          - obj: {id: modal_spool_hub, align: CENTER, width: 30, height: 30, radius: 15, bg_color: 0x1A1A2C, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF"}
+                          - image: {id: modal_spool_shine, src: img_spool_shine_lg, align: CENTER}
+                    # Spool ID — below icon in left column (hidden when no inventory ID)
+                    - label: {id: modal_spoolid, x: 12, y: 96, width: 80, height: 14, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT, hidden: true}
+                    # ---- Right column text layout (x=104) ----
+                    #  y: 12  [Brand ── 324 px ─────────────────────────────── ]
+                    #  y: 36  [Material type + subtype ── 324 px ──────────────]
+                    #  y: 70  [swatch][hex]               | [temp range        ]
+                    #  y: 92  (left col: icon ends y=92)  | [AMS name roboto_16]
+                    #  y:110                                  [Slot X   roboto_12]
+                    #  y:126  [weight cur roboto_16]         [weight tot right  ]
+                    #  y:148  [═══════ weight bar 324 px ═══════════════════════]
+                    #  y:172  ─── separator ──────────────────────────────────
+                    #  y:180  [Clear Assignment] [Close]
+                    - label: {id: modal_brand,        x: 104, y: 12,  width: 324, height: 22, text: "", text_font: roboto_20, text_color: 0xBBBBCC, long_mode: DOT,  align: TOP_LEFT}
+                    - label: {id: modal_type,         x: 104, y: 36,  width: 324, height: 32, text: "", text_font: roboto_28, text_color: 0xFFFFFF, long_mode: DOT,  align: TOP_LEFT}
+                    # Col-A row 3 — colour
+                    - obj:   {id: modal_color_swatch,  x: 104, y: 70,  width: 52,  height: 20, bg_color: 0x555577, bg_opa: COVER, border_color: 0x8888AA, border_width: 1, radius: 3, scrollbar_mode: "OFF"}
+                    - label: {id: modal_colorhex,      x: 162, y: 73,  width: 164, height: 16, text: "", text_font: roboto_12, text_color: 0xBBBBCC,  long_mode: DOT, align: TOP_LEFT}
+                    # Col-B — temperature, AMS name (line 1) + slot number (line 2)
+                    - label: {id: modal_temps,         x: 272, y: 70,  width: 156, height: 20, text: "", text_font: roboto_16, text_color: 0xDDDDEE,  align: TOP_LEFT}
+                    - label: {id: modal_slotinfo,      x: 272, y: 92,  width: 156, height: 18, text: "", text_font: roboto_16, text_color: 0x7B9EFF,  long_mode: DOT, align: TOP_LEFT}
+                    - label: {id: modal_slotnum,       x: 272, y: 110, width: 156, height: 14, text: "", text_font: roboto_12, text_color: 0x5566BB,  align: TOP_LEFT}
+                    # Weight row — current weight (left, larger) + total (right, muted)
+                    - label: {id: modal_weight_cur,    x: 104, y: 126, width: 160, height: 18, text: "", text_font: roboto_16, text_color: 0xDDDDEE,  align: TOP_LEFT, hidden: true}
+                    - label: {id: modal_weight_tot,    x: 268, y: 128, width: 160, height: 16, text: "", text_font: roboto_12, text_color: 0x8888AA,  text_align: RIGHT, align: TOP_LEFT, hidden: true}
+                    # Weight bar — full col-A+B width
+                    - bar:
+                        id: modal_weight_bar
+                        x: 104
+                        y: 148
+                        width: 324
+                        height: 20
+                        min_value: 0
+                        max_value: 100
+                        value: 0
+                        bg_color: 0x2A2A3C
+                        bg_opa: COVER
+                        border_width: 0
+                        radius: 5
+                        pad_all: 0
+                        hidden: true
+                        indicator:
+                          bg_color: 0x22C55E
+                          bg_opa: COVER
+                          radius: 5
+                    # ---- Separator ----
+                    - obj: {x: 12, y: 172, width: 416, height: 1, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollbar_mode: "OFF"}
+                    # ---- Bottom button row: Clear (left) | Close (right) ----
+                    - obj:
+                        x: 12
+                        y: 180
+                        width: 416
+                        height: 38
+                        bg_opa: TRANSP
+                        border_width: 0
+                        pad_all: 0
+                        scrollbar_mode: "OFF"
+                        layout:
+                          type: flex
+                          flex_flow: row
+                          pad_column: 8
+                        widgets:
+                          - button:
+                              id: modal_clear_btn
+                              flex_grow: 1
+                              height: 38
+                              bg_color: 0x3D0A0A
+                              border_color: 0xCC3333
+                              border_width: 2
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      id(confirm_action) = 2;
+                                      lv_label_set_text(id(confirm_msg), "Clear this slot's spool assignment?");
+                                      lv_label_set_text(id(confirm_ok_lbl), "Clear");
+                                      lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+                              widgets:
+                                - label: {text: "Clear Assignment", text_font: roboto_16, text_color: 0xFF8888, align: CENTER}
+                          - button:
+                              id: modal_close_btn
+                              flex_grow: 1
+                              height: 38
+                              bg_color: 0x1E2040
+                              border_color: 0x8585B8
+                              border_width: 2
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: "lv_obj_add_flag(id(ams_modal_card), LV_OBJ_FLAG_HIDDEN);"
+                              widgets:
+                                - label: {text: "Close", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
+
+              # ================ PRINTER PICKER MODAL =========================
+              - obj:
+                  id: printer_modal
+                  width: 85%
+                  height: SIZE_CONTENT
+                  max_height: 90%
+                  align: CENTER
+                  bg_color: 0x1A1A2C
+                  bg_opa: COVER
+                  border_color: 0x8585B8
+                  border_width: 2
+                  border_opa: COVER
+                  radius: 12
+                  pad_left: 12
+                  pad_right: 12
+                  pad_top: 12
+                  pad_bottom: 12
+                  scrollbar_mode: "OFF"
+                  scrollable: false
+                  shadow_width: 16
+                  shadow_offset_x: 0
+                  shadow_offset_y: 6
+                  shadow_spread: 2
+                  shadow_color: 0x000000
+                  shadow_opa: COVER
+                  hidden: true
+                  layout:
+                    type: flex
+                    flex_flow: column
+                    pad_row: 8
+                  widgets:
+                    - label:
+                        text: "Select Printer"
+                        text_font: roboto_20
+                        text_color: 0x7BB4FF
+                    - label:
+                        id: cfg_empty
+                        width: 100%
+                        text: "No printers found"
+                        text_font: roboto_16
+                        text_color: 0x8888AA
+                        text_align: CENTER
+                    # Scrollable list -- up to 25 printers. See the README's
+                    # Troubleshooting section for why this is a static ceiling, not a
+                    # true dynamic list -- ESPHome's LVGL YAML can't create widgets at
+                    # runtime. This caps the whole modal's height instead, and lets
+                    # this inner container scroll so entries beyond what fits are
+                    # still reachable rather than being silently dropped.
+                    - obj:
+                        id: printer_list_scroll
+                        width: 100%
+                        height: SIZE_CONTENT
+                        max_height: 190
+                        bg_opa: TRANSP
+                        border_width: 0
+                        pad_all: 0
+                        scrollbar_mode: "AUTO"
+                        layout:
+                          type: flex
+                          flex_flow: column
+                          pad_row: 6
+                        widgets:
+                        - button:
+                            id: cfg_p0
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 0;
+                                    bambuddy->set_selected_printer(0);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p0_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p0_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p1
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 1;
+                                    bambuddy->set_selected_printer(1);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p1_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p1_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p2
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 2;
+                                    bambuddy->set_selected_printer(2);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p2_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p2_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p3
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 3;
+                                    bambuddy->set_selected_printer(3);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p3_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p3_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p4
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 4;
+                                    bambuddy->set_selected_printer(4);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p4_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p4_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p5
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 5;
+                                    bambuddy->set_selected_printer(5);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p5_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p5_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p6
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 6;
+                                    bambuddy->set_selected_printer(6);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p6_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p6_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p7
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 7;
+                                    bambuddy->set_selected_printer(7);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p7_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p7_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p8
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 8;
+                                    bambuddy->set_selected_printer(8);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p8_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p8_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p9
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 9;
+                                    bambuddy->set_selected_printer(9);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p9_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p9_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p10
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 10;
+                                    bambuddy->set_selected_printer(10);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p10_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p10_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p11
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 11;
+                                    bambuddy->set_selected_printer(11);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p11_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p11_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p12
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 12;
+                                    bambuddy->set_selected_printer(12);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p12_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p12_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p13
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 13;
+                                    bambuddy->set_selected_printer(13);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p13_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p13_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p14
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 14;
+                                    bambuddy->set_selected_printer(14);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p14_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p14_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p15
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 15;
+                                    bambuddy->set_selected_printer(15);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p15_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p15_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p16
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 16;
+                                    bambuddy->set_selected_printer(16);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p16_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p16_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p17
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 17;
+                                    bambuddy->set_selected_printer(17);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p17_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p17_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p18
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 18;
+                                    bambuddy->set_selected_printer(18);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p18_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p18_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p19
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 19;
+                                    bambuddy->set_selected_printer(19);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p19_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p19_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p20
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 20;
+                                    bambuddy->set_selected_printer(20);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p20_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p20_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p21
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 21;
+                                    bambuddy->set_selected_printer(21);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p21_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p21_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p22
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 22;
+                                    bambuddy->set_selected_printer(22);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p22_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p22_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p23
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 23;
+                                    bambuddy->set_selected_printer(23);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p23_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p23_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                        - button:
+                            id: cfg_p24
+                            width: 100%
+                            height: 34
+                            styles: sty_card
+                            scrollbar_mode: "OFF"
+                            layout:
+                              type: flex
+                              flex_flow: row
+                              flex_align_cross: center
+                              pad_column: 6
+                            pad_left: 8
+                            hidden: true
+                            on_click:
+                              then:
+                                - lambda: |-
+                                    id(selected_printer_idx) = 24;
+                                    bambuddy->set_selected_printer(24);
+                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                            widgets:
+                              - label: {id: cfg_p24_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                              - label: {id: cfg_p24_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                    - button:
+                        id: btn_printer_close
+                        width: 100%
+                        height: 32
+                        bg_color: 0x252540
+                        border_color: 0x8585B8
+                        border_width: 1
+                        radius: 6
+                        scrollbar_mode: "OFF"
+                        on_click:
+                          then:
+                            - lambda: 'lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);'
+                        widgets:
+                          - label: {text: "Close", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
+
+              # ================ CALIBRATION MODAL ============================
+              - obj:
+                  id: cal_modal
+                  width: 85%
+                  height: SIZE_CONTENT
+                  align: CENTER
+                  bg_color: 0x1A1A2C
+                  bg_opa: COVER
+                  border_color: 0x8585B8
+                  border_width: 2
+                  border_opa: COVER
+                  radius: 12
+                  pad_left: 16
+                  pad_right: 16
+                  pad_top: 12
+                  pad_bottom: 12
+                  scrollbar_mode: "OFF"
+                  shadow_width: 16
+                  shadow_offset_x: 0
+                  shadow_offset_y: 6
+                  shadow_spread: 2
+                  shadow_color: 0x000000
+                  shadow_opa: COVER
+                  hidden: true
+                  layout:
+                    type: flex
+                    flex_flow: column
+                    pad_row: 10
+                  widgets:
+                    - label:
+                        text: "Calibrate Scale"
+                        text_font: roboto_20
+                        text_color: 0x7BB4FF
+                    - label:
+                        width: 100%
+                        text: "Place known weight on scale, then confirm."
+                        text_font: roboto_12
+                        text_color: 0xBBBBCC
+                        long_mode: WRAP
+                    # ---- Reference weight row: −100 −10 −1 [value] +1 +10 +100 ----
+                    # Buttons/value keep their original intrinsic pixel widths
+                    # (font-sized number buttons) and are centered as a group
+                    # via flex_align_main, rather than stretched to fill.
+                    - obj:
+                        width: 100%
+                        height: SIZE_CONTENT
+                        bg_opa: TRANSP
+                        border_width: 0
+                        pad_all: 0
+                        scrollbar_mode: "OFF"
+                        layout:
+                          type: flex
+                          flex_flow: row_wrap
+                          flex_align_main: center
+                          flex_align_cross: center
+                          flex_align_track: center
+                          pad_column: 4
+                          pad_row: 4
+                        widgets:
+                          - button:
+                              id: btn_cal_m100
+                              width: 44
+                              height: 36
+                              bg_color: 0x252540
+                              border_color: 0x8585B8
+                              border_width: 1
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      float v = id(cal_ref_weight) - 100.0f;
+                                      if (v < 1.0f) v = 1.0f;
+                                      id(cal_ref_weight) = v;
+                                      char buf[12]; snprintf(buf, sizeof(buf), "%.0f g", v);
+                                      lv_label_set_text(id(lbl_cal_weight), buf);
+                              widgets:
+                                - label: {text: "-100", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
+                          - button:
+                              id: btn_cal_m10
+                              width: 44
+                              height: 36
+                              bg_color: 0x252540
+                              border_color: 0x8585B8
+                              border_width: 1
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      float v = id(cal_ref_weight) - 10.0f;
+                                      if (v < 1.0f) v = 1.0f;
+                                      id(cal_ref_weight) = v;
+                                      char buf[12]; snprintf(buf, sizeof(buf), "%.0f g", v);
+                                      lv_label_set_text(id(lbl_cal_weight), buf);
+                              widgets:
+                                - label: {text: "-10", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
+                          - button:
+                              id: btn_cal_m1
+                              width: 44
+                              height: 36
+                              bg_color: 0x252540
+                              border_color: 0x8585B8
+                              border_width: 1
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      float v = id(cal_ref_weight) - 1.0f;
+                                      if (v < 1.0f) v = 1.0f;
+                                      id(cal_ref_weight) = v;
+                                      char buf[12]; snprintf(buf, sizeof(buf), "%.0f g", v);
+                                      lv_label_set_text(id(lbl_cal_weight), buf);
+                              widgets:
+                                - label: {text: "-1", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
+                          - label:
+                              id: lbl_cal_weight
+                              width: 80
+                              height: 36
+                              text: "100 g"
+                              text_font: roboto_16
+                              text_color: 0x7BB4FF
+                              text_align: CENTER
+                              align: CENTER
+                          - button:
+                              id: btn_cal_p1
+                              width: 44
+                              height: 36
+                              bg_color: 0x252540
+                              border_color: 0x8585B8
+                              border_width: 1
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      float v = id(cal_ref_weight) + 1.0f;
+                                      if (v > 5000.0f) v = 5000.0f;
+                                      id(cal_ref_weight) = v;
+                                      char buf[12]; snprintf(buf, sizeof(buf), "%.0f g", v);
+                                      lv_label_set_text(id(lbl_cal_weight), buf);
+                              widgets:
+                                - label: {text: "+1", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
+                          - button:
+                              id: btn_cal_p10
+                              width: 44
+                              height: 36
+                              bg_color: 0x252540
+                              border_color: 0x8585B8
+                              border_width: 1
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      float v = id(cal_ref_weight) + 10.0f;
+                                      if (v > 5000.0f) v = 5000.0f;
+                                      id(cal_ref_weight) = v;
+                                      char buf[12]; snprintf(buf, sizeof(buf), "%.0f g", v);
+                                      lv_label_set_text(id(lbl_cal_weight), buf);
+                              widgets:
+                                - label: {text: "+10", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
+                          - button:
+                              id: btn_cal_p100
+                              width: 44
+                              height: 36
+                              bg_color: 0x252540
+                              border_color: 0x8585B8
+                              border_width: 1
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      float v = id(cal_ref_weight) + 100.0f;
+                                      if (v > 5000.0f) v = 5000.0f;
+                                      id(cal_ref_weight) = v;
+                                      char buf[12]; snprintf(buf, sizeof(buf), "%.0f g", v);
+                                      lv_label_set_text(id(lbl_cal_weight), buf);
+                              widgets:
+                                - label: {text: "+100", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
+                    # ---- Separator ----
+                    - obj:
+                        width: 100%
+                        height: 1
+                        bg_color: 0x454572
+                        bg_opa: COVER
+                        border_width: 0
+                        radius: 0
+                        scrollbar_mode: "OFF"
+                    # ---- Cancel / Confirm buttons ----
+                    - obj:
+                        width: 100%
+                        height: 38
+                        bg_opa: TRANSP
+                        border_width: 0
+                        pad_all: 0
+                        scrollbar_mode: "OFF"
+                        layout:
+                          type: flex
+                          flex_flow: row
+                          pad_column: 8
+                        widgets:
+                          - button:
+                              id: btn_cal_cancel
+                              flex_grow: 1
+                              height: 38
+                              bg_color: 0x2A1A1A
+                              border_color: 0xCC3333
+                              border_width: 2
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: "lv_obj_add_flag(id(cal_modal), LV_OBJ_FLAG_HIDDEN);"
+                              widgets:
+                                - label: {text: "Cancel", text_font: roboto_16, text_color: 0xFF8888, align: CENTER}
+                          - button:
+                              id: btn_cal_confirm
+                              flex_grow: 1
+                              height: 38
+                              bg_color: 0x1E2040
+                              border_color: 0x4ECDC4
+                              border_width: 2
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      lv_obj_add_flag(id(cal_modal), LV_OBJ_FLAG_HIDDEN);
+                                      bambuddy->request_calibration(id(cal_ref_weight));
+                              widgets:
+                                - label: {text: "Calibrate", text_font: roboto_16, text_color: 0x4ECDC4, align: CENTER}
+
+              # ================ CONFIRM MODAL ================================
+              # Reusable confirmation for destructive actions. confirm_action
+              # (global) selects what runs on confirm: 1=unlink tag, 2=clear
+              # assignment. Declared before the wake guard so it overlays the AMS
+              # detail modal (clear assignment is triggered from inside it).
+              - obj:
+                  id: confirm_modal
+                  width: 85%
+                  height: SIZE_CONTENT
+                  align: CENTER
+                  bg_color: 0x1A1A2C
+                  bg_opa: COVER
+                  border_color: 0x8585B8
+                  border_width: 2
+                  border_opa: COVER
+                  radius: 12
+                  pad_left: 16
+                  pad_right: 16
+                  pad_top: 16
+                  pad_bottom: 16
+                  scrollbar_mode: "OFF"
+                  scrollable: false
+                  shadow_width: 16
+                  shadow_offset_x: 0
+                  shadow_offset_y: 6
+                  shadow_spread: 2
+                  shadow_color: 0x000000
+                  shadow_opa: COVER
+                  hidden: true
+                  layout:
+                    type: flex
+                    flex_flow: column
+                    pad_row: 12
+                  widgets:
+                    - label:
+                        text: "Are you sure?"
+                        text_font: roboto_20
+                        text_color: 0x7BB4FF
+                    - label:
+                        id: confirm_msg
+                        width: 100%
+                        text: ""
+                        text_font: roboto_16
+                        text_color: 0xDDDDEE
+                        long_mode: WRAP
+                    - obj:
+                        width: 100%
+                        height: 40
+                        bg_opa: TRANSP
+                        border_width: 0
+                        pad_all: 0
+                        scrollbar_mode: "OFF"
+                        layout:
+                          type: flex
+                          flex_flow: row
+                          pad_column: 8
+                        widgets:
+                          - button:
+                              id: confirm_cancel_btn
+                              flex_grow: 1
+                              height: 40
+                              bg_color: 0x1E2040
+                              border_color: 0x8585B8
+                              border_width: 2
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      id(confirm_action) = 0;
+                                      lv_obj_add_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+                              widgets:
+                                - label: {text: "Cancel", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
+                          - button:
+                              id: confirm_ok_btn
+                              flex_grow: 1
+                              height: 40
+                              bg_color: 0x3D0A0A
+                              border_color: 0xCC3333
+                              border_width: 2
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      int a = id(confirm_action);
+                                      id(confirm_action) = 0;
+                                      lv_obj_add_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+                                      if (a == 1) {
+                                        bambuddy->unlink_current_tag();
+                                      } else if (a == 2) {
+                                        bambuddy->clear_slot_assignment(id(modal_ams_id), id(modal_tray_slot));
+                                        lv_obj_add_flag(id(ams_modal_card), LV_OBJ_FLAG_HIDDEN);
+                                      } else if (a == 3) {
+                                        id(restart_button).press();  // reboot the console
+                                      }
+                              widgets:
+                                - label: {id: confirm_ok_lbl, text: "Confirm", text_font: roboto_16, text_color: 0xFF8888, align: CENTER}
+
+              # ================ ASSIGN-BY-ID MODAL ===========================
+              # Assign an inventory spool to an empty AMS slot by ID (no scan).
+              # modal_ams_id / modal_tray_slot hold the target slot.
+              - obj:
+                  id: assign_id_modal
+                  width: 85%
+                  height: SIZE_CONTENT
+                  align: CENTER
+                  bg_color: 0x1A1A2C
+                  bg_opa: COVER
+                  border_color: 0x8585B8
+                  border_width: 2
+                  border_opa: COVER
+                  radius: 12
+                  pad_left: 16
+                  pad_right: 16
+                  pad_top: 14
+                  pad_bottom: 14
+                  scrollbar_mode: "OFF"
+                  scrollable: false
+                  shadow_width: 16
+                  shadow_offset_x: 0
+                  shadow_offset_y: 6
+                  shadow_spread: 2
+                  shadow_color: 0x000000
+                  shadow_opa: COVER
+                  hidden: true
+                  layout:
+                    type: flex
+                    flex_flow: column
+                    pad_row: 12
+                  widgets:
+                    - label:
+                        id: slot_assign_title
+                        width: 100%
+                        text: "Assign Spool"
+                        text_font: roboto_20
+                        text_color: 0x7BB4FF
+                        long_mode: DOT
+                    # ---- ID chooser: -10 / - / ID:X / + / +10 ----
+                    - obj:
+                        width: 100%
+                        height: 40
+                        bg_opa: TRANSP
+                        border_width: 0
+                        pad_all: 0
+                        scrollbar_mode: "OFF"
+                        layout:
+                          type: flex
+                          flex_flow: row
+                          flex_align_main: center
+                          pad_column: 6
+                        widgets:
+                          - button:
+                              id: btn_slot_id_m10
+                              width: 60
+                              height: 40
+                              bg_color: 0x1E1E30
+                              border_color: 0x3A3A56
+                              border_width: 1
+                              radius: 4
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      int v=(int)id(slot_assign_id)-10; if(v<1)v=1; id(slot_assign_id)=v;
+                                      char b[16]; snprintf(b,sizeof(b),"ID: %d",v); lv_label_set_text(id(lbl_slot_assign_id),b);
+                              widgets:
+                                - label: {text: "-10", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
+                          - button:
+                              id: btn_slot_id_m1
+                              width: 48
+                              height: 40
+                              bg_color: 0x1E1E30
+                              border_color: 0x3A3A56
+                              border_width: 1
+                              radius: 4
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      if((int)id(slot_assign_id)>1) id(slot_assign_id)--;
+                                      int v=(int)id(slot_assign_id);
+                                      char b[16]; snprintf(b,sizeof(b),"ID: %d",v); lv_label_set_text(id(lbl_slot_assign_id),b);
+                              widgets:
+                                - label: {text: "-", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
+                          - label:
+                              id: lbl_slot_assign_id
+                              width: 176
+                              text: "ID: 1"
+                              text_font: roboto_20
+                              text_color: 0xFFFFFF
+                              text_align: CENTER
+                              align: CENTER
+                          - button:
+                              id: btn_slot_id_p1
+                              width: 48
+                              height: 40
+                              bg_color: 0x1E1E30
+                              border_color: 0x3A3A56
+                              border_width: 1
+                              radius: 4
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      id(slot_assign_id)++;
+                                      int v=(int)id(slot_assign_id);
+                                      char b[16]; snprintf(b,sizeof(b),"ID: %d",v); lv_label_set_text(id(lbl_slot_assign_id),b);
+                              widgets:
+                                - label: {text: "+", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
+                          - button:
+                              id: btn_slot_id_p10
+                              width: 60
+                              height: 40
+                              bg_color: 0x1E1E30
+                              border_color: 0x3A3A56
+                              border_width: 1
+                              radius: 4
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      int v=(int)id(slot_assign_id)+10; id(slot_assign_id)=v;
+                                      char b[16]; snprintf(b,sizeof(b),"ID: %d",v); lv_label_set_text(id(lbl_slot_assign_id),b);
+                              widgets:
+                                - label: {text: "+10", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
+                    # ---- Assign | Cancel ----
+                    - obj:
+                        width: 100%
+                        height: 40
+                        bg_opa: TRANSP
+                        border_width: 0
+                        pad_all: 0
+                        scrollbar_mode: "OFF"
+                        layout:
+                          type: flex
+                          flex_flow: row
+                          pad_column: 8
+                        widgets:
+                          - button:
+                              id: btn_slot_assign_ok
+                              flex_grow: 1
+                              height: 40
+                              bg_color: 0x0D2B14
+                              border_color: 0x4CAF50
+                              border_width: 2
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      int sid=(int)id(slot_assign_id);
+                                      if(sid>0) bambuddy->assign_spool_to_slot(sid, id(modal_ams_id), id(modal_tray_slot));
+                                      lv_obj_add_flag(id(assign_id_modal), LV_OBJ_FLAG_HIDDEN);
+                              widgets:
+                                - label: {text: "Assign", text_font: roboto_16, text_color: 0x4CAF50, align: CENTER}
+                          - button:
+                              id: btn_slot_assign_cancel
+                              flex_grow: 1
+                              height: 40
+                              bg_color: 0x1E2040
+                              border_color: 0x8585B8
+                              border_width: 2
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: "lv_obj_add_flag(id(assign_id_modal), LV_OBJ_FLAG_HIDDEN);"
+                              widgets:
+                                - label: {text: "Cancel", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
+
+              # ================ PLATE CLEAR POPUP =============================
+              # Almost-full-screen confirmation shown when the backend reports
+              # awaiting_plate_clear (gated by the "Plate Clear" settings toggle;
+              # see plate_clear_confirm_enabled / update_plateclear_btn and the
+              # show/hide logic in the interval lambda). Confirm notifies the
+              # backend via bambuddy->confirm_plate_cleared(); Discard just
+              # closes the popup locally without notifying the backend.
+              - obj:
+                  id: plate_clear_popup
+                  width: 85%
+                  height: SIZE_CONTENT
+                  align: CENTER
+                  bg_color: 0x1B5E20
+                  bg_opa: COVER
+                  border_color: 0x4CAF50
+                  border_width: 3
+                  border_opa: COVER
+                  radius: 16
+                  pad_left: 16
+                  pad_right: 16
+                  pad_top: 20
+                  pad_bottom: 20
+                  scrollbar_mode: "OFF"
+                  scrollable: false
+                  shadow_width: 20
+                  shadow_offset_x: 0
+                  shadow_offset_y: 8
+                  shadow_spread: 2
+                  shadow_color: 0x000000
+                  shadow_opa: COVER
+                  hidden: true
+                  layout:
+                    type: flex
+                    flex_flow: column
+                    flex_align_cross: center
+                    pad_row: 12
+                  widgets:
+                    - label:
+                        text: "\U000F1276"
+                        text_font: mdi_48
+                        text_color: 0xFFFFFF
+                        text_align: CENTER
+                    - label:
+                        text: "Build Plate Clear"
+                        text_font: roboto_28
+                        text_color: 0xFFFFFF
+                        text_align: CENTER
+                    - label:
+                        width: 90%
+                        text: "Please confirm that the build plate has been cleared."
+                        text_font: roboto_16
+                        text_color: 0xE8F5E9
+                        text_align: CENTER
+                        long_mode: WRAP
+                    - obj:
+                        width: 100%
+                        height: 40
+                        bg_opa: TRANSP
+                        border_width: 0
+                        pad_all: 0
+                        scrollbar_mode: "OFF"
+                        layout:
+                          type: flex
+                          flex_flow: row
+                          pad_column: 10
+                        widgets:
+                          - button:
+                              id: btn_plateclear_discard
+                              flex_grow: 1
+                              height: 40
+                              bg_color: 0x0F3D14
+                              border_color: 0xA5D6A7
+                              border_width: 2
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      id(plate_clear_popup_open) = 0;
+                                      // Suppress the popup until awaiting_plate_clear is next observed
+                                      // false — see the interval lambda in app.yaml.
+                                      id(plate_clear_dismissed) = 1;
+                                      lv_obj_add_flag(id(plate_clear_popup), LV_OBJ_FLAG_HIDDEN);
+                                      bambuddy->dismiss_plate_clear_popup();
+                              widgets:
+                                - label: {text: "Discard", text_font: roboto_16, text_color: 0xE8F5E9, align: CENTER}
+                          - button:
+                              id: btn_plateclear_confirm
+                              flex_grow: 1
+                              height: 40
+                              bg_color: 0xFFFFFF
+                              border_color: 0xFFFFFF
+                              border_width: 2
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      id(plate_clear_popup_open) = 0;
+                                      lv_obj_add_flag(id(plate_clear_popup), LV_OBJ_FLAG_HIDDEN);
+                                      bambuddy->confirm_plate_cleared();
+                              widgets:
+                                - label: {text: "Confirm", text_font: roboto_16, text_color: 0x1B5E20, align: CENTER}
+
+              # ================ WAKE GUARD ====================================
+              # Full-screen transparent overlay that sits on top of all other
+              # widgets. Shown by on_idle when the backlight dims; absorbs the
+              # first touch that wakes the screen so underlying buttons aren't
+              # accidentally triggered. Hidden again by its own on_click, and
+              # also by the weight-placement wake path in app.yaml.
+              - obj:
+                  id: wake_guard
+                  width: 100%
+                  height: 100%
+                  bg_opa: TRANSP
+                  border_width: 0
+                  radius: 0
+                  pad_all: 0
+                  scrollbar_mode: "OFF"
+                  scrollable: false
+                  hidden: true
+                  on_click:
+                    then:
+                      - lambda: |-
+                          lv_obj_add_flag(id(wake_guard), LV_OBJ_FLAG_HIDDEN);
+                          // Waking from Dim (not deep sleep): restore user-configured brightness.
+                          // Deep-sleep wake is handled by the interval lambda (is_sleeping path).
+                          if (!id(is_sleeping)) {
+                            id(display_backlight).turn_on()
+                              .set_brightness(id(backlight_brightness_pct) / 100.0f)
+                              .set_transition_length(150).perform();
+                          }
+
+  on_idle:
+    timeout: 60s
+    then:
+      - light.turn_on:
+          id: display_backlight
+          brightness: 20%
+          transition_length: 2s
+      - lambda: "lv_obj_clear_flag(id(wake_guard), LV_OBJ_FLAG_HIDDEN);"

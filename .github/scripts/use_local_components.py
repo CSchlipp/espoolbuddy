@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rewrite a SpoolBuddy config's external_components block to a local source.
 
-The real configs (spoolbuddy_console.yaml / spoolbuddy_scale.yaml) ship an
+The real configs (espoolbuddy_console.yaml / espoolbuddy_scale.yaml) ship an
 inline GitHub `main` source so they double as standalone copy & paste examples.
 CI calls this script to point that block at ./components instead, so the
 pipeline builds the code in the checked-out commit rather than main.

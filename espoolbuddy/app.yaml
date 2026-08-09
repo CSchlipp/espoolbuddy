@@ -1,9 +1,62 @@
-# Bump on every change (SemVer, staying in 0.x.y for now): 0.MINOR.PATCH —
-# MINOR for features/behaviour changes, PATCH for fixes. Shown bottom-right
-# of the Settings screen (sourced from this value via ESPHOME_PROJECT_VERSION).
 esphome:
-  project:
-    version: "0.23.0"
+  # Remove (not just hide) Settings rows for hardware this device doesn't
+  # have, so the row below shifts up into the freed grid slot instead of
+  # leaving a gap. Runs at the same late priority as apply_tab (below) so
+  # the LVGL widgets already exist.
+  on_boot:
+    - priority: -100
+      then:
+        - lambda: |-
+            if (!bambuddy->has_speaker()) {
+              lv_obj_del(id(row_sound_toggle));
+              lv_obj_set_grid_cell(id(row_plateclear_toggle),
+                  LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 0, 1);
+            }
+            if (!bambuddy->has_nfc()) {
+              lv_obj_del(id(row_nfc_sleep_toggle));
+              lv_obj_set_grid_cell(id(row_wifi_sleep_toggle),
+                  LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 1, 1);
+            }
+  # Weight-tab display + stable chime, run every main-loop iteration instead
+  # of the 400 ms interval below. console_http_scale_weight() (bambuddy_api)
+  # writes a landed scale push into display_state_ immediately from the HTTP
+  # server task, but that's a different task than this one — on_loop is what
+  # lets the very next loop tick pick the change up and render it, instead of
+  # waiting on the next scheduled interval tick. Uses the lightweight
+  # get_weight() accessor (3 primitives under the lock) rather than snapshot()
+  # (deep-copies the whole DisplayState) since this runs far more often.
+  on_loop:
+    - lambda: |-
+        float grams; bool stable, ok;
+        bambuddy->get_weight(grams, stable, ok);
+
+        if (ok) {
+          float w = grams;
+          if (w > -0.3f && w < 0.3f) w = 0.0f;  // treat ±0.3 g noise as zero
+          char buf[20];
+          snprintf(buf, sizeof(buf), "%.1f g", w);
+          lv_label_set_text(id(lbl_weight), buf);
+          lv_label_set_text(id(lbl_weight_stable), stable ? "Stable" : "Settling");
+          lv_obj_clear_flag(id(btn_tare),      LV_OBJ_FLAG_HIDDEN);
+          lv_obj_clear_flag(id(btn_calibrate), LV_OBJ_FLAG_HIDDEN);
+        } else {
+          lv_label_set_text(id(lbl_weight), "");
+          lv_label_set_text(id(lbl_weight_stable), "No scale connected");
+          lv_obj_add_flag(id(btn_tare),      LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(btn_calibrate), LV_OBJ_FLAG_HIDDEN);
+        }
+
+        // Rising-edge chime, unchanged from the old interval block. Edge-detected
+        // on the false->true transition (not on "a stable push was received"), so
+        // the scale's bounded stable-push retries (espoolbuddy_scale.yaml) land here
+        // as harmless repeat renders of the same text without re-triggering the chime.
+        static bool prev_weight_stable = false;
+        bool stable_now = ok && stable;
+        if (stable_now && !prev_weight_stable && grams >= 5.0f
+            && id(sound_enabled) && !bambuddy->chime_playing()) {
+          bambuddy->play_chime("stable:d=16,o=6,b=150:c,e,g");
+        }
+        prev_weight_stable = stable_now;
 
 
 # ============================================================================
@@ -107,23 +160,6 @@ text_sensor:
 
 
 # ============================================================================
-# BambuddyNFC — PN532 via SPI
-# ============================================================================
-bambuddy_nfc:
-  id: nfc_reader
-  api_id: bambuddy
-  spi_id: nfc_spi
-  cs_pin: GPIO10
-  irq_pin:
-    number: GPIO14
-    mode: INPUT_PULLUP  # PN532 IRQ is open-drain; pull-up required
-  data_rate: 1MHz
-  spi_mode: 0
-  poll_interval: 300   # ms — used only in fallback polling mode; IRQ mode uses 10ms guard
-  miss_threshold: 3
-
-
-# ============================================================================
 # Tab switcher — shows the active content container and highlights its button
 # ============================================================================
 script:
@@ -180,6 +216,7 @@ script:
   - id: update_nfc_sleep_btn
     then:
       - lambda: |-
+          if (!bambuddy->has_nfc()) return;  // row_nfc_sleep_toggle (and its buttons) was deleted on boot
           int m = id(nfc_sleep_mode);
           lv_obj_t *btns[3] = {id(btn_nfc_off), id(btn_nfc_slow), id(btn_nfc_on)};
           lv_obj_t *lbls[3] = {id(lbl_nfc_off), id(lbl_nfc_slow), id(lbl_nfc_on)};
@@ -196,6 +233,7 @@ script:
   - id: update_sound_btn
     then:
       - lambda: |-
+          if (!bambuddy->has_speaker()) return;  // row_sound_toggle (and its buttons) was deleted on boot
           bool on = id(sound_enabled);
           lv_obj_set_style_bg_color(id(btn_sound_off),
               !on ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
@@ -352,7 +390,7 @@ script:
             if (!unit.custom_name.empty()) snprintf(nm, sizeof(nm), "%s", unit.custom_name.c_str());
             else                           snprintf(nm, sizeof(nm), "AMS-%c", 'A' + (int)(unit.id % 26));
             lv_label_set_text(id(modal_slotinfo), nm);
-            char sl[12]; snprintf(sl, sizeof(sl), "Slot %d", tr.slot + 1);
+            char sl[24]; snprintf(sl, sizeof(sl), "Slot %d", tr.slot + 1);
             lv_label_set_text(id(modal_slotnum), sl); }
           // Weight progress bar — shown only when label_weight_g is known
           if (tr.label_weight_g > 0.0f) {
@@ -498,29 +536,40 @@ interval:
             bl_weight_baseline = s.weight_grams;  // re-arm at the new level
           }
 
-          // ---- Audio cues (onboard I2S amp — see spoolbuddy_console.yaml) ----
-          // Two short RTTTL chimes, edge-detected so each event plays once:
-          //   • Tag scan  — nfc_scan_generation bumps on every physical scan,
-          //     including scale-pushed ones (they route through on_tag_scanned),
-          //     so this one trigger covers both the console and the scale.
-          //   • Stable weight — rising edge of weight_stable while a real load
-          //     is on the pan (>5 g), so settling back to an empty/zeroed scale
-          //     stays silent.  Guarded by is_playing() so a near-simultaneous
-          //     settle does not clip the scan chime.
+          // Wake the backlight when a plate-clear notification needs to be
+          // shown (mirrors the NFC/weight wakes above). Without this, the
+          // popup logic further below — which runs *after* the sleep-check
+          // return — would never get a chance to execute while asleep, so
+          // the notification would silently wait for some unrelated wake.
+          // Reuses the exact same gating condition as the popup-show logic
+          // below: once the popup opens, plate_clear_popup_open goes true,
+          // which naturally stops this from re-firing every tick (no extra
+          // edge-detection state needed). wake_guard is hidden immediately
+          // like the weight-wake above (not the NFC-wake, which is
+          // touch-adjacent) since this is a backend-driven wake, not a
+          // touch — no accidental-tap risk to guard against.
+          if (s.awaiting_plate_clear && id(plate_clear_confirm_enabled)
+              && !id(plate_clear_popup_open) && !id(plate_clear_dismissed)) {
+            id(display_backlight).turn_on().set_brightness(id(backlight_brightness_pct) / 100.0f).set_transition_length(0).perform();
+            lv_disp_trig_activity(NULL);
+            lv_obj_add_flag(id(wake_guard), LV_OBJ_FLAG_HIDDEN);
+          }
+
+          // ---- Audio cues (onboard I2S amp — see espoolbuddy_console.yaml) ----
+          // Tag-scan chime, edge-detected so each scan plays once:
+          // nfc_scan_generation bumps on every physical scan, including
+          // scale-pushed ones (they route through on_tag_scanned), so this
+          // one trigger covers both the console and the scale.
+          // (The stable-weight chime moved to the on_loop trigger above, so
+          // it fires the instant a stable push lands instead of on the next
+          // 400 ms tick.)
           {
             static uint32_t prev_audio_scan_gen = 0;
             if (s.nfc_scan_generation != prev_audio_scan_gen) {
               prev_audio_scan_gen = s.nfc_scan_generation;
-              if (id(sound_enabled) && !id(rtttl_player)->is_playing())
-                id(rtttl_player)->play("tag:d=16,o=6,b=180:e,b");
+              if (id(sound_enabled) && !bambuddy->chime_playing())
+                bambuddy->play_chime("tag:d=16,o=6,b=180:e,b");
             }
-            static bool prev_weight_stable = false;
-            bool stable_now = s.scale_ok && s.weight_stable;
-            if (stable_now && !prev_weight_stable && s.weight_grams >= 5.0f
-                && id(sound_enabled) && !id(rtttl_player)->is_playing()) {
-              id(rtttl_player)->play("stable:d=16,o=6,b=150:c,e,g");
-            }
-            prev_weight_stable = stable_now;
           }
 
           // ---- Sleep / wake (deep idle) ----
@@ -542,8 +591,8 @@ interval:
                 // Apply the user's "NFC in sleep" setting: 0=Off (stop scanning,
                 // RF field off), 1=Slow (reduced poll rate), 2=On (normal scan).
                 int nfc_mode = id(nfc_sleep_mode);
-                if (nfc_mode == 0)      id(nfc_reader)->set_scan_enabled(false);
-                else if (nfc_mode == 1) id(nfc_reader)->set_low_power(true);
+                if (nfc_mode == 0)      bambuddy->set_nfc_scan_enabled(false);
+                else if (nfc_mode == 1) bambuddy->set_nfc_low_power(true);
                 // Show the wake guard so the first touch only wakes (does not
                 // also press a button underneath).
                 lv_obj_clear_flag(id(wake_guard), LV_OBJ_FLAG_HIDDEN);
@@ -565,8 +614,8 @@ interval:
                 // set_low_power(false) resets the HTTP poll timers to trigger an
                 // immediate refresh once the connection is up.
                 bambuddy->set_low_power(false);
-                id(nfc_reader)->set_scan_enabled(true);  // resume normal full-rate scanning
-                id(nfc_reader)->set_low_power(false);
+                bambuddy->set_nfc_scan_enabled(true);  // resume normal full-rate scanning
+                bambuddy->set_nfc_low_power(false);
                 id(display_backlight).turn_on().set_brightness(id(backlight_brightness_pct) / 100.0f).set_transition_length(150).perform();
               }
             }
@@ -606,8 +655,8 @@ interval:
             lv_obj_clear_flag(id(plate_clear_popup), LV_OBJ_FLAG_HIDDEN);
             // A completed print usually triggers this popup — a short rising
             // "success" chime on the same rising edge that opens it.
-            if (id(sound_enabled) && !id(rtttl_player)->is_playing())
-              id(rtttl_player)->play("success:d=8,o=6,b=180:c,e,g,c7");
+            if (id(sound_enabled) && !bambuddy->chime_playing())
+              bambuddy->play_chime("success:d=8,o=6,b=180:c,e,g,c7");
           } else if (!s.awaiting_plate_clear) {
             // Backend-side flag cleared (confirmed here or from elsewhere) —
             // close the popup if it's still open, and re-arm the discard
@@ -645,12 +694,17 @@ interval:
           // 400 ms tick doesn't repaint the header every cycle.
           {
             static int prev_clock_min = -2;
+            static std::string prev_header_printer;
             auto now_t = id(sntp_time).now();
             int cur_min = now_t.is_valid() ? (now_t.hour * 60 + now_t.minute) : -1;
-            if (cur_min != prev_clock_min) {
+            int sel = s.selected_printer_idx;
+            std::string cur_printer = (!s.printers.empty() && sel >= 0 && sel < (int)s.printers.size())
+                                       ? s.printers[sel].name : std::string();
+            if (cur_min != prev_clock_min || cur_printer != prev_header_printer) {
               prev_clock_min = cur_min;
+              prev_header_printer = cur_printer;
+              char cb[12];
               if (now_t.is_valid()) {
-                char cb[12];
                 if (bambuddy->clock_24h()) {
                   snprintf(cb, sizeof(cb), "%02d:%02d", now_t.hour, now_t.minute);
                 } else {
@@ -659,10 +713,14 @@ interval:
                   snprintf(cb, sizeof(cb), "%d:%02d %s", h12, now_t.minute,
                            now_t.hour < 12 ? "AM" : "PM");
                 }
-                lv_label_set_text(id(lbl_clock), cb);
               } else {
-                lv_label_set_text(id(lbl_clock), "--:--");
+                snprintf(cb, sizeof(cb), "--:--");
               }
+              // Printer name in the header alongside the clock -- SCROLL_CIRCULAR
+              // on lbl_clock (see lvgl.yaml) only actually scrolls when
+              // the combined text doesn't fit, so short names just sit centered.
+              std::string full = cur_printer.empty() ? std::string(cb) : (cur_printer + " - " + cb);
+              lv_label_set_text(id(lbl_clock), full.c_str());
             }
           }
 
@@ -688,25 +746,9 @@ interval:
             }
           }
 
-          // ---- Scale tab ----
-          if (s.scale_ok) {
-            float w = s.weight_grams;
-            if (w > -0.3f && w < 0.3f) w = 0.0f;  // treat ±0.3 g noise as zero
-            char buf[20];
-            snprintf(buf, sizeof(buf), "%.1f g", w);
-            lv_label_set_text(id(lbl_weight), buf);
-            lv_label_set_text(id(lbl_weight_stable),
-                s.weight_stable ? "Stable" : "Settling");
-            lv_obj_set_y(id(lbl_weight_stable), 134);  // below the reading
-            lv_obj_clear_flag(id(btn_tare),      LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(id(btn_calibrate), LV_OBJ_FLAG_HIDDEN);
-          } else {
-            lv_label_set_text(id(lbl_weight), "");
-            lv_label_set_text(id(lbl_weight_stable), "No scale connected");
-            lv_obj_set_y(id(lbl_weight_stable), 80);   // center in the empty space
-            lv_obj_add_flag(id(btn_tare),      LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(id(btn_calibrate), LV_OBJ_FLAG_HIDDEN);
-          }
+          // (Scale tab weight/stable label + tare/calibrate button visibility
+          // moved to the on_loop trigger above, so a landed push renders on
+          // the next loop tick instead of the next 400 ms interval tick.)
 
           // ---- NFC: new-scan detection ----
           // nfc_scan_generation is incremented by on_tag_scanned() on every
@@ -754,8 +796,11 @@ interval:
               char wb[32];
               snprintf(wb, sizeof(wb), "%.0fg (%.0f%%)", remaining, pct);
               lv_label_set_text(id(nfc_weight), wb);
-              // Progress bar — width proportional to remaining %, colour-coded by level
-              int bar_w = (int)(pct / 100.0f * 280.0f);
+              // Progress bar — width proportional to remaining %, colour-coded by level.
+              // nfc_progress_track is now percentage-sized (tab_nfc.yaml), so its
+              // pixel width is queried at runtime rather than duplicating a literal.
+              int track_w = lv_obj_get_width(id(nfc_progress_track));
+              int bar_w = (int)(pct / 100.0f * track_w);
               lv_obj_set_width(id(nfc_progress_fill), bar_w);
               lv_obj_set_style_bg_color(id(nfc_progress_fill), lv_color_hex(bambuddy_api::remaining_bar_color((int)(pct + 0.5f))), LV_PART_MAIN);
               lv_obj_clear_flag(id(nfc_progress_track), LV_OBJ_FLAG_HIDDEN);
@@ -822,20 +867,14 @@ interval:
               lv_obj_add_flag(id(nfc_assign_banner), LV_OBJ_FLAG_HIDDEN);
             }
 
-            // ---- Action row: Unlink | Quick Weight | Discard (single row, adaptive layout) ----
-            // All widths computed for 480px: margins=8, gaps=4
-            // 3 buttons: 8 + 152 + 4 + 152 + 4 + 152 + 8 = 480
-            // 2 buttons: 8 + 228 + 8 + 228 + 8 = 480
-            // 1 button : 8 + 464 + 8 = 480
+            // ---- Action row: Unlink | Quick Weight | Discard (nfc_action_row is a
+            // flex row with each button flex_grow:1 -- tab_nfc.yaml -- so hiding a
+            // button is all that's needed for the remaining ones to reflow; no
+            // width/x math to keep in sync with the YAML any more) ----
             if (fi.spool_id > 0 && s.scale_ok) {
               // All three visible
               lv_obj_clear_flag(id(btn_nfc_unlink), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_set_width(id(btn_nfc_unlink), 152);
               lv_obj_clear_flag(id(btn_nfc_weight), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_set_x(id(btn_nfc_weight), 164);
-              lv_obj_set_width(id(btn_nfc_weight), 152);
-              lv_obj_set_x(id(btn_dismiss), 320);
-              lv_obj_set_width(id(btn_dismiss), 152);
               // Live weight shortcut: show net (filament only) and total (spool+filament).
               if (s.weight_stable && s.weight_grams > 5.0f) {
                 char wshort[48];
@@ -853,16 +892,11 @@ interval:
             } else if (fi.spool_id > 0) {
               // Unlink + Discard (no scale)
               lv_obj_clear_flag(id(btn_nfc_unlink), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_set_width(id(btn_nfc_unlink), 228);
               lv_obj_add_flag(id(btn_nfc_weight), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_set_x(id(btn_dismiss), 244);
-              lv_obj_set_width(id(btn_dismiss), 228);
             } else {
               // Discard only (unknown/unlinked spool)
               lv_obj_add_flag(id(btn_nfc_unlink), LV_OBJ_FLAG_HIDDEN);
               lv_obj_add_flag(id(btn_nfc_weight), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_set_x(id(btn_dismiss), 8);
-              lv_obj_set_width(id(btn_dismiss), 464);
             }
 
             // NFC write proposal banner
@@ -1191,7 +1225,35 @@ interval:
 
               lv_obj_add_flag(id(ams_hdr_l), LV_OBJ_FLAG_HIDDEN);
               lv_obj_add_flag(id(ams_hdr_r), LV_OBJ_FLAG_HIDDEN);
-              const int STRIDE = 73, PER_PAGE = 3, PAGE_Y0 = 3;
+              // Visible rows per page. ams_rows_wrap (tab_ams.yaml) is a real
+              // flex column now -- on-screen stacking order/position comes from
+              // each widget's index among its (non-hidden) siblings, set below via
+              // lv_obj_move_to_index(widget, sp), not from manual x/y.
+              //
+              // Rows stay a fixed 70px (same readable size/density on every
+              // screen -- see the comment on ams_rows_wrap in tab_ams.yaml), but
+              // PER_PAGE is computed per-screen so a taller screen shows MORE
+              // rows per page instead of stretching fewer, bigger ones.
+              //
+              // Deliberately NOT measured at runtime via lv_obj_get_height() on
+              // the flex_grow ams_rows_wrap: that size only exists after LVGL's
+              // own layout pass has resolved the whole flex_grow chain (root
+              // wrapper -> content slot -> ams_body -> ams_rows_wrap), and
+              // querying it right after a hide/show change is timing-fragile --
+              // it undercounted rows in practice. screen_height is known at
+              // compile time (the ${screen_height} substitution, textually
+              // substituted into this lambda same as it is into the root
+              // page's width/height in lvgl.yaml), so compute the
+              // available height from that plus the same fixed chrome heights
+              // the YAML itself uses (header 30, bottom nav 40, pagination bar
+              // 26 -- keep these in sync if those ever change).
+              const int SCREEN_H = ${screen_height};
+              const int HEADER_H = 30, NAV_H = 40, PG_BAR_H = 26;
+              const int ROW_H = 70, ROW_GAP = 3;
+              int avail_h = SCREEN_H - HEADER_H - NAV_H - PG_BAR_H;
+              int per_page = (avail_h + ROW_GAP) / (ROW_H + ROW_GAP);
+              if (per_page < 1) per_page = 1;
+              const int PER_PAGE = per_page;
               int page = id(ams_page);
               int ds = 0, reg_used = 0, pair_used = 0;
 
@@ -1300,8 +1362,9 @@ interval:
                 int sp = ds - page * PER_PAGE;
                 ds++;
                 if (sp >= 0 && sp < PER_PAGE) {
-                  lv_obj_set_x(prow[k], 3);
-                  lv_obj_set_y(prow[k], PAGE_Y0 + sp * STRIDE);
+                  // Reorder among flex siblings to sp -- flex then owns the actual
+                  // on-screen stacking position (see comment above ams_rows_wrap).
+                  lv_obj_move_to_index(prow[k], sp);
                   lv_obj_clear_flag(prow[k], LV_OBJ_FLAG_SCROLLABLE);
                   lv_obj_clear_flag(prow[k], LV_OBJ_FLAG_HIDDEN);
                   fill_side(s.ams_units[pending_u],
@@ -1333,8 +1396,7 @@ interval:
                   int sp = ds - page * PER_PAGE;
                   ds++;
                   if (sp >= 0 && sp < PER_PAGE) {
-                    lv_obj_set_x(row[k], 3);
-                    lv_obj_set_y(row[k], PAGE_Y0 + sp * STRIDE);
+                    lv_obj_move_to_index(row[k], sp);
                     lv_obj_clear_flag(row[k], LV_OBJ_FLAG_SCROLLABLE);
                     lv_obj_clear_flag(row[k], LV_OBJ_FLAG_HIDDEN);
                     { char nb[40];
@@ -1453,7 +1515,7 @@ interval:
                     lv_obj_add_state(id(ams_pg_next), LV_STATE_DISABLED);
                   else
                     lv_obj_clear_state(id(ams_pg_next), LV_STATE_DISABLED);
-                  char pb[16]; snprintf(pb, sizeof(pb), "%d / %d", page + 1, max_page);
+                  char pb[32]; snprintf(pb, sizeof(pb), "%d / %d", page + 1, max_page);
                   lv_label_set_text(id(ams_pg_label), pb);
                 } else {
                   lv_obj_add_flag(id(ams_pg_prev),  LV_OBJ_FLAG_HIDDEN);
@@ -1480,12 +1542,24 @@ interval:
           {
             int np = (int) s.printers.size();
             int sel = s.selected_printer_idx;
-            lv_obj_t *pbtn[5] = {id(cfg_p0), id(cfg_p1), id(cfg_p2), id(cfg_p3), id(cfg_p4)};
-            lv_obj_t *pnm[5]  = {id(cfg_p0_n), id(cfg_p1_n), id(cfg_p2_n), id(cfg_p3_n), id(cfg_p4_n)};
-            lv_obj_t *pdot[5] = {id(cfg_p0_d), id(cfg_p1_d), id(cfg_p2_d), id(cfg_p3_d), id(cfg_p4_d)};
+            lv_obj_t *pbtn[25] = {id(cfg_p0), id(cfg_p1), id(cfg_p2), id(cfg_p3), id(cfg_p4), id(cfg_p5),
+                                   id(cfg_p6), id(cfg_p7), id(cfg_p8), id(cfg_p9), id(cfg_p10), id(cfg_p11),
+                                   id(cfg_p12), id(cfg_p13), id(cfg_p14), id(cfg_p15), id(cfg_p16), id(cfg_p17),
+                                   id(cfg_p18), id(cfg_p19), id(cfg_p20), id(cfg_p21), id(cfg_p22), id(cfg_p23),
+                                   id(cfg_p24)};
+            lv_obj_t *pnm[25]  = {id(cfg_p0_n), id(cfg_p1_n), id(cfg_p2_n), id(cfg_p3_n), id(cfg_p4_n), id(cfg_p5_n),
+                                   id(cfg_p6_n), id(cfg_p7_n), id(cfg_p8_n), id(cfg_p9_n), id(cfg_p10_n), id(cfg_p11_n),
+                                   id(cfg_p12_n), id(cfg_p13_n), id(cfg_p14_n), id(cfg_p15_n), id(cfg_p16_n), id(cfg_p17_n),
+                                   id(cfg_p18_n), id(cfg_p19_n), id(cfg_p20_n), id(cfg_p21_n), id(cfg_p22_n), id(cfg_p23_n),
+                                   id(cfg_p24_n)};
+            lv_obj_t *pdot[25] = {id(cfg_p0_d), id(cfg_p1_d), id(cfg_p2_d), id(cfg_p3_d), id(cfg_p4_d), id(cfg_p5_d),
+                                   id(cfg_p6_d), id(cfg_p7_d), id(cfg_p8_d), id(cfg_p9_d), id(cfg_p10_d), id(cfg_p11_d),
+                                   id(cfg_p12_d), id(cfg_p13_d), id(cfg_p14_d), id(cfg_p15_d), id(cfg_p16_d), id(cfg_p17_d),
+                                   id(cfg_p18_d), id(cfg_p19_d), id(cfg_p20_d), id(cfg_p21_d), id(cfg_p22_d), id(cfg_p23_d),
+                                   id(cfg_p24_d)};
             if (np == 0) lv_obj_clear_flag(id(cfg_empty), LV_OBJ_FLAG_HIDDEN);
             else         lv_obj_add_flag(id(cfg_empty), LV_OBJ_FLAG_HIDDEN);
-            for (int i = 0; i < 5; i++) {
+            for (int i = 0; i < 25; i++) {
               if (i >= np) { lv_obj_add_flag(pbtn[i], LV_OBJ_FLAG_HIDDEN); continue; }
               lv_obj_clear_flag(pbtn[i], LV_OBJ_FLAG_HIDDEN);
               lv_label_set_text(pnm[i], s.printers[i].name.c_str());

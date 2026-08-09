@@ -11,6 +11,15 @@
 #             SCK=GPIO13  MOSI=GPIO11  MISO=GPIO12  SS=GPIO10  IRQ=GPIO14
 ################################################################################
 
+substitutions:
+  # Screen geometry consumed by espoolbuddy/lvgl.yaml's root page and
+  # lvgl: rotation — everything below the root sizes itself relative to its
+  # parent (flex/grid/pct), so these are the only resolution-specific values
+  # that need to change per console variant.
+  screen_width: "480"
+  screen_height: "320"
+  screen_rotation: "90"
+
 esphome:
   name: spoolbuddy-console
   friendly_name: SpoolBuddy Console
@@ -28,13 +37,14 @@ esphome:
 
 esp32:
   board: esp32-s3-devkitc-1
+  flash_size: 16MB
   variant: ESP32S3
   framework:
     type: esp-idf
     version: recommended
     sdkconfig_options:
       # Run the CPU at the full 240 MHz for smooth LVGL rendering and fast HTTP/JSON.
-      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240: "y"
       # Larger 64 KB data cache with 64-byte lines — improves PSRAM throughput,
       # which matters because the LVGL frame buffer lives in PSRAM.
       CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
@@ -50,6 +60,17 @@ esp32:
       CONFIG_PM_ENABLE: "y"
       # Required for light sleep — lets the idle task skip ticks while asleep.
       CONFIG_FREERTOS_USE_TICKLESS_IDLE: "1"
+    advanced:
+      # ESPHome's own "loopTask" (esp32/core.cpp) runs setup()/App.loop() —
+      # including lv_timer_handler() and every interval lambda — on a
+      # statically-sized stack independent of ESP-IDF's main-task stack
+      # (CONFIG_ESP_MAIN_TASK_STACK_SIZE does NOT apply to it, confirmed via a
+      # real "stack overflow in task loopTask" crash). Default is 8192 B. The
+      # flex/grid UI conversion added several more nested layout: containers
+      # (AMS row -> slot -> icon stack, NFC action row, header sub-rows,
+      # settings rows), deepening LVGL's recursive layout/style recalculation
+      # on every lv_timer_handler() call enough to overflow the default.
+      loop_task_stack_size: 16384
 
 psram:
   mode: quad
@@ -165,6 +186,23 @@ spi:
 
 
 # ============================================================================
+# BambuddyNFC — PN532 via SPI
+# ============================================================================
+bambuddy_nfc:
+  id: nfc_reader
+  api_id: bambuddy
+  spi_id: nfc_spi
+  cs_pin: GPIO10
+  irq_pin:
+    number: GPIO14
+    mode: INPUT_PULLUP  # PN532 IRQ is open-drain; pull-up required
+  data_rate: 1MHz
+  spi_mode: 0
+  poll_interval: 300   # ms — used only in fallback polling mode; IRQ mode uses 10ms guard
+  miss_threshold: 3
+
+
+# ============================================================================
 # Sensors
 # ============================================================================
 sensor:
@@ -220,7 +258,6 @@ display:
     spi_id: octal_spi
     data_rate: 20MHz
     reset_pin: GPIO4
-    invert_colors: true
     auto_clear_enabled: false
     update_interval: never
 
@@ -246,7 +283,7 @@ touchscreen:
 #   LRCLK/WS = GPIO35   BCLK = GPIO36   DOUT/DIN = GPIO37
 #   (these three are free only because we run the PSRAM in quad mode)
 # Short RTTTL chimes are fired from the UI interval lambda in
-# espoolbuddy/spoolbuddy_app.yaml: one when a tag is scanned (console PN532 *or*
+# espoolbuddy/app.yaml: one when a tag is scanned (console PN532 *or*
 # a scale-pushed scan), and one when the scale settles on a real load.
 # ============================================================================
 i2s_audio:
@@ -281,6 +318,12 @@ bambuddy_api:
   backend_url: !secret bambuddy_backend_url
   api_key: !secret bambuddy_api_key
   hostname: "SpoolBuddy-Console"
+  backlight_id: display_backlight
+  # Optional hardware — omit either to build a console without a PN532/speaker;
+  # bambuddy_api gracefully no-ops the corresponding calls and hides the
+  # dependent Settings UI when not set.
+  nfc_id: nfc_reader
+  speaker_id: rtttl_player
   # Which Bambuddy inventory backend to talk to — must match Settings → Spoolman
   # in the Bambuddy web UI. "internal" (default) uses Bambuddy's own DB;
   # "spoolman" delegates spool/tag/assignment calls to Bambuddy's Spoolman
@@ -289,16 +332,17 @@ bambuddy_api:
   inventory_backend: internal   # internal | spoolman
   heartbeat_interval: 10        # seconds — tag scan triggers an extra immediate heartbeat
   scale_report_interval: 250    # ms
-  printer_poll_interval: 30     # seconds
+  printer_poll_interval: 15     # seconds
   # Deep-idle "sleep": sleep_timeout is controlled at runtime by the interval
-  # lambda in espoolbuddy/spoolbuddy_app.yaml (set_sleep_timeout from sleep_timeout_min
+  # lambda in espoolbuddy/app.yaml (set_sleep_timeout from sleep_timeout_min
   # global). sleep_factor stretches heartbeat + poll cadence while asleep.
-  sleep_factor: 6               # while asleep: heartbeat ×6 (10s→60s), poll ×6 (30s→180s)
+  sleep_factor: 12              # while asleep: heartbeat ×12 (10s→120s), poll ×12 (15s→180s)
   # Header clock format: true = 24-hour (14:05), false = 12-hour (2:05 PM).
   clock_24h: true
 
 
 packages:
-  app:    !include espoolbuddy/spoolbuddy_app.yaml
-  assets: !include espoolbuddy/spoolbuddy_assets.yaml
-  ui:     !include espoolbuddy/spoolbuddy_lvgl.yaml
+  version: !include espoolbuddy/version.yaml
+  app:     !include espoolbuddy/app.yaml
+  assets:  !include espoolbuddy/assets.yaml
+  ui:      !include espoolbuddy/lvgl.yaml

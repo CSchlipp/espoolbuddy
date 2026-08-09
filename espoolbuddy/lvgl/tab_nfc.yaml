@@ -1,9 +1,7 @@
 obj:
   id: content_nfc
-  x: 0
-  y: 30
-  width: 480
-  height: 250
+  width: 100%
+  height: 100%
   styles: sty_panel
   scrollbar_mode: "OFF"
   hidden: true
@@ -11,7 +9,7 @@ obj:
     # "waiting" placeholder (shown when no spool selected)
     - label:
         id: nfc_waiting
-        width: 480
+        width: 100%
         text: "Waiting for tag..."
         text_font: roboto_28
         text_color: 0x8888AA
@@ -21,146 +19,105 @@ obj:
     # spool detail group
     - obj:
         id: nfc_spool_box
-        x: 0
-        y: 0
-        width: 480
-        height: 250
+        width: 100%
+        height: 100%
         styles: sty_panel
         scrollbar_mode: "OFF"
         hidden: true
         widgets:
-          # ---- Spool icon — centered, 3 recolourable layers ----
+          # ---- Hero content group — icon/material/color/weight/progress,
+          # centered as a block in the panel regardless of screen size (no
+          # per-device pixel offsets; the corner-anchored siblings below —
+          # spool ID, TTL, tag-format icons, action row — stay absolute). ----
           - obj:
-              id: nfc_swatch
-              x: 200           # (480 - 80) / 2 = 200 → horizontally centered
-              y: 6
-              width: 80
-              height: 80
+              id: nfc_hero_group
+              align: CENTER
+              # Shifted up from dead-center: on the 320px-tall console, centering
+              # in the full panel height overlaps the bottom action row/assign
+              # banner (both anchored BOTTOM_MID, ~56px reserved). The hero
+              # content's own height is fixed (icon+labels+bar, independent of
+              # screen size), so a constant offset reliably clears that reserved
+              # band on the small screen while only nudging it up slightly on
+              # the larger pandatouch panel, where there was already headroom.
+              y: -32
+              width: 100%
+              height: SIZE_CONTENT
               bg_opa: TRANSP
               border_width: 0
               pad_all: 0
               scrollbar_mode: "OFF"
+              layout:
+                type: flex
+                flex_flow: column
+                flex_align_cross: center
+                pad_row: 4
               widgets:
-                - image: {id: nfc_spool_fill, src: img_spool_fill_lg, align: CENTER, image_recolor: 0x6666AA, image_recolor_opa: COVER}
-                - obj: {id: nfc_spool_hub, align: CENTER, width: 30, height: 30, radius: 15, bg_color: 0x12121A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF"}
-                - image: {id: nfc_spool_shine, src: img_spool_shine_lg, align: CENTER}
-          # ---- Material name — large, centered ----
-          - label:
-              id: nfc_material
-              x: 0
-              y: 94
-              width: 480
-              height: 34
-              text: ""
-              text_font: roboto_28
-              text_color: 0xFFFFFF
-              text_align: CENTER
-              long_mode: DOT
-              align: TOP_LEFT
-          # ---- Color name — centered below material ----
-          - label:
-              id: nfc_colorname
-              x: 0
-              y: 132
-              width: 480
-              height: 24
-              text: ""
-              text_font: roboto_20
-              text_color: 0xDDDDEE
-              text_align: CENTER
-              long_mode: DOT
-              align: TOP_LEFT
-          # ---- Remaining weight — centered ----
-          - label:
-              id: nfc_weight
-              x: 0
-              y: 158
-              width: 480
-              height: 22
-              text: ""
-              text_font: roboto_16
-              text_color: 0xCCCCDD
-              text_align: CENTER
-              align: TOP_LEFT
-          # ---- Filament remaining progress bar ----
-          - obj:
-              id: nfc_progress_track
-              x: 100
-              y: 180
-              width: 280
-              height: 5
-              bg_color: 0x2A2A45
-              bg_opa: COVER
-              border_width: 0
-              radius: 2
-              pad_all: 0
-              scrollbar_mode: "OFF"
-              hidden: true
-              widgets:
+                # ---- Spool icon — 3 recolourable layers ----
                 - obj:
-                    id: nfc_progress_fill
-                    x: 0
-                    y: 0
-                    width: 0
+                    id: nfc_swatch
+                    width: 80
+                    height: 80
+                    bg_opa: TRANSP
+                    border_width: 0
+                    pad_all: 0
+                    scrollbar_mode: "OFF"
+                    widgets:
+                      - image: {id: nfc_spool_fill, src: img_spool_fill_lg, align: CENTER, image_recolor: 0x6666AA, image_recolor_opa: COVER}
+                      - obj: {id: nfc_spool_hub, align: CENTER, width: 30, height: 30, radius: 15, bg_color: 0x12121A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF"}
+                      - image: {id: nfc_spool_shine, src: img_spool_shine_lg, align: CENTER}
+                # ---- Material name — large ----
+                - label:
+                    id: nfc_material
+                    width: 100%
+                    height: 34
+                    text: ""
+                    text_font: roboto_28
+                    text_color: 0xFFFFFF
+                    text_align: CENTER
+                    long_mode: DOT
+                # ---- Color name — below material ----
+                - label:
+                    id: nfc_colorname
+                    width: 100%
+                    height: 24
+                    text: ""
+                    text_font: roboto_20
+                    text_color: 0xDDDDEE
+                    text_align: CENTER
+                    long_mode: DOT
+                # ---- Remaining weight ----
+                - label:
+                    id: nfc_weight
+                    width: 100%
+                    height: 22
+                    text: ""
+                    text_font: roboto_16
+                    text_color: 0xCCCCDD
+                    text_align: CENTER
+                # ---- Filament remaining progress bar ----
+                - obj:
+                    id: nfc_progress_track
+                    width: 70%
                     height: 5
-                    bg_color: 0x22C55E
+                    bg_color: 0x2A2A45
                     bg_opa: COVER
                     border_width: 0
                     radius: 2
+                    pad_all: 0
                     scrollbar_mode: "OFF"
-          # ---- Quick Weight button — center of single action row ----
-          - button:
-              id: btn_nfc_weight
-              x: 164
-              y: 194
-              width: 152
-              height: 50
-              bg_color: 0x0D1E2B
-              border_color: 0x2A6A82
-              border_width: 1
-              radius: 5
-              scrollbar_mode: "OFF"
-              hidden: true
-              on_click:
-                then:
-                  - lambda: |-
-                      auto s = bambuddy->snapshot();
-                      auto &fi = s.current_filament;
-                      // Shortcut: if scale has a stable, non-trivial weight, update directly.
-                      if (s.scale_ok && s.weight_stable && s.weight_grams > 5.0f) {
-                        bambuddy->record_scale_weight(fi.spool_id, s.weight_grams);
-                        return;
-                      }
-                      // Otherwise fall through to the popup.
-                      id(nfc_weight_popup_open) = 1;
-                      char info[64];
-                      if (!fi.material_type.empty() && !fi.color_name.empty())
-                        snprintf(info, sizeof(info), "%s \xC2\xB7 %s", fi.material_type.c_str(), fi.color_name.c_str());
-                      else if (!fi.material_type.empty())
-                        snprintf(info, sizeof(info), "%s", fi.material_type.c_str());
-                      else
-                        snprintf(info, sizeof(info), "Spool #%d", fi.spool_id);
-                      lv_label_set_text(id(nfc_wp_material), info);
-                      if (s.scale_ok) {
-                        char wbuf[16];
-                        snprintf(wbuf, sizeof(wbuf), "%.0f g", s.weight_grams);
-                        lv_label_set_text(id(nfc_wp_weight), wbuf);
-                        lv_label_set_text(id(nfc_wp_stable),
-                            s.weight_stable ? "Stable" : "");
-                      } else {
-                        lv_label_set_text(id(nfc_wp_weight), "---");
-                        lv_label_set_text(id(nfc_wp_stable), "");
-                      }
-                      lv_obj_clear_flag(id(nfc_weight_popup), LV_OBJ_FLAG_HIDDEN);
-              widgets:
-                - label:
-                    id: lbl_nfc_weight_btn
-                    width: 152
-                    text: "Quick Weight"
-                    text_font: roboto_16
-                    text_color: 0x4ECDC4
-                    text_align: CENTER
-                    align: CENTER
+                    hidden: true
+                    widgets:
+                      - obj:
+                          id: nfc_progress_fill
+                          x: 0
+                          y: 0
+                          width: 0
+                          height: 5
+                          bg_color: 0x22C55E
+                          bg_opa: COVER
+                          border_width: 0
+                          radius: 2
+                          scrollbar_mode: "OFF"
           # ---- Spool ID — small, top-right ----
           - label: {id: nfc_spoolid, x: 400, y: 94, width: 76, height: 16, text: "", text_font: roboto_12, text_color: 0x777799, text_align: RIGHT, align: TOP_LEFT}
           # TTL countdown — shown while auto-assign is pending
@@ -199,58 +156,130 @@ obj:
               y: 6
               align: TOP_LEFT
               hidden: true
-          - button:                    # Discard — right third; expands when fewer buttons visible
-              id: btn_dismiss
-              x: 320
-              y: 194
-              width: 152
+
+          # ---- Action row: Unlink | Quick Weight | Discard ----
+          # Flex row, bottom of the panel. Buttons stretch to share the
+          # available width equally (flex_grow: 1); which are visible is
+          # decided at runtime (LV_OBJ_FLAG_HIDDEN) by app.yaml —
+          # flex automatically reflows the remaining visible buttons.
+          - obj:
+              id: nfc_action_row
+              align: BOTTOM_MID
+              y: -6
+              width: 100%
               height: 50
-              bg_color: 0x2A1A28
-              border_color: 0x5A2A40
-              border_width: 1
-              radius: 6
+              bg_opa: TRANSP
+              border_width: 0
+              pad_all: 0
+              pad_left: 8
+              pad_right: 8
+              layout:
+                type: FLEX
+                flex_flow: ROW
+                pad_column: 8
               scrollbar_mode: "OFF"
-              on_click:
-                then:
-                  - lambda: bambuddy->dismiss_spool();
               widgets:
-                - label:
-                    text: "Discard"
-                    text_font: roboto_16
-                    text_color: 0xE0708C
-                    align: CENTER
-          - button:                    # unlink tag (left third; expands to half when weight btn hidden)
-              id: btn_nfc_unlink
-              x: 8
-              y: 194
-              width: 152
-              height: 50
-              bg_color: 0x2A1A1A
-              border_color: 0x9C3A3A
-              border_width: 2
-              radius: 6
-              scrollbar_mode: "OFF"
-              hidden: true
-              on_click:
-                then:
-                  - lambda: |-
-                      id(confirm_action) = 1;
-                      lv_label_set_text(id(confirm_msg), "Unlink this tag from its spool?");
-                      lv_label_set_text(id(confirm_ok_lbl), "Unlink");
-                      lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
-              widgets:
-                - label:
-                    text: "Unlink Tag"
-                    text_font: roboto_16
-                    text_color: 0xFF8888
-                    align: CENTER
+                # ---- Unlink tag ----
+                - button:
+                    id: btn_nfc_unlink
+                    flex_grow: 1
+                    height: 50
+                    bg_color: 0x2A1A1A
+                    border_color: 0x9C3A3A
+                    border_width: 2
+                    radius: 6
+                    scrollbar_mode: "OFF"
+                    hidden: true
+                    on_click:
+                      then:
+                        - lambda: |-
+                            id(confirm_action) = 1;
+                            lv_label_set_text(id(confirm_msg), "Unlink this tag from its spool?");
+                            lv_label_set_text(id(confirm_ok_lbl), "Unlink");
+                            lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+                    widgets:
+                      - label:
+                          text: "Unlink Tag"
+                          text_font: roboto_16
+                          text_color: 0xFF8888
+                          align: CENTER
+                # ---- Quick Weight ----
+                - button:
+                    id: btn_nfc_weight
+                    flex_grow: 1
+                    height: 50
+                    bg_color: 0x0D1E2B
+                    border_color: 0x2A6A82
+                    border_width: 1
+                    radius: 5
+                    scrollbar_mode: "OFF"
+                    hidden: true
+                    on_click:
+                      then:
+                        - lambda: |-
+                            auto s = bambuddy->snapshot();
+                            auto &fi = s.current_filament;
+                            // Shortcut: if scale has a stable, non-trivial weight, update directly.
+                            if (s.scale_ok && s.weight_stable && s.weight_grams > 5.0f) {
+                              bambuddy->record_scale_weight(fi.spool_id, s.weight_grams);
+                              return;
+                            }
+                            // Otherwise fall through to the popup.
+                            id(nfc_weight_popup_open) = 1;
+                            char info[64];
+                            if (!fi.material_type.empty() && !fi.color_name.empty())
+                              snprintf(info, sizeof(info), "%s \xC2\xB7 %s", fi.material_type.c_str(), fi.color_name.c_str());
+                            else if (!fi.material_type.empty())
+                              snprintf(info, sizeof(info), "%s", fi.material_type.c_str());
+                            else
+                              snprintf(info, sizeof(info), "Spool #%d", fi.spool_id);
+                            lv_label_set_text(id(nfc_wp_material), info);
+                            if (s.scale_ok) {
+                              char wbuf[16];
+                              snprintf(wbuf, sizeof(wbuf), "%.0f g", s.weight_grams);
+                              lv_label_set_text(id(nfc_wp_weight), wbuf);
+                              lv_label_set_text(id(nfc_wp_stable),
+                                  s.weight_stable ? "Stable" : "");
+                            } else {
+                              lv_label_set_text(id(nfc_wp_weight), "---");
+                              lv_label_set_text(id(nfc_wp_stable), "");
+                            }
+                            lv_obj_clear_flag(id(nfc_weight_popup), LV_OBJ_FLAG_HIDDEN);
+                    widgets:
+                      - label:
+                          id: lbl_nfc_weight_btn
+                          width: 100%
+                          text: "Quick Weight"
+                          text_font: roboto_16
+                          text_color: 0x4ECDC4
+                          text_align: CENTER
+                          align: CENTER
+                # ---- Discard ----
+                - button:
+                    id: btn_dismiss
+                    flex_grow: 1
+                    height: 50
+                    bg_color: 0x2A1A28
+                    border_color: 0x5A2A40
+                    border_width: 1
+                    radius: 6
+                    scrollbar_mode: "OFF"
+                    on_click:
+                      then:
+                        - lambda: bambuddy->dismiss_spool();
+                    widgets:
+                      - label:
+                          text: "Discard"
+                          text_font: roboto_16
+                          text_color: 0xE0708C
+                          align: CENTER
 
           # Auto-assign success banner — declared after buttons so it renders on top
           - obj:
               id: nfc_assign_banner
-              x: 0
-              y: 194
-              width: 480
+              align: BOTTOM_MID
+              y: -6
+              width: 100%
               height: 50
               bg_color: 0x1A3520
               bg_opa: COVER
@@ -266,7 +295,7 @@ obj:
                     id: nfc_assign_text
                     x: 0
                     y: 0
-                    width: 480
+                    width: 100%
                     height: 32
                     text: ""
                     text_font: roboto_16
@@ -279,33 +308,34 @@ obj:
           # spool. Overlays the bottom action row.
           - obj:
               id: nfc_write_banner
-              x: 0
-              y: 210
-              width: 480
+              align: BOTTOM_MID
+              y: -6
+              width: 100%
               height: 40
               bg_color: 0x0D1E30
               border_color: 0x3A6A9C
               border_width: 2
               radius: 6
               pad_all: 0
+              pad_left: 8
+              pad_right: 8
+              layout:
+                type: FLEX
+                flex_flow: ROW
+                flex_align_cross: center
+                pad_column: 6
               scrollbar_mode: "OFF"
               hidden: true
               widgets:
                 - label:
-                    x: 8
-                    y: 0
-                    width: 210
-                    height: 50
+                    flex_grow: 1
                     text: "Write spool to NFC tag?"
                     text_font: roboto_12
                     text_color: 0xAABBDD
                     text_align: LEFT
-                    align: TOP_LEFT
                 - button:
                     id: btn_nfc_write_yes
-                    x: 224
-                    y: 6
-                    width: 110
+                    width: 100
                     height: 38
                     bg_color: 0x0D2B14
                     border_color: 0x4CAF50
@@ -321,9 +351,7 @@ obj:
                       - label: {text: "Write", text_font: roboto_12, text_color: 0x4CAF50, align: CENTER}
                 - button:
                     id: btn_nfc_write_skip
-                    x: 344
-                    y: 6
-                    width: 110
+                    width: 100
                     height: 38
                     bg_color: 0x1E2030
                     border_color: 0x6666AA
@@ -336,182 +364,311 @@ obj:
                     widgets:
                       - label: {text: "Skip", text_font: roboto_12, text_color: 0xBBBBCC, align: CENTER}
 
-          # ---- Quick Weight popup — full overlay, shown over spool detail ----
+          # ---- Quick Weight popup — sized to content, shown over spool detail ----
           - obj:
               id: nfc_weight_popup
-              x: 0
-              y: 0
-              width: 480
-              height: 250
+              align: CENTER
+              width: 90%
+              height: SIZE_CONTENT
               bg_color: 0x0A0A1A
               bg_opa: COVER
               border_color: 0x2A6A82
               border_width: 2
               radius: 0
               pad_all: 0
+              pad_top: 16
+              pad_bottom: 8
+              layout:
+                type: FLEX
+                flex_flow: COLUMN
+                pad_row: 8
               scrollbar_mode: "OFF"
+              scrollable: false
               hidden: true
               widgets:
                 - label:
-                    x: 0
-                    y: 16
-                    width: 480
+                    width: 100%
                     height: 26
                     text: "Update Spool Weight"
                     text_font: roboto_20
                     text_color: 0xFFFFFF
                     text_align: CENTER
-                    align: TOP_LEFT
                 - label:
                     id: nfc_wp_material
-                    x: 0
-                    y: 50
-                    width: 480
+                    width: 100%
                     height: 20
                     text: ""
                     text_font: roboto_16
                     text_color: 0xCCCCDD
                     text_align: CENTER
                     long_mode: DOT
-                    align: TOP_LEFT
                 - label:
-                    x: 0
-                    y: 76
-                    width: 480
+                    width: 100%
                     height: 16
                     text: "Current scale reading:"
                     text_font: roboto_12
                     text_color: 0x6666AA
                     text_align: CENTER
-                    align: TOP_LEFT
                 - label:
                     id: nfc_wp_weight
-                    x: 0
-                    y: 94
-                    width: 480
+                    width: 100%
                     height: 52
                     text: "---"
                     text_font: roboto_40
                     text_color: 0x4ECDC4
                     text_align: CENTER
-                    align: TOP_LEFT
                 - label:
                     id: nfc_wp_stable
-                    x: 0
-                    y: 150
-                    width: 480
+                    width: 100%
                     height: 16
                     text: ""
                     text_font: roboto_12
                     text_color: 0x5A8A7A
                     text_align: CENTER
-                    align: TOP_LEFT
-                - button:
-                    id: btn_nfc_wp_update
-                    x: 8
-                    y: 174
-                    width: 220
+                - obj:
+                    width: 100%
                     height: 34
-                    bg_color: 0x0D2B14
-                    border_color: 0x4CAF50
-                    border_width: 2
-                    radius: 6
+                    bg_opa: TRANSP
+                    border_width: 0
+                    pad_all: 0
+                    pad_left: 8
+                    pad_right: 8
+                    layout:
+                      type: FLEX
+                      flex_flow: ROW
+                      pad_column: 8
                     scrollbar_mode: "OFF"
-                    on_click:
-                      then:
-                        - lambda: |-
-                            auto s = bambuddy->snapshot();
-                            int spool_id = s.current_filament.spool_id;
-                            float w = s.weight_grams;
-                            if (spool_id > 0 && s.scale_ok) {
-                              bambuddy->record_scale_weight(spool_id, w);
-                            }
-                            id(nfc_weight_popup_open) = 0;
-                            lv_obj_add_flag(id(nfc_weight_popup), LV_OBJ_FLAG_HIDDEN);
                     widgets:
-                      - label: {text: "Update", text_font: roboto_16, text_color: 0x4CAF50, align: CENTER}
-                - button:
-                    id: btn_nfc_wp_cancel
-                    x: 244
-                    y: 174
-                    width: 228
-                    height: 34
-                    bg_color: 0x1E2040
-                    border_color: 0x8585B8
-                    border_width: 1
-                    radius: 6
-                    scrollbar_mode: "OFF"
-                    on_click:
-                      then:
-                        - lambda: |-
-                            id(nfc_weight_popup_open) = 0;
-                            lv_obj_add_flag(id(nfc_weight_popup), LV_OBJ_FLAG_HIDDEN);
-                    widgets:
-                      - label: {text: "Cancel", text_font: roboto_16, text_color: 0xBBBBCC, align: CENTER}
+                      - button:
+                          id: btn_nfc_wp_update
+                          flex_grow: 1
+                          height: 34
+                          bg_color: 0x0D2B14
+                          border_color: 0x4CAF50
+                          border_width: 2
+                          radius: 6
+                          scrollbar_mode: "OFF"
+                          on_click:
+                            then:
+                              - lambda: |-
+                                  auto s = bambuddy->snapshot();
+                                  int spool_id = s.current_filament.spool_id;
+                                  float w = s.weight_grams;
+                                  if (spool_id > 0 && s.scale_ok) {
+                                    bambuddy->record_scale_weight(spool_id, w);
+                                  }
+                                  id(nfc_weight_popup_open) = 0;
+                                  lv_obj_add_flag(id(nfc_weight_popup), LV_OBJ_FLAG_HIDDEN);
+                          widgets:
+                            - label: {text: "Update", text_font: roboto_16, text_color: 0x4CAF50, align: CENTER}
+                      - button:
+                          id: btn_nfc_wp_cancel
+                          flex_grow: 1
+                          height: 34
+                          bg_color: 0x1E2040
+                          border_color: 0x8585B8
+                          border_width: 1
+                          radius: 6
+                          scrollbar_mode: "OFF"
+                          on_click:
+                            then:
+                              - lambda: |-
+                                  id(nfc_weight_popup_open) = 0;
+                                  lv_obj_add_flag(id(nfc_weight_popup), LV_OBJ_FLAG_HIDDEN);
+                          widgets:
+                            - label: {text: "Cancel", text_font: roboto_16, text_color: 0xBBBBCC, align: CENTER}
 
           # ---- Archive proposal popup — shown after Quick Weight records 0g remaining ----
           - obj:
               id: nfc_archive_proposal_popup
-              x: 0
-              y: 0
-              width: 480
-              height: 250
+              align: CENTER
+              width: 90%
+              height: 100%
               bg_color: 0x0A0A1A
               bg_opa: COVER
               border_color: 0x6A3A28
               border_width: 2
               radius: 0
               pad_all: 0
+              pad_top: 16
+              pad_bottom: 8
+              layout:
+                type: FLEX
+                flex_flow: COLUMN
+                pad_row: 8
               scrollbar_mode: "OFF"
               hidden: true
               widgets:
                 - label:
-                    x: 0
-                    y: 20
-                    width: 480
+                    width: 100%
                     height: 26
                     text: "\U000F003C"
                     text_font: mdi_30
                     text_color: 0xE0A060
                     text_align: CENTER
-                    align: TOP_LEFT
                 - label:
-                    x: 0
-                    y: 58
-                    width: 480
+                    width: 100%
                     height: 26
                     text: "Spool Empty"
                     text_font: roboto_20
                     text_color: 0xFFFFFF
                     text_align: CENTER
-                    align: TOP_LEFT
                 - label:
                     id: nfc_archive_prop_info
-                    x: 0
-                    y: 88
-                    width: 480
+                    width: 100%
                     height: 20
                     text: ""
                     text_font: roboto_16
                     text_color: 0xCCCCDD
                     text_align: CENTER
                     long_mode: DOT
-                    align: TOP_LEFT
                 - label:
-                    x: 0
-                    y: 114
-                    width: 480
+                    width: 100%
                     height: 16
                     text: "Archive this spool?"
                     text_font: roboto_12
                     text_color: 0x6666AA
                     text_align: CENTER
-                    align: TOP_LEFT
-                - button:
-                    x: 8
-                    y: 176
-                    width: 220
+                - obj:
+                    width: 100%
                     height: 40
+                    bg_opa: TRANSP
+                    border_width: 0
+                    pad_all: 0
+                    pad_left: 8
+                    pad_right: 8
+                    layout:
+                      type: FLEX
+                      flex_flow: ROW
+                      pad_column: 8
+                    scrollbar_mode: "OFF"
+                    widgets:
+                      - button:
+                          flex_grow: 1
+                          height: 40
+                          bg_color: 0x0D2B14
+                          border_color: 0x4CAF50
+                          border_width: 2
+                          radius: 6
+                          scrollbar_mode: "OFF"
+                          on_click:
+                            then:
+                              - lambda: |-
+                                  auto s = bambuddy->snapshot();
+                                  int sid = s.current_filament.spool_id;
+                                  lv_obj_add_flag(id(nfc_archive_proposal_popup), LV_OBJ_FLAG_HIDDEN);
+                                  if (sid > 0) bambuddy->archive_spool(sid);
+                          widgets:
+                            - label: {text: "Archive", text_font: roboto_16, text_color: 0x4CAF50, align: CENTER}
+                      - button:
+                          flex_grow: 1
+                          height: 40
+                          bg_color: 0x1E2040
+                          border_color: 0x8585B8
+                          border_width: 1
+                          radius: 6
+                          scrollbar_mode: "OFF"
+                          on_click:
+                            then:
+                              - lambda: |-
+                                  lv_obj_add_flag(id(nfc_archive_proposal_popup), LV_OBJ_FLAG_HIDDEN);
+                                  bambuddy->dismiss_archive_proposal();
+                          widgets:
+                            - label: {text: "Keep", text_font: roboto_16, text_color: 0xBBBBCC, align: CENTER}
+
+    # ================ NFC: UNLINKED TAG PANEL ================
+    # Shown when a tag is present on the reader but not yet
+    # linked to any spool in inventory.
+    - obj:
+        id: nfc_unlinked_panel
+        width: 100%
+        height: 100%
+        styles: sty_panel
+        scrollbar_mode: "OFF"
+        hidden: true
+        widgets:
+          # ---- Hero content group — icon/UID/title/TTL, centered as a block
+          # regardless of screen size (no per-device pixel offsets; the
+          # bottom action row stays absolute). ----
+          - obj:
+              id: nfc_unlinked_hero_group
+              align: CENTER
+              width: 100%
+              height: SIZE_CONTENT
+              bg_opa: TRANSP
+              border_width: 0
+              pad_all: 0
+              scrollbar_mode: "OFF"
+              layout:
+                type: flex
+                flex_flow: column
+                flex_align_cross: center
+                pad_row: 4
+              widgets:
+                - label:
+                    width: 100%
+                    text: "\U000F0396"
+                    text_font: mdi_30
+                    text_color: 0x8585B8
+                    text_align: CENTER
+                - label:
+                    id: nfc_unlinked_uid
+                    width: 100%
+                    height: 16
+                    text: ""
+                    text_font: roboto_12
+                    text_color: 0x9898C0
+                    text_align: CENTER
+                - label:
+                    width: 100%
+                    height: 26
+                    text: "Tag not linked to any spool"
+                    text_font: roboto_20
+                    text_color: 0xBBBBCC
+                    text_align: CENTER
+                - label:
+                    id: nfc_unlinked_ttl
+                    width: 100%
+                    height: 18
+                    text: ""
+                    text_font: roboto_12
+                    text_color: 0x6666AA
+                    text_align: CENTER
+          # Action buttons
+          - obj:
+              align: BOTTOM_MID
+              y: -6
+              width: 100%
+              height: 44
+              bg_opa: TRANSP
+              border_width: 0
+              pad_all: 0
+              pad_left: 8
+              pad_right: 8
+              layout:
+                type: FLEX
+                flex_flow: ROW
+                pad_column: 4
+              scrollbar_mode: "OFF"
+              widgets:
+                - button:
+                    id: btn_add_to_inventory
+                    flex_grow: 1
+                    height: 44
+                    bg_color: 0x0D2B14
+                    border_color: 0x4CAF50
+                    border_width: 2
+                    radius: 6
+                    scrollbar_mode: "OFF"
+                    on_click:
+                      then:
+                        - lambda: bambuddy->create_spool_from_tag();
+                    widgets:
+                      - label: {text: "Add to Inventory", text_font: roboto_12, text_color: 0x4CAF50, align: CENTER}
+                - button:
+                    id: btn_assign_spool
+                    flex_grow: 1
+                    height: 44
                     bg_color: 0x0D2B14
                     border_color: 0x4CAF50
                     border_width: 2
@@ -520,657 +677,1584 @@ obj:
                     on_click:
                       then:
                         - lambda: |-
-                            auto s = bambuddy->snapshot();
-                            int sid = s.current_filament.spool_id;
-                            lv_obj_add_flag(id(nfc_archive_proposal_popup), LV_OBJ_FLAG_HIDDEN);
-                            if (sid > 0) bambuddy->archive_spool(sid);
+                            bambuddy->request_recent_spools();
+                            // Reset the manual ID entry to #1 each time the picker opens.
+                            id(nfc_assign_spool_id) = 1;
+                            lv_label_set_text(id(lbl_picker_id), "ID: 1");
+                            lv_label_set_text(id(lbl_picker_assign_id), "Assign #1");
+                            // Clear the stale grid right away so the previous spools don't
+                            // flash before the refetch populates (the UI tick is up to 400ms).
+                            lv_obj_t *pbtns[9] = {id(picker_btn_0), id(picker_btn_1), id(picker_btn_2),
+                                                  id(picker_btn_3), id(picker_btn_4), id(picker_btn_5),
+                                                  id(picker_btn_6), id(picker_btn_7), id(picker_btn_8)};
+                            for (auto *b : pbtns) lv_obj_add_flag(b, LV_OBJ_FLAG_HIDDEN);
+                            lv_label_set_text(id(nfc_picker_loading), "Loading...");
+                            lv_obj_clear_flag(id(nfc_picker_loading), LV_OBJ_FLAG_HIDDEN);
+                            lv_obj_add_flag(id(nfc_unlinked_panel), LV_OBJ_FLAG_HIDDEN);
+                            lv_obj_clear_flag(id(nfc_picker_panel), LV_OBJ_FLAG_HIDDEN);
                     widgets:
-                      - label: {text: "Archive", text_font: roboto_16, text_color: 0x4CAF50, align: CENTER}
+                      - label: {text: "Assign Spool", text_font: roboto_12, text_color: 0x4CAF50, align: CENTER}
                 - button:
-                    x: 244
-                    y: 176
-                    width: 228
-                    height: 40
-                    bg_color: 0x1E2040
-                    border_color: 0x8585B8
+                    id: btn_nfc_discard_unlinked
+                    flex_grow: 1
+                    height: 44
+                    bg_color: 0x2A1A28
+                    border_color: 0x5A2A40
                     border_width: 1
                     radius: 6
                     scrollbar_mode: "OFF"
                     on_click:
                       then:
                         - lambda: |-
-                            lv_obj_add_flag(id(nfc_archive_proposal_popup), LV_OBJ_FLAG_HIDDEN);
-                            bambuddy->dismiss_archive_proposal();
+                            id(nfc_unlinked_dismissed) = 1;
+                            lv_obj_add_flag(id(nfc_unlinked_panel), LV_OBJ_FLAG_HIDDEN);
+                            lv_obj_clear_flag(id(nfc_waiting), LV_OBJ_FLAG_HIDDEN);
                     widgets:
-                      - label: {text: "Keep", text_font: roboto_16, text_color: 0xBBBBCC, align: CENTER}
-
-    # ================ NFC: UNLINKED TAG PANEL ================
-    # Shown when a tag is present on the reader but not yet
-    # linked to any spool in inventory.
-    - obj:
-        id: nfc_unlinked_panel
-        x: 0
-        y: 0
-        width: 480
-        height: 250
-        styles: sty_panel
-        scrollbar_mode: "OFF"
-        hidden: true
-        widgets:
-          - label:
-              x: 0
-              y: 20
-              width: 480
-              text: "\U000F0396"
-              text_font: mdi_30
-              text_color: 0x8585B8
-              text_align: CENTER
-              align: TOP_LEFT
-          - label:
-              id: nfc_unlinked_uid
-              x: 0
-              y: 56
-              width: 480
-              height: 16
-              text: ""
-              text_font: roboto_12
-              text_color: 0x9898C0
-              text_align: CENTER
-              align: TOP_LEFT
-          - label:
-              x: 0
-              y: 80
-              width: 480
-              height: 26
-              text: "Tag not linked to any spool"
-              text_font: roboto_20
-              text_color: 0xBBBBCC
-              text_align: CENTER
-              align: TOP_LEFT
-          - label:
-              id: nfc_unlinked_ttl
-              x: 0
-              y: 108
-              width: 480
-              height: 18
-              text: ""
-              text_font: roboto_12
-              text_color: 0x6666AA
-              text_align: CENTER
-              align: TOP_LEFT
-          # Action buttons
-          - button:
-              id: btn_add_to_inventory
-              x: 8
-              y: 196
-              width: 148
-              height: 44
-              bg_color: 0x0D2B14
-              border_color: 0x4CAF50
-              border_width: 2
-              radius: 6
-              scrollbar_mode: "OFF"
-              on_click:
-                then:
-                  - lambda: bambuddy->create_spool_from_tag();
-              widgets:
-                - label: {text: "Add to Inventory", text_font: roboto_12, text_color: 0x4CAF50, align: CENTER}
-          - button:
-              id: btn_assign_spool
-              x: 164
-              y: 196
-              width: 148
-              height: 44
-              bg_color: 0x0D2B14
-              border_color: 0x4CAF50
-              border_width: 2
-              radius: 6
-              scrollbar_mode: "OFF"
-              on_click:
-                then:
-                  - lambda: |-
-                      bambuddy->request_recent_spools();
-                      // Reset the manual ID entry to #1 each time the picker opens.
-                      id(nfc_assign_spool_id) = 1;
-                      lv_label_set_text(id(lbl_picker_id), "ID: 1");
-                      lv_label_set_text(id(lbl_picker_assign_id), "Assign #1");
-                      // Clear the stale grid right away so the previous spools don't
-                      // flash before the refetch populates (the UI tick is up to 400ms).
-                      lv_obj_t *pbtns[9] = {id(picker_btn_0), id(picker_btn_1), id(picker_btn_2),
-                                            id(picker_btn_3), id(picker_btn_4), id(picker_btn_5),
-                                            id(picker_btn_6), id(picker_btn_7), id(picker_btn_8)};
-                      for (auto *b : pbtns) lv_obj_add_flag(b, LV_OBJ_FLAG_HIDDEN);
-                      lv_label_set_text(id(nfc_picker_loading), "Loading...");
-                      lv_obj_clear_flag(id(nfc_picker_loading), LV_OBJ_FLAG_HIDDEN);
-                      lv_obj_add_flag(id(nfc_unlinked_panel), LV_OBJ_FLAG_HIDDEN);
-                      lv_obj_clear_flag(id(nfc_picker_panel), LV_OBJ_FLAG_HIDDEN);
-              widgets:
-                - label: {text: "Assign Spool", text_font: roboto_12, text_color: 0x4CAF50, align: CENTER}
-          - button:
-              id: btn_nfc_discard_unlinked
-              x: 320
-              y: 196
-              width: 152
-              height: 44
-              bg_color: 0x2A1A28
-              border_color: 0x5A2A40
-              border_width: 1
-              radius: 6
-              scrollbar_mode: "OFF"
-              on_click:
-                then:
-                  - lambda: |-
-                      id(nfc_unlinked_dismissed) = 1;
-                      lv_obj_add_flag(id(nfc_unlinked_panel), LV_OBJ_FLAG_HIDDEN);
-                      lv_obj_clear_flag(id(nfc_waiting), LV_OBJ_FLAG_HIDDEN);
-              widgets:
-                - label: {text: "Discard", text_font: roboto_16, text_color: 0xE0708C, align: CENTER}
+                      - label: {text: "Discard", text_font: roboto_16, text_color: 0xE0708C, align: CENTER}
 
     # ================ NFC: SPOOL PICKER PANEL ================
     # 3×3 grid of 9 most-recently-added spools for quick linking,
     # plus an ID input row for manual spool ID entry.
     - obj:
         id: nfc_picker_panel
-        x: 0
-        y: 0
-        width: 480
-        height: 250
+        width: 100%
+        height: 100%
         styles: sty_panel
         scrollbar_mode: "OFF"
+        scrollable: false
         hidden: true
+        layout:
+          type: flex
+          flex_flow: column
         widgets:
           # ---- Header ----
-          - label:
-              x: 4
-              y: 4
-              width: 320
-              height: 20
-              text: "Select spool to link"
-              text_font: roboto_12
-              text_color: 0xBBBBCC
-              align: TOP_LEFT
-          - button:
-              id: btn_picker_cancel
-              x: 394
-              y: 2
-              width: 82
-              height: 24
-              bg_color: 0x2A1A1A
-              border_color: 0xCC3333
-              border_width: 1
-              radius: 4
-              scrollbar_mode: "OFF"
-              on_click:
-                then:
-                  - lambda: |-
-                      lv_obj_add_flag(id(nfc_picker_panel), LV_OBJ_FLAG_HIDDEN);
-                      lv_obj_clear_flag(id(nfc_unlinked_panel), LV_OBJ_FLAG_HIDDEN);
-              widgets:
-                - label: {text: "Cancel", text_font: roboto_12, text_color: 0xFF8888, align: CENTER}
-          # ---- Loading indicator ----
-          - label:
-              id: nfc_picker_loading
+          - obj:
               x: 0
-              y: 100
-              width: 480
-              height: 20
-              text: "Loading..."
-              text_font: roboto_16
-              text_color: 0x8888AA
-              text_align: CENTER
-              align: TOP_LEFT
-          # ---- 3×3 spool grid (rows at y=28/84/140, cols at x=2/162/322) ----
-          # Slot 0
+              y: 0
+              width: 100%
+              height: 24
+              bg_opa: TRANSP
+              border_width: 0
+              pad_all: 0
+              pad_left: 4
+              pad_right: 4
+              layout:
+                type: FLEX
+                flex_flow: ROW
+                flex_align_cross: center
+                pad_column: 8
+              scrollbar_mode: "OFF"
+              widgets:
+                - label:
+                    flex_grow: 1
+                    text: "Select spool to link"
+                    text_font: roboto_12
+                    text_color: 0xBBBBCC
+                - button:
+                    id: btn_picker_cancel
+                    width: 82
+                    height: 24
+                    bg_color: 0x2A1A1A
+                    border_color: 0xCC3333
+                    border_width: 1
+                    radius: 4
+                    scrollbar_mode: "OFF"
+                    on_click:
+                      then:
+                        - lambda: |-
+                            lv_obj_add_flag(id(nfc_picker_panel), LV_OBJ_FLAG_HIDDEN);
+                            lv_obj_clear_flag(id(nfc_unlinked_panel), LV_OBJ_FLAG_HIDDEN);
+                    widgets:
+                      - label: {text: "Cancel", text_font: roboto_12, text_color: 0xFF8888, align: CENTER}
           - obj:
-              id: picker_btn_0
-              x: 2
-              y: 28
-              width: 154
-              height: 52
-              bg_color: 0x1E1E30
-              border_color: 0x3A3A56
-              border_width: 1
-              radius: 4
+              id: nfc_picker_area
+              width: 100%
+              flex_grow: 1
+              bg_opa: TRANSP
+              border_width: 0
               pad_all: 0
               scrollbar_mode: "OFF"
-              hidden: true
-              on_click:
-                then:
-                  - lambda: |-
-                      intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_0));
-                      if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+              scrollable: false
               widgets:
-                # Spool icon — images wrapped in an obj (not directly in the
-                # button) so the overlapping hub layer renders, same as the hero.
+                # ---- Loading indicator ----
+                - label:
+                    id: nfc_picker_loading
+                    x: 0
+                    y: 100
+                    width: 100%
+                    height: 20
+                    text: "Loading..."
+                    text_font: roboto_16
+                    text_color: 0x8888AA
+                    text_align: CENTER
+                    align: TOP_LEFT
+                # ---- 3x3 spool grid ----
+                # Column of 3 rows; each row is a flex row of 3 button: tiles
+                # (flex_grow: 1) -- the exact same shape as nfc_action_row and
+                # the Cancel/Assign buttons elsewhere in this panel, which are
+                # known to work correctly on both screens.
+                # ---- 3x3 spool grid ----
+                # Column of 3 rows; each row is a flex row of 3 button: tiles
+                # (flex_grow: 1). Every widget in each tile's subtree carries its
+                # own on_click (see TILE_TMPL comment below) rather than relying
+                # on non-clickable children falling through to the button.
                 - obj:
-                    x: 6
-                    y: 10
-                    width: 32
-                    height: 32
+                    id: nfc_picker_grid
+                    width: 100%
+                    height: 100%
                     bg_opa: TRANSP
                     border_width: 0
                     pad_all: 0
+                    pad_left: 2
+                    pad_right: 2
+                    layout:
+                      type: flex
+                      flex_flow: column
+                      pad_row: 4
                     scrollbar_mode: "OFF"
+                    scrollable: false
                     widgets:
-                      - image: {id: picker_fill_0, src: img_spool_fill, align: CENTER, image_recolor: 0x6666AA, image_recolor_opa: COVER}
-                      - obj: {id: picker_hub_0, align: CENTER, width: 12, height: 12, radius: 6, bg_color: 0x1E1E30, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF"}
-                - label: {id: picker_mat_0, x: 44, y: 3, width: 106, height: 16, text: "", text_font: roboto_12, text_color: 0xDDDDEE, align: TOP_LEFT}
-                - label: {id: picker_brand_0, x: 44, y: 19, width: 106, height: 16, text: "", text_font: roboto_12, text_color: 0xBBBBCC, align: TOP_LEFT}
-                - label: {id: picker_id_0, x: 44, y: 35, width: 106, height: 14, text: "", text_font: roboto_12, text_color: 0x777799, align: TOP_LEFT}
-          # Slot 1
-          - obj:
-              id: picker_btn_1
-              x: 162
-              y: 28
-              width: 154
-              height: 52
-              bg_color: 0x1E1E30
-              border_color: 0x3A3A56
-              border_width: 1
-              radius: 4
-              pad_all: 0
-              scrollbar_mode: "OFF"
-              hidden: true
-              on_click:
-                then:
-                  - lambda: |-
-                      intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_1));
-                      if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
-              widgets:
-                # Spool icon — images wrapped in an obj (not directly in the
-                # button) so the overlapping hub layer renders, same as the hero.
-                - obj:
-                    x: 6
-                    y: 10
-                    width: 32
-                    height: 32
-                    bg_opa: TRANSP
-                    border_width: 0
-                    pad_all: 0
-                    scrollbar_mode: "OFF"
-                    widgets:
-                      - image: {id: picker_fill_1, src: img_spool_fill, align: CENTER, image_recolor: 0x6666AA, image_recolor_opa: COVER}
-                      - obj: {id: picker_hub_1, align: CENTER, width: 12, height: 12, radius: 6, bg_color: 0x1E1E30, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF"}
-                - label: {id: picker_mat_1, x: 44, y: 3, width: 106, height: 16, text: "", text_font: roboto_12, text_color: 0xDDDDEE, align: TOP_LEFT}
-                - label: {id: picker_brand_1, x: 44, y: 19, width: 106, height: 16, text: "", text_font: roboto_12, text_color: 0xBBBBCC, align: TOP_LEFT}
-                - label: {id: picker_id_1, x: 44, y: 35, width: 106, height: 14, text: "", text_font: roboto_12, text_color: 0x777799, align: TOP_LEFT}
-          # Slot 2
-          - obj:
-              id: picker_btn_2
-              x: 322
-              y: 28
-              width: 154
-              height: 52
-              bg_color: 0x1E1E30
-              border_color: 0x3A3A56
-              border_width: 1
-              radius: 4
-              pad_all: 0
-              scrollbar_mode: "OFF"
-              hidden: true
-              on_click:
-                then:
-                  - lambda: |-
-                      intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_2));
-                      if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
-              widgets:
-                # Spool icon — images wrapped in an obj (not directly in the
-                # button) so the overlapping hub layer renders, same as the hero.
-                - obj:
-                    x: 6
-                    y: 10
-                    width: 32
-                    height: 32
-                    bg_opa: TRANSP
-                    border_width: 0
-                    pad_all: 0
-                    scrollbar_mode: "OFF"
-                    widgets:
-                      - image: {id: picker_fill_2, src: img_spool_fill, align: CENTER, image_recolor: 0x6666AA, image_recolor_opa: COVER}
-                      - obj: {id: picker_hub_2, align: CENTER, width: 12, height: 12, radius: 6, bg_color: 0x1E1E30, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF"}
-                - label: {id: picker_mat_2, x: 44, y: 3, width: 106, height: 16, text: "", text_font: roboto_12, text_color: 0xDDDDEE, align: TOP_LEFT}
-                - label: {id: picker_brand_2, x: 44, y: 19, width: 106, height: 16, text: "", text_font: roboto_12, text_color: 0xBBBBCC, align: TOP_LEFT}
-                - label: {id: picker_id_2, x: 44, y: 35, width: 106, height: 14, text: "", text_font: roboto_12, text_color: 0x777799, align: TOP_LEFT}
-          # Slot 3
-          - obj:
-              id: picker_btn_3
-              x: 2
-              y: 84
-              width: 154
-              height: 52
-              bg_color: 0x1E1E30
-              border_color: 0x3A3A56
-              border_width: 1
-              radius: 4
-              pad_all: 0
-              scrollbar_mode: "OFF"
-              hidden: true
-              on_click:
-                then:
-                  - lambda: |-
-                      intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_3));
-                      if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
-              widgets:
-                # Spool icon — images wrapped in an obj (not directly in the
-                # button) so the overlapping hub layer renders, same as the hero.
-                - obj:
-                    x: 6
-                    y: 10
-                    width: 32
-                    height: 32
-                    bg_opa: TRANSP
-                    border_width: 0
-                    pad_all: 0
-                    scrollbar_mode: "OFF"
-                    widgets:
-                      - image: {id: picker_fill_3, src: img_spool_fill, align: CENTER, image_recolor: 0x6666AA, image_recolor_opa: COVER}
-                      - obj: {id: picker_hub_3, align: CENTER, width: 12, height: 12, radius: 6, bg_color: 0x1E1E30, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF"}
-                - label: {id: picker_mat_3, x: 44, y: 3, width: 106, height: 16, text: "", text_font: roboto_12, text_color: 0xDDDDEE, align: TOP_LEFT}
-                - label: {id: picker_brand_3, x: 44, y: 19, width: 106, height: 16, text: "", text_font: roboto_12, text_color: 0xBBBBCC, align: TOP_LEFT}
-                - label: {id: picker_id_3, x: 44, y: 35, width: 106, height: 14, text: "", text_font: roboto_12, text_color: 0x777799, align: TOP_LEFT}
-          # Slot 4
-          - obj:
-              id: picker_btn_4
-              x: 162
-              y: 84
-              width: 154
-              height: 52
-              bg_color: 0x1E1E30
-              border_color: 0x3A3A56
-              border_width: 1
-              radius: 4
-              pad_all: 0
-              scrollbar_mode: "OFF"
-              hidden: true
-              on_click:
-                then:
-                  - lambda: |-
-                      intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_4));
-                      if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
-              widgets:
-                # Spool icon — images wrapped in an obj (not directly in the
-                # button) so the overlapping hub layer renders, same as the hero.
-                - obj:
-                    x: 6
-                    y: 10
-                    width: 32
-                    height: 32
-                    bg_opa: TRANSP
-                    border_width: 0
-                    pad_all: 0
-                    scrollbar_mode: "OFF"
-                    widgets:
-                      - image: {id: picker_fill_4, src: img_spool_fill, align: CENTER, image_recolor: 0x6666AA, image_recolor_opa: COVER}
-                      - obj: {id: picker_hub_4, align: CENTER, width: 12, height: 12, radius: 6, bg_color: 0x1E1E30, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF"}
-                - label: {id: picker_mat_4, x: 44, y: 3, width: 106, height: 16, text: "", text_font: roboto_12, text_color: 0xDDDDEE, align: TOP_LEFT}
-                - label: {id: picker_brand_4, x: 44, y: 19, width: 106, height: 16, text: "", text_font: roboto_12, text_color: 0xBBBBCC, align: TOP_LEFT}
-                - label: {id: picker_id_4, x: 44, y: 35, width: 106, height: 14, text: "", text_font: roboto_12, text_color: 0x777799, align: TOP_LEFT}
-          # Slot 5
-          - obj:
-              id: picker_btn_5
-              x: 322
-              y: 84
-              width: 154
-              height: 52
-              bg_color: 0x1E1E30
-              border_color: 0x3A3A56
-              border_width: 1
-              radius: 4
-              pad_all: 0
-              scrollbar_mode: "OFF"
-              hidden: true
-              on_click:
-                then:
-                  - lambda: |-
-                      intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_5));
-                      if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
-              widgets:
-                # Spool icon — images wrapped in an obj (not directly in the
-                # button) so the overlapping hub layer renders, same as the hero.
-                - obj:
-                    x: 6
-                    y: 10
-                    width: 32
-                    height: 32
-                    bg_opa: TRANSP
-                    border_width: 0
-                    pad_all: 0
-                    scrollbar_mode: "OFF"
-                    widgets:
-                      - image: {id: picker_fill_5, src: img_spool_fill, align: CENTER, image_recolor: 0x6666AA, image_recolor_opa: COVER}
-                      - obj: {id: picker_hub_5, align: CENTER, width: 12, height: 12, radius: 6, bg_color: 0x1E1E30, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF"}
-                - label: {id: picker_mat_5, x: 44, y: 3, width: 106, height: 16, text: "", text_font: roboto_12, text_color: 0xDDDDEE, align: TOP_LEFT}
-                - label: {id: picker_brand_5, x: 44, y: 19, width: 106, height: 16, text: "", text_font: roboto_12, text_color: 0xBBBBCC, align: TOP_LEFT}
-                - label: {id: picker_id_5, x: 44, y: 35, width: 106, height: 14, text: "", text_font: roboto_12, text_color: 0x777799, align: TOP_LEFT}
-          # Slot 6
-          - obj:
-              id: picker_btn_6
-              x: 2
-              y: 140
-              width: 154
-              height: 52
-              bg_color: 0x1E1E30
-              border_color: 0x3A3A56
-              border_width: 1
-              radius: 4
-              pad_all: 0
-              scrollbar_mode: "OFF"
-              hidden: true
-              on_click:
-                then:
-                  - lambda: |-
-                      intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_6));
-                      if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
-              widgets:
-                # Spool icon — images wrapped in an obj (not directly in the
-                # button) so the overlapping hub layer renders, same as the hero.
-                - obj:
-                    x: 6
-                    y: 10
-                    width: 32
-                    height: 32
-                    bg_opa: TRANSP
-                    border_width: 0
-                    pad_all: 0
-                    scrollbar_mode: "OFF"
-                    widgets:
-                      - image: {id: picker_fill_6, src: img_spool_fill, align: CENTER, image_recolor: 0x6666AA, image_recolor_opa: COVER}
-                      - obj: {id: picker_hub_6, align: CENTER, width: 12, height: 12, radius: 6, bg_color: 0x1E1E30, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF"}
-                - label: {id: picker_mat_6, x: 44, y: 3, width: 106, height: 16, text: "", text_font: roboto_12, text_color: 0xDDDDEE, align: TOP_LEFT}
-                - label: {id: picker_brand_6, x: 44, y: 19, width: 106, height: 16, text: "", text_font: roboto_12, text_color: 0xBBBBCC, align: TOP_LEFT}
-                - label: {id: picker_id_6, x: 44, y: 35, width: 106, height: 14, text: "", text_font: roboto_12, text_color: 0x777799, align: TOP_LEFT}
-          # Slot 7
-          - obj:
-              id: picker_btn_7
-              x: 162
-              y: 140
-              width: 154
-              height: 52
-              bg_color: 0x1E1E30
-              border_color: 0x3A3A56
-              border_width: 1
-              radius: 4
-              pad_all: 0
-              scrollbar_mode: "OFF"
-              hidden: true
-              on_click:
-                then:
-                  - lambda: |-
-                      intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_7));
-                      if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
-              widgets:
-                # Spool icon — images wrapped in an obj (not directly in the
-                # button) so the overlapping hub layer renders, same as the hero.
-                - obj:
-                    x: 6
-                    y: 10
-                    width: 32
-                    height: 32
-                    bg_opa: TRANSP
-                    border_width: 0
-                    pad_all: 0
-                    scrollbar_mode: "OFF"
-                    widgets:
-                      - image: {id: picker_fill_7, src: img_spool_fill, align: CENTER, image_recolor: 0x6666AA, image_recolor_opa: COVER}
-                      - obj: {id: picker_hub_7, align: CENTER, width: 12, height: 12, radius: 6, bg_color: 0x1E1E30, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF"}
-                - label: {id: picker_mat_7, x: 44, y: 3, width: 106, height: 16, text: "", text_font: roboto_12, text_color: 0xDDDDEE, align: TOP_LEFT}
-                - label: {id: picker_brand_7, x: 44, y: 19, width: 106, height: 16, text: "", text_font: roboto_12, text_color: 0xBBBBCC, align: TOP_LEFT}
-                - label: {id: picker_id_7, x: 44, y: 35, width: 106, height: 14, text: "", text_font: roboto_12, text_color: 0x777799, align: TOP_LEFT}
-          # Slot 8
-          - obj:
-              id: picker_btn_8
-              x: 322
-              y: 140
-              width: 154
-              height: 52
-              bg_color: 0x1E1E30
-              border_color: 0x3A3A56
-              border_width: 1
-              radius: 4
-              pad_all: 0
-              scrollbar_mode: "OFF"
-              hidden: true
-              on_click:
-                then:
-                  - lambda: |-
-                      intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_8));
-                      if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
-              widgets:
-                # Spool icon — images wrapped in an obj (not directly in the
-                # button) so the overlapping hub layer renders, same as the hero.
-                - obj:
-                    x: 6
-                    y: 10
-                    width: 32
-                    height: 32
-                    bg_opa: TRANSP
-                    border_width: 0
-                    pad_all: 0
-                    scrollbar_mode: "OFF"
-                    widgets:
-                      - image: {id: picker_fill_8, src: img_spool_fill, align: CENTER, image_recolor: 0x6666AA, image_recolor_opa: COVER}
-                      - obj: {id: picker_hub_8, align: CENTER, width: 12, height: 12, radius: 6, bg_color: 0x1E1E30, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF"}
-                - label: {id: picker_mat_8, x: 44, y: 3, width: 106, height: 16, text: "", text_font: roboto_12, text_color: 0xDDDDEE, align: TOP_LEFT}
-                - label: {id: picker_brand_8, x: 44, y: 19, width: 106, height: 16, text: "", text_font: roboto_12, text_color: 0xBBBBCC, align: TOP_LEFT}
-                - label: {id: picker_id_8, x: 44, y: 35, width: 106, height: 14, text: "", text_font: roboto_12, text_color: 0x777799, align: TOP_LEFT}
+                      - obj:
+                          id: nfc_picker_row0
+                          width: 100%
+                          flex_grow: 1
+                          bg_opa: TRANSP
+                          border_width: 0
+                          pad_all: 0
+                          scrollbar_mode: "OFF"
+                          scrollable: false
+                          layout:
+                            type: flex
+                            flex_flow: row
+                            pad_column: 4
+                          widgets:
+                            - button:
+                                id: picker_btn_0
+                                flex_grow: 1
+                                height: 100%
+                                bg_color: 0x1E1E30
+                                border_color: 0x3A3A56
+                                border_width: 1
+                                radius: 4
+                                pad_all: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                hidden: true
+                                on_click:
+                                  then:
+                                    - lambda: |-
+                                        intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_0));
+                                        if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                widgets:
+                                  # Fixed-size (130px) content block, centred in the button
+                                  # via plain align. on_click is duplicated on every layer
+                                  # down to the leaf image/label widgets, since LVGL did not
+                                  # reliably bubble a tap on a non-clickable child up to this
+                                  # button on real hardware -- only direct hits on the
+                                  # button's own exposed surface registered. Each layer now
+                                  # independently handles its own click.
+                                  - obj:
+                                      id: picker_content_0
+                                      width: 130
+                                      height: SIZE_CONTENT
+                                      align: CENTER
+                                      bg_opa: TRANSP
+                                      border_width: 0
+                                      pad_all: 0
+                                      scrollbar_mode: "OFF"
+                                      scrollable: false
+                                      on_click:
+                                        then:
+                                          - lambda: |-
+                                              intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_0));
+                                              if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                      widgets:
+                                        - obj:
+                                            width: 32
+                                            height: 32
+                                            x: 0
+                                            align: LEFT_MID
+                                            bg_opa: TRANSP
+                                            border_width: 0
+                                            pad_all: 0
+                                            scrollbar_mode: "OFF"
+                                            scrollable: false
+                                            on_click:
+                                              then:
+                                                - lambda: |-
+                                                    intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_0));
+                                                    if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                            widgets:
+                                              - image:
+                                                  id: picker_fill_0
+                                                  src: img_spool_fill
+                                                  align: CENTER
+                                                  image_recolor: 0x6666AA
+                                                  image_recolor_opa: COVER
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_0));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - obj:
+                                                  id: picker_hub_0
+                                                  align: CENTER
+                                                  width: 12
+                                                  height: 12
+                                                  radius: 6
+                                                  bg_color: 0x1E1E30
+                                                  bg_opa: COVER
+                                                  border_width: 1
+                                                  border_color: 0x555577
+                                                  pad_all: 0
+                                                  scrollbar_mode: "OFF"
+                                                  scrollable: false
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_0));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                        - obj:
+                                            width: 92
+                                            height: SIZE_CONTENT
+                                            x: 38
+                                            align: LEFT_MID
+                                            bg_opa: TRANSP
+                                            border_width: 0
+                                            pad_all: 0
+                                            scrollbar_mode: "OFF"
+                                            scrollable: false
+                                            on_click:
+                                              then:
+                                                - lambda: |-
+                                                    intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_0));
+                                                    if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                            layout:
+                                              type: flex
+                                              flex_flow: column
+                                              pad_row: 2
+                                            widgets:
+                                              - label:
+                                                  id: picker_mat_0
+                                                  width: 92
+                                                  height: 16
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0xDDDDEE
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_0));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - label:
+                                                  id: picker_brand_0
+                                                  width: 92
+                                                  height: 16
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0xBBBBCC
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_0));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - label:
+                                                  id: picker_id_0
+                                                  width: 92
+                                                  height: 14
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0x777799
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_0));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                            - button:
+                                id: picker_btn_1
+                                flex_grow: 1
+                                height: 100%
+                                bg_color: 0x1E1E30
+                                border_color: 0x3A3A56
+                                border_width: 1
+                                radius: 4
+                                pad_all: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                hidden: true
+                                on_click:
+                                  then:
+                                    - lambda: |-
+                                        intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_1));
+                                        if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                widgets:
+                                  # Fixed-size (130px) content block, centred in the button
+                                  # via plain align. on_click is duplicated on every layer
+                                  # down to the leaf image/label widgets, since LVGL did not
+                                  # reliably bubble a tap on a non-clickable child up to this
+                                  # button on real hardware -- only direct hits on the
+                                  # button's own exposed surface registered. Each layer now
+                                  # independently handles its own click.
+                                  - obj:
+                                      id: picker_content_1
+                                      width: 130
+                                      height: SIZE_CONTENT
+                                      align: CENTER
+                                      bg_opa: TRANSP
+                                      border_width: 0
+                                      pad_all: 0
+                                      scrollbar_mode: "OFF"
+                                      scrollable: false
+                                      on_click:
+                                        then:
+                                          - lambda: |-
+                                              intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_1));
+                                              if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                      widgets:
+                                        - obj:
+                                            width: 32
+                                            height: 32
+                                            x: 0
+                                            align: LEFT_MID
+                                            bg_opa: TRANSP
+                                            border_width: 0
+                                            pad_all: 0
+                                            scrollbar_mode: "OFF"
+                                            scrollable: false
+                                            on_click:
+                                              then:
+                                                - lambda: |-
+                                                    intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_1));
+                                                    if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                            widgets:
+                                              - image:
+                                                  id: picker_fill_1
+                                                  src: img_spool_fill
+                                                  align: CENTER
+                                                  image_recolor: 0x6666AA
+                                                  image_recolor_opa: COVER
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_1));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - obj:
+                                                  id: picker_hub_1
+                                                  align: CENTER
+                                                  width: 12
+                                                  height: 12
+                                                  radius: 6
+                                                  bg_color: 0x1E1E30
+                                                  bg_opa: COVER
+                                                  border_width: 1
+                                                  border_color: 0x555577
+                                                  pad_all: 0
+                                                  scrollbar_mode: "OFF"
+                                                  scrollable: false
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_1));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                        - obj:
+                                            width: 92
+                                            height: SIZE_CONTENT
+                                            x: 38
+                                            align: LEFT_MID
+                                            bg_opa: TRANSP
+                                            border_width: 0
+                                            pad_all: 0
+                                            scrollbar_mode: "OFF"
+                                            scrollable: false
+                                            on_click:
+                                              then:
+                                                - lambda: |-
+                                                    intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_1));
+                                                    if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                            layout:
+                                              type: flex
+                                              flex_flow: column
+                                              pad_row: 2
+                                            widgets:
+                                              - label:
+                                                  id: picker_mat_1
+                                                  width: 92
+                                                  height: 16
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0xDDDDEE
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_1));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - label:
+                                                  id: picker_brand_1
+                                                  width: 92
+                                                  height: 16
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0xBBBBCC
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_1));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - label:
+                                                  id: picker_id_1
+                                                  width: 92
+                                                  height: 14
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0x777799
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_1));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                            - button:
+                                id: picker_btn_2
+                                flex_grow: 1
+                                height: 100%
+                                bg_color: 0x1E1E30
+                                border_color: 0x3A3A56
+                                border_width: 1
+                                radius: 4
+                                pad_all: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                hidden: true
+                                on_click:
+                                  then:
+                                    - lambda: |-
+                                        intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_2));
+                                        if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                widgets:
+                                  # Fixed-size (130px) content block, centred in the button
+                                  # via plain align. on_click is duplicated on every layer
+                                  # down to the leaf image/label widgets, since LVGL did not
+                                  # reliably bubble a tap on a non-clickable child up to this
+                                  # button on real hardware -- only direct hits on the
+                                  # button's own exposed surface registered. Each layer now
+                                  # independently handles its own click.
+                                  - obj:
+                                      id: picker_content_2
+                                      width: 130
+                                      height: SIZE_CONTENT
+                                      align: CENTER
+                                      bg_opa: TRANSP
+                                      border_width: 0
+                                      pad_all: 0
+                                      scrollbar_mode: "OFF"
+                                      scrollable: false
+                                      on_click:
+                                        then:
+                                          - lambda: |-
+                                              intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_2));
+                                              if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                      widgets:
+                                        - obj:
+                                            width: 32
+                                            height: 32
+                                            x: 0
+                                            align: LEFT_MID
+                                            bg_opa: TRANSP
+                                            border_width: 0
+                                            pad_all: 0
+                                            scrollbar_mode: "OFF"
+                                            scrollable: false
+                                            on_click:
+                                              then:
+                                                - lambda: |-
+                                                    intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_2));
+                                                    if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                            widgets:
+                                              - image:
+                                                  id: picker_fill_2
+                                                  src: img_spool_fill
+                                                  align: CENTER
+                                                  image_recolor: 0x6666AA
+                                                  image_recolor_opa: COVER
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_2));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - obj:
+                                                  id: picker_hub_2
+                                                  align: CENTER
+                                                  width: 12
+                                                  height: 12
+                                                  radius: 6
+                                                  bg_color: 0x1E1E30
+                                                  bg_opa: COVER
+                                                  border_width: 1
+                                                  border_color: 0x555577
+                                                  pad_all: 0
+                                                  scrollbar_mode: "OFF"
+                                                  scrollable: false
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_2));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                        - obj:
+                                            width: 92
+                                            height: SIZE_CONTENT
+                                            x: 38
+                                            align: LEFT_MID
+                                            bg_opa: TRANSP
+                                            border_width: 0
+                                            pad_all: 0
+                                            scrollbar_mode: "OFF"
+                                            scrollable: false
+                                            on_click:
+                                              then:
+                                                - lambda: |-
+                                                    intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_2));
+                                                    if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                            layout:
+                                              type: flex
+                                              flex_flow: column
+                                              pad_row: 2
+                                            widgets:
+                                              - label:
+                                                  id: picker_mat_2
+                                                  width: 92
+                                                  height: 16
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0xDDDDEE
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_2));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - label:
+                                                  id: picker_brand_2
+                                                  width: 92
+                                                  height: 16
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0xBBBBCC
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_2));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - label:
+                                                  id: picker_id_2
+                                                  width: 92
+                                                  height: 14
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0x777799
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_2));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                      - obj:
+                          id: nfc_picker_row1
+                          width: 100%
+                          flex_grow: 1
+                          bg_opa: TRANSP
+                          border_width: 0
+                          pad_all: 0
+                          scrollbar_mode: "OFF"
+                          scrollable: false
+                          layout:
+                            type: flex
+                            flex_flow: row
+                            pad_column: 4
+                          widgets:
+                            - button:
+                                id: picker_btn_3
+                                flex_grow: 1
+                                height: 100%
+                                bg_color: 0x1E1E30
+                                border_color: 0x3A3A56
+                                border_width: 1
+                                radius: 4
+                                pad_all: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                hidden: true
+                                on_click:
+                                  then:
+                                    - lambda: |-
+                                        intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_3));
+                                        if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                widgets:
+                                  # Fixed-size (130px) content block, centred in the button
+                                  # via plain align. on_click is duplicated on every layer
+                                  # down to the leaf image/label widgets, since LVGL did not
+                                  # reliably bubble a tap on a non-clickable child up to this
+                                  # button on real hardware -- only direct hits on the
+                                  # button's own exposed surface registered. Each layer now
+                                  # independently handles its own click.
+                                  - obj:
+                                      id: picker_content_3
+                                      width: 130
+                                      height: SIZE_CONTENT
+                                      align: CENTER
+                                      bg_opa: TRANSP
+                                      border_width: 0
+                                      pad_all: 0
+                                      scrollbar_mode: "OFF"
+                                      scrollable: false
+                                      on_click:
+                                        then:
+                                          - lambda: |-
+                                              intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_3));
+                                              if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                      widgets:
+                                        - obj:
+                                            width: 32
+                                            height: 32
+                                            x: 0
+                                            align: LEFT_MID
+                                            bg_opa: TRANSP
+                                            border_width: 0
+                                            pad_all: 0
+                                            scrollbar_mode: "OFF"
+                                            scrollable: false
+                                            on_click:
+                                              then:
+                                                - lambda: |-
+                                                    intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_3));
+                                                    if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                            widgets:
+                                              - image:
+                                                  id: picker_fill_3
+                                                  src: img_spool_fill
+                                                  align: CENTER
+                                                  image_recolor: 0x6666AA
+                                                  image_recolor_opa: COVER
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_3));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - obj:
+                                                  id: picker_hub_3
+                                                  align: CENTER
+                                                  width: 12
+                                                  height: 12
+                                                  radius: 6
+                                                  bg_color: 0x1E1E30
+                                                  bg_opa: COVER
+                                                  border_width: 1
+                                                  border_color: 0x555577
+                                                  pad_all: 0
+                                                  scrollbar_mode: "OFF"
+                                                  scrollable: false
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_3));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                        - obj:
+                                            width: 92
+                                            height: SIZE_CONTENT
+                                            x: 38
+                                            align: LEFT_MID
+                                            bg_opa: TRANSP
+                                            border_width: 0
+                                            pad_all: 0
+                                            scrollbar_mode: "OFF"
+                                            scrollable: false
+                                            on_click:
+                                              then:
+                                                - lambda: |-
+                                                    intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_3));
+                                                    if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                            layout:
+                                              type: flex
+                                              flex_flow: column
+                                              pad_row: 2
+                                            widgets:
+                                              - label:
+                                                  id: picker_mat_3
+                                                  width: 92
+                                                  height: 16
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0xDDDDEE
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_3));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - label:
+                                                  id: picker_brand_3
+                                                  width: 92
+                                                  height: 16
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0xBBBBCC
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_3));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - label:
+                                                  id: picker_id_3
+                                                  width: 92
+                                                  height: 14
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0x777799
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_3));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                            - button:
+                                id: picker_btn_4
+                                flex_grow: 1
+                                height: 100%
+                                bg_color: 0x1E1E30
+                                border_color: 0x3A3A56
+                                border_width: 1
+                                radius: 4
+                                pad_all: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                hidden: true
+                                on_click:
+                                  then:
+                                    - lambda: |-
+                                        intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_4));
+                                        if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                widgets:
+                                  # Fixed-size (130px) content block, centred in the button
+                                  # via plain align. on_click is duplicated on every layer
+                                  # down to the leaf image/label widgets, since LVGL did not
+                                  # reliably bubble a tap on a non-clickable child up to this
+                                  # button on real hardware -- only direct hits on the
+                                  # button's own exposed surface registered. Each layer now
+                                  # independently handles its own click.
+                                  - obj:
+                                      id: picker_content_4
+                                      width: 130
+                                      height: SIZE_CONTENT
+                                      align: CENTER
+                                      bg_opa: TRANSP
+                                      border_width: 0
+                                      pad_all: 0
+                                      scrollbar_mode: "OFF"
+                                      scrollable: false
+                                      on_click:
+                                        then:
+                                          - lambda: |-
+                                              intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_4));
+                                              if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                      widgets:
+                                        - obj:
+                                            width: 32
+                                            height: 32
+                                            x: 0
+                                            align: LEFT_MID
+                                            bg_opa: TRANSP
+                                            border_width: 0
+                                            pad_all: 0
+                                            scrollbar_mode: "OFF"
+                                            scrollable: false
+                                            on_click:
+                                              then:
+                                                - lambda: |-
+                                                    intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_4));
+                                                    if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                            widgets:
+                                              - image:
+                                                  id: picker_fill_4
+                                                  src: img_spool_fill
+                                                  align: CENTER
+                                                  image_recolor: 0x6666AA
+                                                  image_recolor_opa: COVER
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_4));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - obj:
+                                                  id: picker_hub_4
+                                                  align: CENTER
+                                                  width: 12
+                                                  height: 12
+                                                  radius: 6
+                                                  bg_color: 0x1E1E30
+                                                  bg_opa: COVER
+                                                  border_width: 1
+                                                  border_color: 0x555577
+                                                  pad_all: 0
+                                                  scrollbar_mode: "OFF"
+                                                  scrollable: false
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_4));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                        - obj:
+                                            width: 92
+                                            height: SIZE_CONTENT
+                                            x: 38
+                                            align: LEFT_MID
+                                            bg_opa: TRANSP
+                                            border_width: 0
+                                            pad_all: 0
+                                            scrollbar_mode: "OFF"
+                                            scrollable: false
+                                            on_click:
+                                              then:
+                                                - lambda: |-
+                                                    intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_4));
+                                                    if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                            layout:
+                                              type: flex
+                                              flex_flow: column
+                                              pad_row: 2
+                                            widgets:
+                                              - label:
+                                                  id: picker_mat_4
+                                                  width: 92
+                                                  height: 16
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0xDDDDEE
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_4));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - label:
+                                                  id: picker_brand_4
+                                                  width: 92
+                                                  height: 16
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0xBBBBCC
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_4));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - label:
+                                                  id: picker_id_4
+                                                  width: 92
+                                                  height: 14
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0x777799
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_4));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                            - button:
+                                id: picker_btn_5
+                                flex_grow: 1
+                                height: 100%
+                                bg_color: 0x1E1E30
+                                border_color: 0x3A3A56
+                                border_width: 1
+                                radius: 4
+                                pad_all: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                hidden: true
+                                on_click:
+                                  then:
+                                    - lambda: |-
+                                        intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_5));
+                                        if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                widgets:
+                                  # Fixed-size (130px) content block, centred in the button
+                                  # via plain align. on_click is duplicated on every layer
+                                  # down to the leaf image/label widgets, since LVGL did not
+                                  # reliably bubble a tap on a non-clickable child up to this
+                                  # button on real hardware -- only direct hits on the
+                                  # button's own exposed surface registered. Each layer now
+                                  # independently handles its own click.
+                                  - obj:
+                                      id: picker_content_5
+                                      width: 130
+                                      height: SIZE_CONTENT
+                                      align: CENTER
+                                      bg_opa: TRANSP
+                                      border_width: 0
+                                      pad_all: 0
+                                      scrollbar_mode: "OFF"
+                                      scrollable: false
+                                      on_click:
+                                        then:
+                                          - lambda: |-
+                                              intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_5));
+                                              if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                      widgets:
+                                        - obj:
+                                            width: 32
+                                            height: 32
+                                            x: 0
+                                            align: LEFT_MID
+                                            bg_opa: TRANSP
+                                            border_width: 0
+                                            pad_all: 0
+                                            scrollbar_mode: "OFF"
+                                            scrollable: false
+                                            on_click:
+                                              then:
+                                                - lambda: |-
+                                                    intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_5));
+                                                    if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                            widgets:
+                                              - image:
+                                                  id: picker_fill_5
+                                                  src: img_spool_fill
+                                                  align: CENTER
+                                                  image_recolor: 0x6666AA
+                                                  image_recolor_opa: COVER
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_5));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - obj:
+                                                  id: picker_hub_5
+                                                  align: CENTER
+                                                  width: 12
+                                                  height: 12
+                                                  radius: 6
+                                                  bg_color: 0x1E1E30
+                                                  bg_opa: COVER
+                                                  border_width: 1
+                                                  border_color: 0x555577
+                                                  pad_all: 0
+                                                  scrollbar_mode: "OFF"
+                                                  scrollable: false
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_5));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                        - obj:
+                                            width: 92
+                                            height: SIZE_CONTENT
+                                            x: 38
+                                            align: LEFT_MID
+                                            bg_opa: TRANSP
+                                            border_width: 0
+                                            pad_all: 0
+                                            scrollbar_mode: "OFF"
+                                            scrollable: false
+                                            on_click:
+                                              then:
+                                                - lambda: |-
+                                                    intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_5));
+                                                    if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                            layout:
+                                              type: flex
+                                              flex_flow: column
+                                              pad_row: 2
+                                            widgets:
+                                              - label:
+                                                  id: picker_mat_5
+                                                  width: 92
+                                                  height: 16
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0xDDDDEE
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_5));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - label:
+                                                  id: picker_brand_5
+                                                  width: 92
+                                                  height: 16
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0xBBBBCC
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_5));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - label:
+                                                  id: picker_id_5
+                                                  width: 92
+                                                  height: 14
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0x777799
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_5));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                      - obj:
+                          id: nfc_picker_row2
+                          width: 100%
+                          flex_grow: 1
+                          bg_opa: TRANSP
+                          border_width: 0
+                          pad_all: 0
+                          scrollbar_mode: "OFF"
+                          scrollable: false
+                          layout:
+                            type: flex
+                            flex_flow: row
+                            pad_column: 4
+                          widgets:
+                            - button:
+                                id: picker_btn_6
+                                flex_grow: 1
+                                height: 100%
+                                bg_color: 0x1E1E30
+                                border_color: 0x3A3A56
+                                border_width: 1
+                                radius: 4
+                                pad_all: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                hidden: true
+                                on_click:
+                                  then:
+                                    - lambda: |-
+                                        intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_6));
+                                        if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                widgets:
+                                  # Fixed-size (130px) content block, centred in the button
+                                  # via plain align. on_click is duplicated on every layer
+                                  # down to the leaf image/label widgets, since LVGL did not
+                                  # reliably bubble a tap on a non-clickable child up to this
+                                  # button on real hardware -- only direct hits on the
+                                  # button's own exposed surface registered. Each layer now
+                                  # independently handles its own click.
+                                  - obj:
+                                      id: picker_content_6
+                                      width: 130
+                                      height: SIZE_CONTENT
+                                      align: CENTER
+                                      bg_opa: TRANSP
+                                      border_width: 0
+                                      pad_all: 0
+                                      scrollbar_mode: "OFF"
+                                      scrollable: false
+                                      on_click:
+                                        then:
+                                          - lambda: |-
+                                              intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_6));
+                                              if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                      widgets:
+                                        - obj:
+                                            width: 32
+                                            height: 32
+                                            x: 0
+                                            align: LEFT_MID
+                                            bg_opa: TRANSP
+                                            border_width: 0
+                                            pad_all: 0
+                                            scrollbar_mode: "OFF"
+                                            scrollable: false
+                                            on_click:
+                                              then:
+                                                - lambda: |-
+                                                    intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_6));
+                                                    if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                            widgets:
+                                              - image:
+                                                  id: picker_fill_6
+                                                  src: img_spool_fill
+                                                  align: CENTER
+                                                  image_recolor: 0x6666AA
+                                                  image_recolor_opa: COVER
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_6));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - obj:
+                                                  id: picker_hub_6
+                                                  align: CENTER
+                                                  width: 12
+                                                  height: 12
+                                                  radius: 6
+                                                  bg_color: 0x1E1E30
+                                                  bg_opa: COVER
+                                                  border_width: 1
+                                                  border_color: 0x555577
+                                                  pad_all: 0
+                                                  scrollbar_mode: "OFF"
+                                                  scrollable: false
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_6));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                        - obj:
+                                            width: 92
+                                            height: SIZE_CONTENT
+                                            x: 38
+                                            align: LEFT_MID
+                                            bg_opa: TRANSP
+                                            border_width: 0
+                                            pad_all: 0
+                                            scrollbar_mode: "OFF"
+                                            scrollable: false
+                                            on_click:
+                                              then:
+                                                - lambda: |-
+                                                    intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_6));
+                                                    if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                            layout:
+                                              type: flex
+                                              flex_flow: column
+                                              pad_row: 2
+                                            widgets:
+                                              - label:
+                                                  id: picker_mat_6
+                                                  width: 92
+                                                  height: 16
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0xDDDDEE
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_6));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - label:
+                                                  id: picker_brand_6
+                                                  width: 92
+                                                  height: 16
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0xBBBBCC
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_6));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - label:
+                                                  id: picker_id_6
+                                                  width: 92
+                                                  height: 14
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0x777799
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_6));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                            - button:
+                                id: picker_btn_7
+                                flex_grow: 1
+                                height: 100%
+                                bg_color: 0x1E1E30
+                                border_color: 0x3A3A56
+                                border_width: 1
+                                radius: 4
+                                pad_all: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                hidden: true
+                                on_click:
+                                  then:
+                                    - lambda: |-
+                                        intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_7));
+                                        if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                widgets:
+                                  # Fixed-size (130px) content block, centred in the button
+                                  # via plain align. on_click is duplicated on every layer
+                                  # down to the leaf image/label widgets, since LVGL did not
+                                  # reliably bubble a tap on a non-clickable child up to this
+                                  # button on real hardware -- only direct hits on the
+                                  # button's own exposed surface registered. Each layer now
+                                  # independently handles its own click.
+                                  - obj:
+                                      id: picker_content_7
+                                      width: 130
+                                      height: SIZE_CONTENT
+                                      align: CENTER
+                                      bg_opa: TRANSP
+                                      border_width: 0
+                                      pad_all: 0
+                                      scrollbar_mode: "OFF"
+                                      scrollable: false
+                                      on_click:
+                                        then:
+                                          - lambda: |-
+                                              intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_7));
+                                              if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                      widgets:
+                                        - obj:
+                                            width: 32
+                                            height: 32
+                                            x: 0
+                                            align: LEFT_MID
+                                            bg_opa: TRANSP
+                                            border_width: 0
+                                            pad_all: 0
+                                            scrollbar_mode: "OFF"
+                                            scrollable: false
+                                            on_click:
+                                              then:
+                                                - lambda: |-
+                                                    intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_7));
+                                                    if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                            widgets:
+                                              - image:
+                                                  id: picker_fill_7
+                                                  src: img_spool_fill
+                                                  align: CENTER
+                                                  image_recolor: 0x6666AA
+                                                  image_recolor_opa: COVER
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_7));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - obj:
+                                                  id: picker_hub_7
+                                                  align: CENTER
+                                                  width: 12
+                                                  height: 12
+                                                  radius: 6
+                                                  bg_color: 0x1E1E30
+                                                  bg_opa: COVER
+                                                  border_width: 1
+                                                  border_color: 0x555577
+                                                  pad_all: 0
+                                                  scrollbar_mode: "OFF"
+                                                  scrollable: false
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_7));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                        - obj:
+                                            width: 92
+                                            height: SIZE_CONTENT
+                                            x: 38
+                                            align: LEFT_MID
+                                            bg_opa: TRANSP
+                                            border_width: 0
+                                            pad_all: 0
+                                            scrollbar_mode: "OFF"
+                                            scrollable: false
+                                            on_click:
+                                              then:
+                                                - lambda: |-
+                                                    intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_7));
+                                                    if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                            layout:
+                                              type: flex
+                                              flex_flow: column
+                                              pad_row: 2
+                                            widgets:
+                                              - label:
+                                                  id: picker_mat_7
+                                                  width: 92
+                                                  height: 16
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0xDDDDEE
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_7));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - label:
+                                                  id: picker_brand_7
+                                                  width: 92
+                                                  height: 16
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0xBBBBCC
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_7));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - label:
+                                                  id: picker_id_7
+                                                  width: 92
+                                                  height: 14
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0x777799
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_7));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                            - button:
+                                id: picker_btn_8
+                                flex_grow: 1
+                                height: 100%
+                                bg_color: 0x1E1E30
+                                border_color: 0x3A3A56
+                                border_width: 1
+                                radius: 4
+                                pad_all: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                hidden: true
+                                on_click:
+                                  then:
+                                    - lambda: |-
+                                        intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_8));
+                                        if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                widgets:
+                                  # Fixed-size (130px) content block, centred in the button
+                                  # via plain align. on_click is duplicated on every layer
+                                  # down to the leaf image/label widgets, since LVGL did not
+                                  # reliably bubble a tap on a non-clickable child up to this
+                                  # button on real hardware -- only direct hits on the
+                                  # button's own exposed surface registered. Each layer now
+                                  # independently handles its own click.
+                                  - obj:
+                                      id: picker_content_8
+                                      width: 130
+                                      height: SIZE_CONTENT
+                                      align: CENTER
+                                      bg_opa: TRANSP
+                                      border_width: 0
+                                      pad_all: 0
+                                      scrollbar_mode: "OFF"
+                                      scrollable: false
+                                      on_click:
+                                        then:
+                                          - lambda: |-
+                                              intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_8));
+                                              if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                      widgets:
+                                        - obj:
+                                            width: 32
+                                            height: 32
+                                            x: 0
+                                            align: LEFT_MID
+                                            bg_opa: TRANSP
+                                            border_width: 0
+                                            pad_all: 0
+                                            scrollbar_mode: "OFF"
+                                            scrollable: false
+                                            on_click:
+                                              then:
+                                                - lambda: |-
+                                                    intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_8));
+                                                    if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                            widgets:
+                                              - image:
+                                                  id: picker_fill_8
+                                                  src: img_spool_fill
+                                                  align: CENTER
+                                                  image_recolor: 0x6666AA
+                                                  image_recolor_opa: COVER
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_8));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - obj:
+                                                  id: picker_hub_8
+                                                  align: CENTER
+                                                  width: 12
+                                                  height: 12
+                                                  radius: 6
+                                                  bg_color: 0x1E1E30
+                                                  bg_opa: COVER
+                                                  border_width: 1
+                                                  border_color: 0x555577
+                                                  pad_all: 0
+                                                  scrollbar_mode: "OFF"
+                                                  scrollable: false
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_8));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                        - obj:
+                                            width: 92
+                                            height: SIZE_CONTENT
+                                            x: 38
+                                            align: LEFT_MID
+                                            bg_opa: TRANSP
+                                            border_width: 0
+                                            pad_all: 0
+                                            scrollbar_mode: "OFF"
+                                            scrollable: false
+                                            on_click:
+                                              then:
+                                                - lambda: |-
+                                                    intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_8));
+                                                    if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                            layout:
+                                              type: flex
+                                              flex_flow: column
+                                              pad_row: 2
+                                            widgets:
+                                              - label:
+                                                  id: picker_mat_8
+                                                  width: 92
+                                                  height: 16
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0xDDDDEE
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_8));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - label:
+                                                  id: picker_brand_8
+                                                  width: 92
+                                                  height: 16
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0xBBBBCC
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_8));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                                              - label:
+                                                  id: picker_id_8
+                                                  width: 92
+                                                  height: 14
+                                                  text: ""
+                                                  text_font: roboto_12
+                                                  text_color: 0x777799
+                                                  on_click:
+                                                    then:
+                                                      - lambda: |-
+                                                          intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_8));
+                                                          if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
           # ---- Manual ID input row ----
-          # Layout (x / w): [-10]2/50  [-]54/40  [ID:X]96/80  [+]178/40  [+10]220/50  [Assign]282/194
-          - button:
-              id: btn_id_minus10
-              x: 2
-              y: 196
-              width: 50
+          # Layout: [-10] [-] [ID label, flex_grow] [+] [+10] [Assign]
+          # Flex row; the stepper buttons and Assign keep fixed
+          # content-sized widths, the ID label absorbs remaining space.
+          - obj:
+              width: 100%
               height: 44
-              bg_color: 0x1E1E30
-              border_color: 0x3A3A56
-              border_width: 1
-              radius: 4
+              bg_opa: TRANSP
+              border_width: 0
+              pad_all: 0
+              pad_left: 2
+              pad_right: 2
+              layout:
+                type: FLEX
+                flex_flow: ROW
+                pad_column: 4
               scrollbar_mode: "OFF"
-              on_click:
-                then:
-                  - lambda: |-
-                      int v=(int)id(nfc_assign_spool_id)-10; if(v<1)v=1;
-                      id(nfc_assign_spool_id)=v;
-                      char b[16]; snprintf(b,sizeof(b),"ID: %d",v);
-                      lv_label_set_text(id(lbl_picker_id),b);
-                      char a[24]; snprintf(a,sizeof(a),"Assign #%d",v);
-                      lv_label_set_text(id(lbl_picker_assign_id),a);
               widgets:
-                - label: {text: "-10", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
-          - button:
-              id: btn_id_minus
-              x: 54
-              y: 196
-              width: 40
-              height: 44
-              bg_color: 0x1E1E30
-              border_color: 0x3A3A56
-              border_width: 1
-              radius: 4
-              scrollbar_mode: "OFF"
-              on_click:
-                then:
-                  - lambda: |-
-                      if((int)id(nfc_assign_spool_id)>1) id(nfc_assign_spool_id)--;
-                      int v=(int)id(nfc_assign_spool_id);
-                      char b[16]; snprintf(b,sizeof(b),"ID: %d",v);
-                      lv_label_set_text(id(lbl_picker_id),b);
-                      char a[24]; snprintf(a,sizeof(a),"Assign #%d",v);
-                      lv_label_set_text(id(lbl_picker_assign_id),a);
-              widgets:
-                - label: {text: "-", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
-          - label:
-              id: lbl_picker_id
-              x: 96
-              # No fixed height + y centered in the 44px button row (196..240) so
-              # the text sits vertically between the +/- buttons.
-              y: 208
-              width: 80
-              text: "ID: 1"
-              text_font: roboto_16
-              text_color: 0xFFFFFF
-              text_align: CENTER
-              align: TOP_LEFT
-          - button:
-              id: btn_id_plus
-              x: 178
-              y: 196
-              width: 40
-              height: 44
-              bg_color: 0x1E1E30
-              border_color: 0x3A3A56
-              border_width: 1
-              radius: 4
-              scrollbar_mode: "OFF"
-              on_click:
-                then:
-                  - lambda: |-
-                      id(nfc_assign_spool_id)++;
-                      int v=(int)id(nfc_assign_spool_id);
-                      char b[16]; snprintf(b,sizeof(b),"ID: %d",v);
-                      lv_label_set_text(id(lbl_picker_id),b);
-                      char a[24]; snprintf(a,sizeof(a),"Assign #%d",v);
-                      lv_label_set_text(id(lbl_picker_assign_id),a);
-              widgets:
-                - label: {text: "+", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
-          - button:
-              id: btn_id_plus10
-              x: 220
-              y: 196
-              width: 50
-              height: 44
-              bg_color: 0x1E1E30
-              border_color: 0x3A3A56
-              border_width: 1
-              radius: 4
-              scrollbar_mode: "OFF"
-              on_click:
-                then:
-                  - lambda: |-
-                      int v=(int)id(nfc_assign_spool_id)+10;
-                      id(nfc_assign_spool_id)=v;
-                      char b[16]; snprintf(b,sizeof(b),"ID: %d",v);
-                      lv_label_set_text(id(lbl_picker_id),b);
-                      char a[24]; snprintf(a,sizeof(a),"Assign #%d",v);
-                      lv_label_set_text(id(lbl_picker_assign_id),a);
-              widgets:
-                - label: {text: "+10", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
-          - button:
-              id: btn_picker_assign_id
-              x: 282
-              y: 196
-              width: 194
-              height: 44
-              bg_color: 0x0D2B14
-              border_color: 0x4CAF50
-              border_width: 2
-              radius: 4
-              scrollbar_mode: "OFF"
-              on_click:
-                then:
-                  - lambda: |-
-                      int sid=(int)id(nfc_assign_spool_id);
-                      if(sid>0){bambuddy->link_tag_to_spool(sid);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
-              widgets:
-                - label: {id: lbl_picker_assign_id, text: "Assign #1", text_font: roboto_16, text_color: 0x4CAF50, align: CENTER}
+                - button:
+                    id: btn_id_minus10
+                    width: 50
+                    height: 44
+                    bg_color: 0x1E1E30
+                    border_color: 0x3A3A56
+                    border_width: 1
+                    radius: 4
+                    scrollbar_mode: "OFF"
+                    on_click:
+                      then:
+                        - lambda: |-
+                            int v=(int)id(nfc_assign_spool_id)-10; if(v<1)v=1;
+                            id(nfc_assign_spool_id)=v;
+                            char b[16]; snprintf(b,sizeof(b),"ID: %d",v);
+                            lv_label_set_text(id(lbl_picker_id),b);
+                            char a[24]; snprintf(a,sizeof(a),"Assign #%d",v);
+                            lv_label_set_text(id(lbl_picker_assign_id),a);
+                    widgets:
+                      - label: {text: "-10", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
+                - button:
+                    id: btn_id_minus
+                    width: 40
+                    height: 44
+                    bg_color: 0x1E1E30
+                    border_color: 0x3A3A56
+                    border_width: 1
+                    radius: 4
+                    scrollbar_mode: "OFF"
+                    on_click:
+                      then:
+                        - lambda: |-
+                            if((int)id(nfc_assign_spool_id)>1) id(nfc_assign_spool_id)--;
+                            int v=(int)id(nfc_assign_spool_id);
+                            char b[16]; snprintf(b,sizeof(b),"ID: %d",v);
+                            lv_label_set_text(id(lbl_picker_id),b);
+                            char a[24]; snprintf(a,sizeof(a),"Assign #%d",v);
+                            lv_label_set_text(id(lbl_picker_assign_id),a);
+                    widgets:
+                      - label: {text: "-", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
+                - label:
+                    id: lbl_picker_id
+                    flex_grow: 1
+                    height: 44
+                    text: "ID: 1"
+                    text_font: roboto_16
+                    text_color: 0xFFFFFF
+                    text_align: CENTER
+                    align: CENTER
+                - button:
+                    id: btn_id_plus
+                    width: 40
+                    height: 44
+                    bg_color: 0x1E1E30
+                    border_color: 0x3A3A56
+                    border_width: 1
+                    radius: 4
+                    scrollbar_mode: "OFF"
+                    on_click:
+                      then:
+                        - lambda: |-
+                            id(nfc_assign_spool_id)++;
+                            int v=(int)id(nfc_assign_spool_id);
+                            char b[16]; snprintf(b,sizeof(b),"ID: %d",v);
+                            lv_label_set_text(id(lbl_picker_id),b);
+                            char a[24]; snprintf(a,sizeof(a),"Assign #%d",v);
+                            lv_label_set_text(id(lbl_picker_assign_id),a);
+                    widgets:
+                      - label: {text: "+", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
+                - button:
+                    id: btn_id_plus10
+                    width: 50
+                    height: 44
+                    bg_color: 0x1E1E30
+                    border_color: 0x3A3A56
+                    border_width: 1
+                    radius: 4
+                    scrollbar_mode: "OFF"
+                    on_click:
+                      then:
+                        - lambda: |-
+                            int v=(int)id(nfc_assign_spool_id)+10;
+                            id(nfc_assign_spool_id)=v;
+                            char b[16]; snprintf(b,sizeof(b),"ID: %d",v);
+                            lv_label_set_text(id(lbl_picker_id),b);
+                            char a[24]; snprintf(a,sizeof(a),"Assign #%d",v);
+                            lv_label_set_text(id(lbl_picker_assign_id),a);
+                    widgets:
+                      - label: {text: "+10", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
+                - button:
+                    id: btn_picker_assign_id
+                    width: 150
+                    height: 44
+                    bg_color: 0x0D2B14
+                    border_color: 0x4CAF50
+                    border_width: 2
+                    radius: 4
+                    scrollbar_mode: "OFF"
+                    on_click:
+                      then:
+                        - lambda: |-
+                            int sid=(int)id(nfc_assign_spool_id);
+                            if(sid>0){bambuddy->link_tag_to_spool(sid);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
+                    widgets:
+                      - label: {id: lbl_picker_assign_id, text: "Assign #1", text_font: roboto_16, text_color: 0x4CAF50, align: CENTER}
 
