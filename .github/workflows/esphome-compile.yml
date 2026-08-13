@@ -4,11 +4,12 @@ name: ESPHome Compile
 #
 # espoolbuddy_console.yaml / espoolbuddy_scale.yaml are standalone copy & paste
 # examples: their inline external_components block fetches the bambuddy_api /
-# bambuddy_nfc components from this repo's main branch on GitHub. To test the
-# code under review instead of main, the "Build local components" step below
-# rewrites that block to a local ./components source before compiling. The
-# rewrite asserts the expected block is present, so it fails loudly if the
-# configs' external_components block is ever changed without updating CI.
+# bambuddy_nfc components, and their packages block fetches the espoolbuddy/
+# UI/app YAMLs, both from this repo's main branch on GitHub. To test the code
+# under review instead of main, the "Build local components" step below
+# rewrites both blocks to local sources before compiling. The rewrite asserts
+# the expected blocks are present, so it fails loudly if the configs'
+# external_components or packages block is ever changed without updating CI.
 #
 # Email noise is kept low by only running on pull requests and pushes to main
 # (not every feature-branch push), skipping doc-only changes via the paths
@@ -69,7 +70,7 @@ jobs:
       - name: Install latest ESPHome
         run: pip install -U esphome
 
-      - name: Build local components instead of the GitHub main source
+      - name: Build local components + packages instead of the GitHub main source
         run: python .github/scripts/use_local_components.py ${{ matrix.config }}
 
       - name: Cache PlatformIO toolchain & frameworks

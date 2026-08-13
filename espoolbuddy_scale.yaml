@@ -19,9 +19,15 @@
 #   NFC:    PN532 via SPI (SCK=GPIO15, MOSI=GPIO17, MISO=GPIO16, CS=GPIO18, IRQ=GPIO8)
 ################################################################################
 
+substitutions:
+  # Branch/tag/commit fetched for the components + espoolbuddy packages
+  # below. Pin to a release tag instead of tracking main if you want
+  # reproducible builds.
+  espoolbuddy_ref: main
+
 esphome:
-  name: spoolbuddy-scale
-  friendly_name: SpoolBuddy Scale
+  name: espoolbuddy-scale
+  friendly_name: ESPoolBuddy Scale
   project:
     name: espoolbuddy.scale
     # Version is centralized in espoolbuddy/version.yaml (see packages: below).
@@ -44,9 +50,16 @@ external_components:
   - source:
       type: git
       url: https://github.com/CSchlipp/espoolbuddy.git
-      ref: main
+      ref: ${espoolbuddy_ref}
       path: components
     components: [bambuddy_api, bambuddy_nfc]
+
+packages:
+  espoolbuddy:
+    url: https://github.com/CSchlipp/espoolbuddy.git
+    ref: ${espoolbuddy_ref}
+    path: espoolbuddy
+    files: [version.yaml]
 
 logger:
   level: INFO
@@ -90,10 +103,10 @@ bambuddy_api:
   # is authoritative: only its heartbeat response is honored for tare/
   # calibrate/write_tag commands and it alone drives the connectivity LED;
   # any additional consoles are push-only observers of weight/NFC events.
-  console_url: "http://spoolbuddy-console.local"
+  console_url: "http://espoolbuddy-console.local"
   # console_url:
-  #   - "http://spoolbuddy-console.local"
-  #   - "http://spoolbuddy-console-2.local"
+  #   - "http://espoolbuddy-console.local"
+  #   - "http://espoolbuddy-console-2.local"
 
 # ============================================================================
 # SPI bus — PN532 NFC reader
@@ -297,5 +310,3 @@ interval:
           call.set_transition_length(400);
           call.perform();
 
-packages:
-  version: !include espoolbuddy/version.yaml

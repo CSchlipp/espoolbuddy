@@ -16,6 +16,10 @@
 #     ref: https://github.com/bigtreetech/PandaTouch_IDF/blob/master/docs/pinout.md
 ################################################################################
 substitutions:
+  # Branch/tag/commit fetched for the components + espoolbuddy packages
+  # below. Pin to a release tag instead of tracking main if you want
+  # reproducible builds.
+  espoolbuddy_ref: main
   # Screen geometry consumed by espoolbuddy/lvgl.yaml's root page and
   # lvgl: rotation — everything below the root sizes itself relative to its
   # parent (flex/grid/pct), so these are the only resolution-specific values
@@ -25,8 +29,8 @@ substitutions:
   screen_rotation: "0"
 
 esphome:
-  name: spoolbuddy-console-pandatouch
-  friendly_name: SpoolBuddy Console (Panda Touch)
+  name: espoolbuddy-console-pandatouch
+  friendly_name: ESPoolBuddy Console (Panda Touch)
   project:
     name: espoolbuddy.console
     # Version is centralized in espoolbuddy/version.yaml (see packages: below).
@@ -76,12 +80,24 @@ external_components:
   - source:
       type: git
       url: https://github.com/CSchlipp/espoolbuddy.git
-      ref: main
+      ref: ${espoolbuddy_ref}
       path: components
     components: [bambuddy_api, bambuddy_nfc]
 
+packages:
+  espoolbuddy:
+    url: https://github.com/CSchlipp/espoolbuddy.git
+    ref: ${espoolbuddy_ref}
+    path: espoolbuddy
+    files: [version.yaml, app.yaml, assets.yaml, lvgl.yaml]
+
 logger:
-  level: DEBUG
+  # Global level must be DEBUG so the Bambuddy components can emit DEBUG (a
+  # per-tag level may only be RAISED above the global level, never lowered).
+  # The noisy framework tags are raised back to INFO to keep the log readable
+  # while still tracing all Bambuddy HTTP requests/responses and NFC detail.
+  # Change to DEBUG if required
+  level: INFO
   baud_rate: 115200
   logs:
     scheduler: INFO
@@ -94,6 +110,9 @@ logger:
     api: INFO
     ota: INFO
     mdns: INFO
+    # ESP-IDF TLS/HTTP internals: expected errors when backend is temporarily
+    # unreachable (select timeout, connection refused). Raising to WARN keeps
+    # the log clean without hiding our own bambuddy_* DEBUG traces.
     esp-tls: WARN
     transport_base: WARN
     HTTP_CLIENT: WARN
@@ -259,9 +278,3 @@ bambuddy_api:
   printer_poll_interval: 15
   sleep_factor: 12
   clock_24h: true
-
-packages:
-  version: !include espoolbuddy/version.yaml
-  app:     !include espoolbuddy/app.yaml
-  assets:  !include espoolbuddy/assets.yaml
-  ui:      !include espoolbuddy/lvgl.yaml

@@ -12,6 +12,10 @@
 ################################################################################
 
 substitutions:
+  # Branch/tag/commit fetched for the components + espoolbuddy packages
+  # below. Pin to a release tag instead of tracking main if you want
+  # reproducible builds.
+  espoolbuddy_ref: main
   # Screen geometry consumed by espoolbuddy/lvgl.yaml's root page and
   # lvgl: rotation — everything below the root sizes itself relative to its
   # parent (flex/grid/pct), so these are the only resolution-specific values
@@ -21,8 +25,8 @@ substitutions:
   screen_rotation: "90"
 
 esphome:
-  name: spoolbuddy-console
-  friendly_name: SpoolBuddy Console
+  name: espoolbuddy-console
+  friendly_name: ESPoolBuddy Console
   project:
     name: espoolbuddy.console
   on_boot:
@@ -81,16 +85,24 @@ external_components:
   - source:
       type: git
       url: https://github.com/CSchlipp/espoolbuddy.git
-      ref: main
+      ref: ${espoolbuddy_ref}
       path: components
     components: [bambuddy_api, bambuddy_nfc]
+
+packages:
+  espoolbuddy:
+    url: https://github.com/CSchlipp/espoolbuddy.git
+    ref: ${espoolbuddy_ref}
+    path: espoolbuddy
+    files: [version.yaml, app.yaml, assets.yaml, lvgl.yaml]
 
 logger:
   # Global level must be DEBUG so the Bambuddy components can emit DEBUG (a
   # per-tag level may only be RAISED above the global level, never lowered).
   # The noisy framework tags are raised back to INFO to keep the log readable
   # while still tracing all Bambuddy HTTP requests/responses and NFC detail.
-  level: DEBUG
+  # Change to DEBUG if required
+  level: INFO
   baud_rate: 115200
   logs:
     scheduler: INFO
@@ -339,10 +351,3 @@ bambuddy_api:
   sleep_factor: 12              # while asleep: heartbeat ×12 (10s→120s), poll ×12 (15s→180s)
   # Header clock format: true = 24-hour (14:05), false = 12-hour (2:05 PM).
   clock_24h: true
-
-
-packages:
-  version: !include espoolbuddy/version.yaml
-  app:     !include espoolbuddy/app.yaml
-  assets:  !include espoolbuddy/assets.yaml
-  ui:      !include espoolbuddy/lvgl.yaml

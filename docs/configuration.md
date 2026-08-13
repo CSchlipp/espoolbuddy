@@ -19,7 +19,7 @@ same `bambuddy_api` component; several options only apply to one mode.
 | `bambuddy_api.sleep_timeout` | Console | `600` s | Idle time before deep sleep (`0` = disabled); also adjustable live from the Settings tab |
 | `bambuddy_api.sleep_factor` | Console | `6` | Heartbeat/poll interval multiplier while asleep |
 | `bambuddy_api.scale_mode` | Scale | `true` | Runs the local HTTP server + push client instead of talking to Bambuddy |
-| `bambuddy_api.console_url` | Scale | `http://spoolbuddy-console.local` | Console URL(s) to push readings to — a single string or a list, see [Scale build](scale.md#point-it-at-the-console) |
+| `bambuddy_api.console_url` | Scale | `http://espoolbuddy-console.local` | Console URL(s) to push readings to — a single string or a list, see [Scale build](scale.md#point-it-at-the-console) |
 | `bambuddy_api.scale_report_interval` | Scale | `100` ms | Weight push cadence to the console |
 | `bambuddy_nfc.poll_interval` | Both | `300` ms | Fallback polling rate (only used if IRQ isn't wired) |
 | `bambuddy_nfc.miss_threshold` | Both | `3` | Missed reads before a "tag removed" event fires |

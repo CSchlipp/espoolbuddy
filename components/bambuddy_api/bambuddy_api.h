@@ -312,7 +312,7 @@ class BambuddyAPIComponent : public Component {
   // over HTTP and does not connect to BamBuddy at all.
   void set_scale_mode(bool v) { scale_mode_ = v; }
   // Scale device only: base URL of a console to push data to — no port suffix
-  // (e.g. "http://spoolbuddy-console.local").  CONSOLE_PUSH_PORT is appended
+  // (e.g. "http://espoolbuddy-console.local").  CONSOLE_PUSH_PORT is appended
   // automatically when building push request URLs and starting the receive server.
   // Called once per configured console_url entry; the first call's console
   // drives connectivity, but every console's commands are still honored

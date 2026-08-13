@@ -79,7 +79,7 @@ CONFIG_SCHEMA = cv.All(
             # backend_url and api_key are ignored when this is true.
             cv.Optional(CONF_SCALE_MODE, default=False): cv.boolean,
             # Scale device only: base URL(s) of the console(s) that will receive push
-            # data — no port suffix (e.g. "http://spoolbuddy-console.local"). Accepts
+            # data — no port suffix (e.g. "http://espoolbuddy-console.local"). Accepts
             # either a single string or a list; when multiple are given, the first is
             # authoritative (its heartbeat response is the only one honored for
             # tare/calibrate/write_tag commands, and it alone drives the connectivity

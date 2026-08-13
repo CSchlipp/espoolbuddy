@@ -58,7 +58,7 @@ Wire it up, then follow the [setup & flashing guide](setup.md) using
 ## Point it at the console
 
 The scale pushes readings to `console_url`, which defaults to
-`http://spoolbuddy-console.local` in `espoolbuddy_scale.yaml`. This relies on
+`http://espoolbuddy-console.local` in `espoolbuddy_scale.yaml`. This relies on
 mDNS resolving the console's hostname on your LAN, which works out of the
 box on most home networks. If that doesn't work, or you renamed the console,
 use its static IP instead, e.g. `http://192.168.1.50`.
@@ -67,8 +67,8 @@ use its static IP instead, e.g. `http://192.168.1.50`.
 
 ```yaml
 console_url:
-  - "http://spoolbuddy-console.local"
-  - "http://spoolbuddy-console-2.local"
+  - "http://espoolbuddy-console.local"
+  - "http://espoolbuddy-console-2.local"
 ```
 
 The **first** console in the list is authoritative — only its heartbeat
