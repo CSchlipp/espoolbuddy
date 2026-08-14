@@ -5,6 +5,7 @@
 #include <map>
 #include <atomic>
 #include <functional>
+#include <memory>
 #include "esphome/core/component.h"
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
@@ -17,7 +18,63 @@
 #include "esp_wifi_types.h"    // wifi_ps_type_t (dynamic WiFi modem sleep in low-power mode)
 
 namespace esphome {
+namespace light {
+class LightState;
+}  // namespace light
+}  // namespace esphome
+
+namespace esphome {
 namespace bambuddy_api {
+
+// ---------------------------------------------------------------------------
+// Type-erasing adapters for optional NFC/speaker hardware.
+//
+// bambuddy_api.cpp is always compiled, but bambuddy_nfc/rtttl's sources are
+// only copied into the build tree when actually referenced in the device's
+// YAML (ESPHome only stages configured components) — so bambuddy_api.cpp
+// cannot unconditionally #include their headers. NFCScanControlAdapter<T> /
+// ChimePlayerAdapter<T> below are templates: their bodies are only compiled
+// where they're instantiated, which is the generated main.cpp (via the
+// templated set_nfc_component()/set_speaker_component() setters), where the
+// concrete type is already known because that device's YAML configured it.
+// bambuddy_api.cpp itself only ever sees the abstract interface.
+// ---------------------------------------------------------------------------
+
+class NFCScanControl {
+ public:
+  virtual ~NFCScanControl() = default;
+  virtual void set_scan_enabled(bool enabled) = 0;
+  virtual void set_low_power(bool low_power) = 0;
+};
+
+template<typename T>
+class NFCScanControlAdapter : public NFCScanControl {
+ public:
+  explicit NFCScanControlAdapter(T *nfc) : nfc_(nfc) {}
+  void set_scan_enabled(bool enabled) override { nfc_->set_scan_enabled(enabled); }
+  void set_low_power(bool low_power) override { nfc_->set_low_power(low_power); }
+
+ private:
+  T *nfc_;
+};
+
+class ChimePlayer {
+ public:
+  virtual ~ChimePlayer() = default;
+  virtual void play(const std::string &rtttl) = 0;
+  virtual bool is_playing() = 0;
+};
+
+template<typename T>
+class ChimePlayerAdapter : public ChimePlayer {
+ public:
+  explicit ChimePlayerAdapter(T *speaker) : speaker_(speaker) {}
+  void play(const std::string &rtttl) override { speaker_->play(rtttl); }
+  bool is_playing() override { return speaker_->is_playing(); }
+
+ private:
+  T *speaker_;
+};
 
 static const char *const TAG = "bambuddy_api";
 
@@ -254,10 +311,38 @@ class BambuddyAPIComponent : public Component {
   // Scale server mode: this device IS the scale — serves weight/tare/calibrate
   // over HTTP and does not connect to BamBuddy at all.
   void set_scale_mode(bool v) { scale_mode_ = v; }
-  // Scale device only: base URL of the console to push data to — no port suffix
-  // (e.g. "http://spoolbuddy-console.local").  CONSOLE_PUSH_PORT is appended
+  // Scale device only: base URL of a console to push data to — no port suffix
+  // (e.g. "http://espoolbuddy-console.local").  CONSOLE_PUSH_PORT is appended
   // automatically when building push request URLs and starting the receive server.
-  void set_console_url(const std::string &url) { console_url_ = url; }
+  // Called once per configured console_url entry; the first call's console
+  // drives connectivity, but every console's commands are still honored
+  // (see push_to_consoles()).
+  void add_console_url(const std::string &url) { console_urls_.push_back(url); }
+
+  // ---- Optional hardware this device may not have ----
+  // When not set (nullptr), the corresponding calls below are no-ops and the
+  // backend is told the hardware is absent, instead of the caller needing the
+  // hardware to actually exist. Templated so the concrete NFC/speaker type is
+  // only resolved at the generated-code call site (see the adapter comment
+  // above) — never inside this always-compiled component.
+  template<typename T> void set_nfc_component(T *nfc) {
+    nfc_owned_.reset(new NFCScanControlAdapter<T>(nfc));
+    nfc_ = nfc_owned_.get();
+  }
+  template<typename T> void set_speaker_component(T *speaker) {
+    speaker_owned_.reset(new ChimePlayerAdapter<T>(speaker));
+    speaker_ = speaker_owned_.get();
+  }
+  void set_backlight_component(light::LightState *backlight) { backlight_ = backlight; }
+  bool has_nfc() const { return nfc_ != nullptr; }
+  bool has_speaker() const { return speaker_ != nullptr; }
+
+  // Gated wrappers — safe to call regardless of whether NFC/speaker hardware
+  // is configured; no-op (or a harmless default) when absent.
+  void set_nfc_scan_enabled(bool enabled);
+  void set_nfc_low_power(bool low_power);
+  void play_chime(const std::string &rtttl);
+  bool chime_playing() const;
   // Sleep / low-power mode. After sleep_timeout of UI inactivity the YAML sleep
   // state machine turns the backlight off and calls set_low_power(true), which
   // multiplies the heartbeat and printer-poll cadence by sleep_factor to cut
@@ -390,6 +475,19 @@ class BambuddyAPIComponent : public Component {
   // Takes the state mutex, copies, releases — never blocks on HTTP.
   DisplayState snapshot();
 
+  // Lightweight scale-only accessor for the on_loop weight display — just 3
+  // primitives under the lock, unlike snapshot() which deep-copies the whole
+  // DisplayState (printers/AMS vectors included). Cheap enough to call every
+  // main-loop iteration so the weight label updates the instant a push lands,
+  // instead of waiting on the (slower, heavier) polling interval.
+  void get_weight(float &grams, bool &stable, bool &ok) {
+    lock_state();
+    grams  = display_state_.weight_grams;
+    stable = display_state_.weight_stable;
+    ok     = display_state_.scale_ok;
+    unlock_state();
+  }
+
   // Thread-safe setter for the NFC health flag (called from the NFC task).
   void set_nfc_ok(bool ok) {
     lock_state();
@@ -413,21 +511,13 @@ class BambuddyAPIComponent : public Component {
   void local_tare() {
     if (!scale_mode_) return;
     lock_state();
-    tare_offset_           = display_state_.weight_grams;
-    float  force_g         = display_state_.weight_grams;
-    bool   force_stable    = display_state_.weight_stable;
+    tare_offset_ = display_state_.weight_grams;
     unlock_state();
     save_calibration_nvs();
-    // Force-push the tared weight (will compute net≈0) unless a push is
-    // already queued — if one is pending, it will use the new tare_offset_
-    // at processing time and give the correct result.
-    if (!console_url_.empty() && !push_weight_pending_.exchange(true)) {
-      HttpJob job;
-      job.kind = HttpJob::SCALE_PUSH_WEIGHT;
-      job.f1   = force_g;
-      job.b1   = force_stable;
-      enqueue_job(job);
-    }
+    // Force a push of the tared weight (will compute net≈0). The push task
+    // reads tare_offset_ and display_state_.weight_grams fresh when it
+    // actually sends, so this always reflects the new tare correctly.
+    if (!console_urls_.empty()) weight_push_dirty_ = true;
   }
 
   // ---- Calibration support ----
@@ -480,7 +570,9 @@ class BambuddyAPIComponent : public Component {
       ARCHIVE_SPOOL,           // POST /inventory/spools/{id}/archive
       CLEAR_PLATE,             // POST /api/v1/printers/{id}/clear-plate
       // Scale push mode: scale → console (only processed when scale_mode_)
-      SCALE_PUSH_WEIGHT,       // POST {console_url}/scale/weight
+      // (weight is NOT a job kind — see weight_push_dirty_ — because pushing
+      // it as a queued one-shot job could silently drop readings that arrive
+      // while an earlier push, possibly to several consoles, is in flight)
       SCALE_PUSH_NFC_SCANNED,  // POST {console_url}/scale/nfc/tag-scanned
       SCALE_PUSH_NFC_REMOVED,  // POST {console_url}/scale/nfc/tag-removed
     } kind;
@@ -587,7 +679,7 @@ class BambuddyAPIComponent : public Component {
   static esp_err_t console_http_scale_nfc_write_result(httpd_req_t *req);
   static esp_err_t console_http_scale_heartbeat(httpd_req_t *req);
 
-  // Scale push helpers (scale_mode_ && !console_url_.empty() only)
+  // Scale push helpers (scale_mode_ && !console_urls_.empty() only)
   bool api_scale_push_weight(float grams, bool stable);
   void api_scale_push_heartbeat();
   void api_scale_push_nfc_scanned(const std::string &uid,
@@ -596,6 +688,18 @@ class BambuddyAPIComponent : public Component {
   void api_scale_push_nfc_removed(const std::string &uid);
   void api_scale_push_write_result(int spool_id, const std::string &uid,
                                     bool success, const std::string &msg);
+  // POSTs `body` to `path` on every configured console. The first (primary)
+  // console's success/response is returned via `primary_resp` — it alone
+  // drives the connectivity LED (is_console_connected()) and the
+  // first-heartbeat force-push. If `all_resps` is non-null, every console's
+  // response is also appended to it (successful ones only) so callers that
+  // care about commands — e.g. api_scale_push_heartbeat() — can honor a
+  // pending tare/calibrate/write_tag from ANY reachable console, not just
+  // the primary: a human can tap Tare on any console, and that single press
+  // is never ambiguous, so there's no duplication risk in acting on it.
+  bool push_to_consoles(const std::string &path, const std::string &body,
+                         std::string &primary_resp,
+                         std::vector<std::string> *all_resps = nullptr);
   // Fetch inventory assignments for the given printer and populate spool_id
   // fields in display_state_.ams_units.  Called from api_get_ams() only when
   // the AMS content changed, so it does not fire every poll cycle.
@@ -724,9 +828,23 @@ class BambuddyAPIComponent : public Component {
   uint32_t last_ams_fast_poll_ms_{0};  // tracks the fast AMS-only poll while assign is pending
   bool printers_fetched_{false};
 
+  // Optional hardware — nullptr when not configured for this device. nfc_/
+  // speaker_ point at the *_owned_ adapter (see set_nfc_component() /
+  // set_speaker_component() above); backlight_ needs no adapter since it's
+  // only ever null-checked, never called into.
+  NFCScanControl *nfc_{nullptr};
+  std::unique_ptr<NFCScanControl> nfc_owned_;
+  ChimePlayer *speaker_{nullptr};
+  std::unique_ptr<ChimePlayer> speaker_owned_;
+  light::LightState *backlight_{nullptr};
+
   // Scale server / push mode
   bool scale_mode_{false};
-  std::string console_url_;          // base URL of the console, no port (scale push mode only)
+  // Base URLs of the console(s), no port (scale push mode only). The first
+  // entry drives connectivity (last_push_ok_ms_) and the LED; commands
+  // (tare/calibrate/write_tag) are honored from any console's response —
+  // see push_to_consoles() in bambuddy_api.cpp.
+  std::vector<std::string> console_urls_;
   httpd_handle_t scale_server_handle_{nullptr};
   httpd_handle_t console_server_handle_{nullptr};
   // Scale push mode: millis() of the last successful push to the console.
@@ -812,11 +930,18 @@ class BambuddyAPIComponent : public Component {
   // every api_get_ams() poll. Only accessed from the HTTP task — no lock needed.
   std::map<int, std::string> ams_labels_;
 
-  // Deduplication flag: true while a SCALE_PUSH_WEIGHT job is in the queue or
-  // being processed.  Prevents accumulation of back-to-back weight jobs when
-  // the console is unreachable and each HTTP attempt stalls on mDNS resolution.
-  // Written by on_scale_reading() and the scale push task (core-1); atomic.
-  std::atomic<bool> push_weight_pending_{false};
+  // Scale push mode: true when display_state_'s weight/stable fields hold a
+  // reading that hasn't been pushed to the console(s) yet. Set (idempotent,
+  // just a flag write) by on_scale_reading() and the force-push call sites
+  // below on core-0/1; cleared by the scale push task right before it reads
+  // display_state_ to build the outgoing push. Pushing multiple consoles is
+  // sequential and can block for seconds (see push_to_consoles()), so a
+  // "snapshot one job at enqueue time, drop if one's already pending" design
+  // was silently losing readings — including stable transitions — that
+  // arrived during that window. Reading display_state_ fresh at send time
+  // instead means nothing is ever dropped: at worst a reading is coalesced
+  // away by a newer one before it's sent.
+  std::atomic<bool> weight_push_dirty_{false};
 
   // Pending write — written by HTTP task, read by NFC (main) task.
   // atomic gate: the ndef vector is filled BEFORE the flag is set true, and

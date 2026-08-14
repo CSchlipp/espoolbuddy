@@ -2,7 +2,7 @@
   <rect x="0" y="0" width="1000" height="800" rx="16" fill="#ffffff" stroke="#d0d7de" stroke-width="2"/>
 
   <text x="500" y="42" text-anchor="middle" font-size="24" font-weight="700" fill="#1b1f23">Scale — ESP32-S3 DevKit ↔ HX711 load cell amp + PN532 NFC (SPI)</text>
-  <text x="500" y="66" text-anchor="middle" font-size="14" fill="#57606a">Any ESP32-S3 dev board works — adjust GPIOs in spoolbuddy_scale.yaml if yours differs</text>
+  <text x="500" y="66" text-anchor="middle" font-size="14" fill="#57606a">Any ESP32-S3 dev board works — adjust GPIOs in espoolbuddy_scale.yaml if yours differs</text>
 
   <!-- Board -->
   <rect x="70" y="100" width="260" height="590" rx="18" fill="#0969da" stroke="#0550ae" stroke-width="2"/>

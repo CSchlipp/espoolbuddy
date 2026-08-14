@@ -118,8 +118,9 @@ void BambuddyAPIComponent::setup() {
     // If a console URL is configured, start a push task that forwards weight
     // and NFC events to the console.  The HTTP task runs in push-only mode
     // (scale_mode_ == true); it never contacts BamBuddy directly.
-    if (!console_url_.empty()) {
-      ESP_LOGI(TAG, "Scale push mode active — console: %s", console_url_.c_str());
+    if (!console_urls_.empty()) {
+      ESP_LOGI(TAG, "Scale push mode active — console: %s%s", console_urls_[0].c_str(),
+               console_urls_.size() > 1 ? " (+ secondary consoles)" : "");
       constexpr uint32_t PUSH_STACK_BYTES = 12288;
       auto *push_stack = static_cast<StackType_t *>(
           heap_caps_malloc(PUSH_STACK_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
@@ -240,10 +241,10 @@ void BambuddyAPIComponent::http_task_loop() {
       continue;
     }
 
-    // ---- Scale push mode (scale_mode_ && !console_url_.empty()) ----
+    // ---- Scale push mode (scale_mode_ && !console_urls_.empty()) ----
     // Heartbeat is sent on a fixed timer; response carries pending commands.
-    // Weight and NFC events are processed one-job-per-tick so a blocked HTTP
-    // call never starves the loop.
+    // Weight is pushed whenever dirty (see below); NFC events are processed
+    // one-job-per-tick so a blocked HTTP call never starves the loop.
     if (scale_mode_) {
       // Heartbeat — use a faster interval when an NFC tag is present so
       // write_tag commands are picked up quickly (~200 ms vs 1 s at idle).
@@ -262,15 +263,33 @@ void BambuddyAPIComponent::http_task_loop() {
         }
       }
 
-      // Process one queued job (weight or NFC event) per tick.
+      // Weight push — always sends the CURRENT display_state_ weight/stable,
+      // read fresh right here rather than a value captured whenever the dirty
+      // flag was set. That's what makes it safe for this to block for seconds
+      // (pushing multiple consoles is sequential — see push_to_consoles()):
+      // a reading that arrives while a push is already in flight just leaves
+      // the flag dirty again, and is picked up as the latest truth on the
+      // very next check. Nothing is queued and nothing is silently dropped —
+      // the old design captured one job per event and skipped enqueuing a new
+      // one whenever a push was already outstanding, which for a multi-console
+      // (or merely slow) push meant readings — including the final "stable"
+      // one — could be lost for the entire duration of that push.
+      // On failure, re-mark dirty so delivery keeps retrying (paced by the
+      // 2 s backoff below) until it succeeds or a newer reading supersedes it.
+      if (weight_push_dirty_.exchange(false)) {
+        lock_state();
+        float grams  = display_state_.weight_grams;
+        bool  stable = display_state_.weight_stable;
+        unlock_state();
+        bool ok = api_scale_push_weight(grams, stable);
+        if (!ok) weight_push_dirty_ = true;
+        vTaskDelay(pdMS_TO_TICKS(ok ? 10 : 2000));
+      }
+
+      // Process one queued NFC event per tick.
       HttpJob job;
       if (dequeue_job(job)) {
-        bool push_failed = false;
         switch (job.kind) {
-          case HttpJob::SCALE_PUSH_WEIGHT:
-            push_weight_pending_ = false;  // allow next on_scale_reading enqueue
-            if (!api_scale_push_weight(job.f1, job.b1)) push_failed = true;
-            break;
           case HttpJob::SCALE_PUSH_NFC_SCANNED:
             api_scale_push_nfc_scanned(job.s1, job.s2, job.i1, job.s3);
             break;
@@ -284,9 +303,7 @@ void BambuddyAPIComponent::http_task_loop() {
           default:
             break;
         }
-        // Back off for 2 s on weight push failure to avoid hammering an
-        // unreachable console at the DNS-retry rate (~3 s per attempt).
-        vTaskDelay(pdMS_TO_TICKS(push_failed ? 2000 : 10));
+        vTaskDelay(pdMS_TO_TICKS(10));
       } else {
         vTaskDelay(pdMS_TO_TICKS(50));
       }
@@ -439,6 +456,14 @@ void BambuddyAPIComponent::http_task_loop() {
         case HttpJob::CLEAR_PLATE:
           api_clear_plate(job.s1);
           break;
+        case HttpJob::SCALE_PUSH_NFC_SCANNED:
+        case HttpJob::SCALE_PUSH_NFC_REMOVED:
+          // Scale-mode-only job kinds — never enqueued here since the
+          // scale_mode_ branch above handles them in its own switch and
+          // `continue`s before reaching this code. Listed explicitly (rather
+          // than a catch-all default) so this switch stays exhaustive and a
+          // future new HttpJob::Kind still trips -Wswitch as a reminder.
+          break;
       }
     }
 
@@ -463,7 +488,7 @@ void BambuddyAPIComponent::http_task_loop() {
         lock_state();
         display_state_.tag_resolving = false;
         unlock_state();
-        ESP_LOGW(TAG, "tag-scanned retry: giving up (elapsed=%ums tag_present=%d same_tag=%d)",
+        ESP_LOGW(TAG, "tag-scanned retry: giving up (elapsed=%lums tag_present=%d same_tag=%d)",
                  elapsed, tag_present, same_tag);
       } else if (backend_up) {
         // Backend is up — re-enqueue with the saved params.
@@ -537,7 +562,7 @@ void BambuddyAPIComponent::http_task_loop() {
       if (millis() - last_hwm_log_ms >= 30000) {
         last_hwm_log_ms = millis();
         ESP_LOGV(TAG, "HTTP task stack HWM: %u bytes free",
-                 (unsigned)uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t));
+                 (unsigned) (uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t)));
       }
     }
 #endif
@@ -572,6 +597,28 @@ DisplayState BambuddyAPIComponent::snapshot() {
   // Keep uptime ticking smoothly between heartbeats.
   copy.uptime_s = (millis() - start_ms_) / 1000;
   return copy;
+}
+
+// ---------------------------------------------------------------------------
+// Gated wrappers — no-op when the corresponding optional hardware isn't
+// configured for this device, so callers (YAML lambdas) don't need to know
+// whether it exists.
+// ---------------------------------------------------------------------------
+
+void BambuddyAPIComponent::set_nfc_scan_enabled(bool enabled) {
+  if (nfc_ != nullptr) nfc_->set_scan_enabled(enabled);
+}
+
+void BambuddyAPIComponent::set_nfc_low_power(bool low_power) {
+  if (nfc_ != nullptr) nfc_->set_low_power(low_power);
+}
+
+void BambuddyAPIComponent::play_chime(const std::string &rtttl) {
+  if (speaker_ != nullptr) speaker_->play(rtttl);
+}
+
+bool BambuddyAPIComponent::chime_playing() const {
+  return speaker_ != nullptr && speaker_->is_playing();
 }
 
 // ---------------------------------------------------------------------------
@@ -645,7 +692,7 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
     job.s3 = tag_type;
     job.i1 = sak;
     enqueue_job(job);
-  } else if (!console_url_.empty()) {
+  } else if (!console_urls_.empty()) {
     // Scale push mode: forward tag event to the console.
     HttpJob job;
     job.kind = HttpJob::SCALE_PUSH_NFC_SCANNED;
@@ -672,7 +719,7 @@ void BambuddyAPIComponent::on_tag_removed(const std::string &uid) {
     unlinked_tag_expiry_ms_ = millis() + ASSIGN_TTL_MS;
     display_state_.unlinked_tag_expiry_ms = unlinked_tag_expiry_ms_;
     // Keep nfc_state = PRESENT so the unlinked panel stays visible.
-    ESP_LOGI(TAG, "Unlinked tag removed — keeping panel for %u ms", ASSIGN_TTL_MS);
+    ESP_LOGI(TAG, "Unlinked tag removed — keeping panel for %lu ms", ASSIGN_TTL_MS);
   }
   unlock_state();
 
@@ -682,7 +729,7 @@ void BambuddyAPIComponent::on_tag_removed(const std::string &uid) {
     job.kind = HttpJob::TAG_REMOVED;
     job.s1 = uid;
     enqueue_job(job);
-  } else if (!console_url_.empty()) {
+  } else if (!console_urls_.empty()) {
     // Scale push mode: forward removal event to the console.
     HttpJob job;
     job.kind = HttpJob::SCALE_PUSH_NFC_REMOVED;
@@ -723,20 +770,13 @@ void BambuddyAPIComponent::on_scale_reading(float grams, bool stable,
     job.b1 = stable;
     job.i1 = raw_adc;
     enqueue_job(job);
-  } else if (!console_url_.empty()) {
-    // Scale push mode: push at scale_report_interval rate so tare and
-    // calibration changes reach the console promptly.  Connectivity itself is
-    // maintained by the heartbeat — the weight push is a pure data channel.
-    // Only enqueue if no weight job is already pending — prevents the queue
-    // from accumulating back-to-back jobs during a DNS stall.
-    bool was_pending = push_weight_pending_.exchange(true);
-    if (!was_pending) {
-      HttpJob job;
-      job.kind = HttpJob::SCALE_PUSH_WEIGHT;
-      job.f1 = grams;
-      job.b1 = stable;
-      enqueue_job(job);
-    }
+  } else if (!console_urls_.empty()) {
+    // Scale push mode: mark the reading dirty; the HTTP task picks up the
+    // freshest display_state_ weight/stable whenever it's ready to send (see
+    // http_task_loop()), rather than us capturing a snapshot into a queued
+    // job here that could go stale — or be silently dropped — while an
+    // earlier push to a slow/multi-console setup is still in flight.
+    weight_push_dirty_ = true;
   }
 }
 
@@ -758,7 +798,7 @@ void BambuddyAPIComponent::set_low_power(bool enable) {
     esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
     // Also stretch the backend cadence by low_power_factor_ (http_task_loop) to
     // cut backend traffic while idle.
-    ESP_LOGI(TAG, "Sleep: entering low-power mode (WiFi MAX_MODEM, heartbeat/poll x%u)",
+    ESP_LOGI(TAG, "Sleep: entering low-power mode (WiFi MAX_MODEM, heartbeat/poll x%lu)",
              low_power_factor_);
   } else {
     // Restore the awake WiFi power-save mode, then force an immediate heartbeat +
@@ -869,15 +909,15 @@ bool BambuddyAPIComponent::api_register_device() {
      // has_scale=true when in scale_mode (physical HX711) or when the push-mode
      // scale is live (pushed within SCALE_LIVE_TIMEOUT_MS).  Goes false when
      // the scale disconnects so the backend reflects reality.
-     << "\"has_nfc\":true,"
+     << "\"has_nfc\":" << bool_str(nfc_ != nullptr) << ","
      << "\"has_scale\":" << bool_str(scale_mode_ || scale_live()) << ","
      // tare_offset is an integer in the backend schema — see api_update_tare().
      << "\"tare_offset\":" << (int)lroundf(tare_offset_) << ","
      << "\"calibration_factor\":" << calibration_factor_ << ","
-     << "\"nfc_reader_type\":\"PN532\","
-     << "\"nfc_connection\":\"SPI\","
+     << "\"nfc_reader_type\":" << json_string(nfc_ != nullptr ? "PN532" : "") << ","
+     << "\"nfc_connection\":" << json_string(nfc_ != nullptr ? "SPI" : "") << ","
      << "\"backend_url\":" << json_string(backend_url_) << ","
-     << "\"has_backlight\":true"
+     << "\"has_backlight\":" << bool_str(backlight_ != nullptr)
      << "}";
 
   std::string resp;
@@ -913,6 +953,7 @@ void BambuddyAPIComponent::api_heartbeat() {
   lock_state();
   int uptime = display_state_.uptime_s;
   std::string ip = display_state_.ip_address;
+  bool nfc_ok = display_state_.nfc_ok;
   // scale_ok: true when the scale sensor is live (scale device) or when a push
   // was received within the liveness window (console).
   bool scale_ok = scale_mode_ ? display_state_.scale_ok : scale_live();
@@ -923,13 +964,13 @@ void BambuddyAPIComponent::api_heartbeat() {
   // (api_update_tare), which also advances last_calibrated_at.
   std::ostringstream js;
   js << "{"
-     << "\"nfc_ok\":true,"
+     << "\"nfc_ok\":" << bool_str(nfc_ != nullptr && nfc_ok) << ","
      << "\"scale_ok\":" << bool_str(scale_ok) << ","
      << "\"uptime_s\":" << uptime << ","
      << "\"ip_address\":" << json_string(ip) << ","
      << "\"firmware_version\":" << json_string(FIRMWARE_VERSION) << ","
-     << "\"nfc_reader_type\":\"PN532\","
-     << "\"nfc_connection\":\"SPI\","
+     << "\"nfc_reader_type\":" << json_string(nfc_ != nullptr ? "PN532" : "") << ","
+     << "\"nfc_connection\":" << json_string(nfc_ != nullptr ? "SPI" : "") << ","
      << "\"backend_url\":" << json_string(backend_url_)
      << "}";
 
@@ -945,7 +986,9 @@ void BambuddyAPIComponent::api_heartbeat() {
 
   lock_state();
   display_state_.backend_state = BackendState::REGISTERED;
-  display_state_.nfc_ok = true;
+  // No reader configured means nothing will ever call set_nfc_ok(true), so
+  // this just keeps the flag honestly false instead of forcing it true.
+  display_state_.nfc_ok = (nfc_ != nullptr);
   // Do NOT force scale_ok here — on a scale device it is set true by
   // on_scale_reading(); on the console it is kept in sync with scale push
   // liveness by the maintenance block in http_task_loop().
@@ -1059,7 +1102,7 @@ void BambuddyAPIComponent::activate_spool(FilamentInfo fi,
   display_state_.spool_assign_expiry_ms = expiry;
   assign_clear_ms_ = 0;
   if (spool_id > 0)
-    ESP_LOGI(TAG, "activate_spool: spool %d uid='%s' src=%d TTL=%us",
+    ESP_LOGI(TAG, "activate_spool: spool %d uid='%s' src=%d TTL=%lus",
              spool_id, source_uid.c_str(), (int)source, ASSIGN_TTL_MS / 1000);
   unlock_state();
   if (spool_id > 0)
@@ -1658,7 +1701,9 @@ bool BambuddyAPIComponent::http_request(esp_http_client_method_t method,
   }
 
   ESP_LOGD(TAG, "--> %s %s", m, url.c_str());
-  if (!json_body.empty()) ESP_LOGD(TAG, "    body: %s", json_body.c_str());
+  if (!json_body.empty()) {
+    ESP_LOGD(TAG, "    body: %s", json_body.c_str());
+  }
 
   // Feed the task WDT immediately before the blocking HTTP call.
   arch_feed_wdt();
@@ -2606,8 +2651,28 @@ esp_err_t BambuddyAPIComponent::scale_http_calibrate(httpd_req_t *req) {
 // Scale push mode — scale → console
 // ---------------------------------------------------------------------------
 
+// POSTs `body` to `path` on every configured console; see the declaration in
+// bambuddy_api.h for why only the first console's outcome drives
+// primary_resp/the return value, while all_resps (when requested) collects
+// every reachable console's response so commands aren't tied to the primary.
+bool BambuddyAPIComponent::push_to_consoles(const std::string &path, const std::string &body,
+                                             std::string &primary_resp,
+                                             std::vector<std::string> *all_resps) {
+  bool primary_ok = false;
+  for (size_t i = 0; i < console_urls_.size(); i++) {
+    std::string resp;
+    bool ok = http_post_direct(console_urls_[i] + ":8080" + path, body, resp);
+    if (i == 0) {
+      primary_ok = ok;
+      primary_resp = resp;
+    }
+    if (ok && all_resps != nullptr) all_resps->push_back(std::move(resp));
+  }
+  return primary_ok;
+}
+
 bool BambuddyAPIComponent::api_scale_push_weight(float grams, bool stable) {
-  if (console_url_.empty()) return false;
+  if (console_urls_.empty()) return false;
 
   // Apply tare and calibration before pushing so the console receives net grams.
   float net = (grams - tare_offset_) * calibration_factor_;
@@ -2620,7 +2685,7 @@ bool BambuddyAPIComponent::api_scale_push_weight(float grams, bool stable) {
            tare_offset_, calibration_factor_);
 
   std::string resp;
-  bool ok = http_post_direct(console_url_ + ":8080/scale/weight", body, resp);
+  bool ok = push_to_consoles("/scale/weight", body, resp);
   if (!ok) {
     ESP_LOGD(TAG, "Scale push weight to console failed");
     return false;
@@ -2631,39 +2696,50 @@ bool BambuddyAPIComponent::api_scale_push_weight(float grams, bool stable) {
 }
 
 void BambuddyAPIComponent::api_scale_push_heartbeat() {
-  if (console_url_.empty()) return;
+  if (console_urls_.empty()) return;
 
   char body[128];
   snprintf(body, sizeof(body), "{\"hostname\":\"%s\"}", esc(hostname_).c_str());
 
+  std::string primary_resp;
+  std::vector<std::string> all_resps;
+  bool primary_ok = push_to_consoles("/scale/heartbeat", body, primary_resp, &all_resps);
+
+  if (primary_ok) {
+    bool first_success = (last_push_ok_ms_ == 0);
+    last_push_ok_ms_ = millis();
+
+    // On first successful heartbeat after boot, force-push the current weight
+    // so the console immediately has a reading — even if it is 0 or unchanged
+    // (the ESPHome delta filter would otherwise suppress on_scale_reading()
+    // callbacks until the weight changes by ≥ 0.3 g).
+    if (first_success) {
+      weight_push_dirty_ = true;
+      ESP_LOGI(TAG, "First heartbeat OK — force-pushing initial weight");
+    }
+  } else {
+    ESP_LOGD(TAG, "Scale heartbeat to primary console failed");
+  }
+
+  // Honor a pending command from whichever console has one — a human tapping
+  // Tare/Calibrate on ANY console is a single unambiguous action, so it must
+  // not be dropped just because that console isn't the primary/connectivity
+  // one. At most one console is expected to have a command pending at a
+  // given heartbeat; take the first non-empty one found.
   std::string resp;
-  bool ok = http_post_direct(console_url_ + ":8080/scale/heartbeat", body, resp);
-  if (!ok) {
-    ESP_LOGD(TAG, "Scale heartbeat to console failed");
+  std::string cmd;
+  for (auto &r : all_resps) {
+    std::string c = parse_json_string(r, "cmd");
+    if (!c.empty()) {
+      cmd  = std::move(c);
+      resp = std::move(r);
+      break;
+    }
+  }
+  if (cmd.empty()) {
+    ESP_LOGD(TAG, "Heartbeat OK — no pending command");
     return;
   }
-  bool first_success = (last_push_ok_ms_ == 0);
-  last_push_ok_ms_ = millis();
-
-  // On first successful heartbeat after boot, force-push the current weight so
-  // the console immediately has a reading — even if it is 0 or unchanged (the
-  // ESPHome delta filter would otherwise suppress on_scale_reading() callbacks
-  // until the weight changes by ≥ 0.3 g).
-  if (first_success && !push_weight_pending_.exchange(true)) {
-    lock_state();
-    float force_g  = display_state_.weight_grams;
-    bool  force_st = display_state_.weight_stable;
-    unlock_state();
-    HttpJob job;
-    job.kind = HttpJob::SCALE_PUSH_WEIGHT;
-    job.f1   = force_g;
-    job.b1   = force_st;
-    enqueue_job(job);
-    ESP_LOGI(TAG, "First heartbeat OK — force-pushing initial weight %.1f g", force_g);
-  }
-
-  // Process any pending command from the console.
-  std::string cmd = parse_json_string(resp, "cmd");
   if (cmd == "tare") {
     ESP_LOGI(TAG, "Scale received tare command via heartbeat");
     local_tare();
@@ -2671,9 +2747,7 @@ void BambuddyAPIComponent::api_scale_push_heartbeat() {
     float ref = parse_json_float(resp, "value", 0.0f);
     if (ref > 0.0f) {
       lock_state();
-      float raw_net  = display_state_.weight_grams - tare_offset_;
-      float force_g  = display_state_.weight_grams;
-      bool  force_st = display_state_.weight_stable;
+      float raw_net = display_state_.weight_grams - tare_offset_;
       unlock_state();
       if (raw_net > 0.0f) {
         calibration_factor_ = ref / raw_net;
@@ -2681,13 +2755,7 @@ void BambuddyAPIComponent::api_scale_push_heartbeat() {
         ESP_LOGI(TAG, "Scale calibrate via heartbeat: ref=%.1f g factor=%.6f",
                  ref, calibration_factor_);
         // Force-push so the console immediately reflects the new calibration.
-        if (!push_weight_pending_.exchange(true)) {
-          HttpJob job;
-          job.kind = HttpJob::SCALE_PUSH_WEIGHT;
-          job.f1   = force_g;
-          job.b1   = force_st;
-          enqueue_job(job);
-        }
+        weight_push_dirty_ = true;
       }
     }
   } else if (cmd == "set_calibration") {
@@ -2700,19 +2768,11 @@ void BambuddyAPIComponent::api_scale_push_heartbeat() {
     lock_state();
     if (t != kAbsent) tare_offset_ = t;
     if (f > 0.0f)     calibration_factor_ = f;
-    float force_g  = display_state_.weight_grams;
-    bool  force_st = display_state_.weight_stable;
     unlock_state();
     save_calibration_nvs();
     ESP_LOGI(TAG, "Scale received set_calibration via heartbeat: tare=%.2f factor=%.6f",
              tare_offset_, calibration_factor_);
-    if (!push_weight_pending_.exchange(true)) {
-      HttpJob job;
-      job.kind = HttpJob::SCALE_PUSH_WEIGHT;
-      job.f1   = force_g;
-      job.b1   = force_st;
-      enqueue_job(job);
-    }
+    weight_push_dirty_ = true;
   } else if (cmd == "write_tag") {
     std::string ndef_hex = parse_json_string(resp, "ndef_hex");
     int spool_id = parse_json_int(resp, "spool_id", 0);
@@ -2730,7 +2790,7 @@ void BambuddyAPIComponent::api_scale_push_nfc_scanned(const std::string &uid,
                                                         const std::string &tray_uuid,
                                                         int sak,
                                                         const std::string &tag_type) {
-  if (console_url_.empty()) return;
+  if (console_urls_.empty()) return;
 
   char body[384];
   snprintf(body, sizeof(body),
@@ -2738,19 +2798,19 @@ void BambuddyAPIComponent::api_scale_push_nfc_scanned(const std::string &uid,
            esc(uid).c_str(), esc(tray_uuid).c_str(), sak, esc(tag_type).c_str());
 
   std::string resp;
-  bool ok = http_post_direct(console_url_ + ":8080/scale/nfc/tag-scanned", body, resp);
+  bool ok = push_to_consoles("/scale/nfc/tag-scanned", body, resp);
   if (ok) last_push_ok_ms_ = millis();
   else ESP_LOGW(TAG, "Scale push nfc-scanned to console failed (uid=%s)", uid.c_str());
 }
 
 void BambuddyAPIComponent::api_scale_push_nfc_removed(const std::string &uid) {
-  if (console_url_.empty()) return;
+  if (console_urls_.empty()) return;
 
   char body[128];
   snprintf(body, sizeof(body), "{\"uid\":\"%s\"}", esc(uid).c_str());
 
   std::string resp;
-  bool ok = http_post_direct(console_url_ + ":8080/scale/nfc/tag-removed", body, resp);
+  bool ok = push_to_consoles("/scale/nfc/tag-removed", body, resp);
   if (ok) last_push_ok_ms_ = millis();
   else ESP_LOGW(TAG, "Scale push nfc-removed to console failed");
 }
@@ -2759,7 +2819,7 @@ void BambuddyAPIComponent::api_scale_push_write_result(int spool_id,
                                                          const std::string &uid,
                                                          bool success,
                                                          const std::string &msg) {
-  if (console_url_.empty()) return;
+  if (console_urls_.empty()) return;
 
   char body[512];
   snprintf(body, sizeof(body),
@@ -2768,7 +2828,7 @@ void BambuddyAPIComponent::api_scale_push_write_result(int spool_id,
            esc(msg).c_str());
 
   std::string resp;
-  bool ok = http_post_direct(console_url_ + ":8080/scale/nfc/write-result", body, resp);
+  bool ok = push_to_consoles("/scale/nfc/write-result", body, resp);
   if (ok) {
     last_push_ok_ms_ = millis();
     ESP_LOGI(TAG, "Scale pushed write-result to console: spool=%d uid=%s success=%d",

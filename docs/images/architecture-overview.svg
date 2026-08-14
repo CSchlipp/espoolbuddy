@@ -29,16 +29,16 @@
   <text x="210" y="150" text-anchor="middle" font-size="18" font-weight="700" fill="#ffffff">SpoolBuddy Scale</text>
   <text x="210" y="170" text-anchor="middle" font-size="12" fill="#c9f0e8">HX711 + PN532 · headless</text>
   <rect x="110" y="180" width="200" height="22" rx="4" fill="#000000" fill-opacity="0.25"/>
-  <text x="210" y="195" text-anchor="middle" font-size="11.5" fill="#ffffff">spoolbuddy_scale.yaml</text>
+  <text x="210" y="195" text-anchor="middle" font-size="11.5" fill="#ffffff">espoolbuddy_scale.yaml</text>
   <text x="210" y="222" text-anchor="middle" font-size="11" fill="#c9f0e8">Own HTTP server :80 (tare / cal)</text>
   <text x="210" y="238" text-anchor="middle" font-size="11" fill="#c9f0e8">Can run standalone, no console needed</text>
 
   <!-- Console -->
   <rect x="650" y="120" width="280" height="160" rx="16" fill="#0969da" stroke="#0550ae" stroke-width="2"/>
   <text x="790" y="150" text-anchor="middle" font-size="18" font-weight="700" fill="#ffffff">SpoolBuddy Console</text>
-  <text x="790" y="170" text-anchor="middle" font-size="12" fill="#cfe3ff">WT32-SC01 Plus · display + PN532</text>
-  <rect x="690" y="180" width="200" height="22" rx="4" fill="#000000" fill-opacity="0.25"/>
-  <text x="790" y="195" text-anchor="middle" font-size="11.5" fill="#ffffff">spoolbuddy_console.yaml</text>
+  <text x="790" y="170" text-anchor="middle" font-size="12" fill="#cfe3ff">Touchscreen · WT32-SC01 Plus or Panda Touch</text>
+  <rect x="670" y="180" width="240" height="22" rx="4" fill="#000000" fill-opacity="0.25"/>
+  <text x="790" y="195" text-anchor="middle" font-size="11.5" fill="#ffffff">espoolbuddy_console*.yaml</text>
   <text x="790" y="222" text-anchor="middle" font-size="11" fill="#cfe3ff">Listens on :8080 for scale pushes</text>
   <text x="790" y="238" text-anchor="middle" font-size="11" fill="#cfe3ff">Only device that talks to Bambuddy</text>
 

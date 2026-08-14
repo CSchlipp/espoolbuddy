@@ -2,13 +2,14 @@ name: ESPHome Compile
 
 # Compile-checks the real firmware configs against the latest ESPHome release.
 #
-# spoolbuddy_console.yaml / spoolbuddy_scale.yaml are standalone copy & paste
+# espoolbuddy_console.yaml / espoolbuddy_scale.yaml are standalone copy & paste
 # examples: their inline external_components block fetches the bambuddy_api /
-# bambuddy_nfc components from this repo's main branch on GitHub. To test the
-# code under review instead of main, the "Build local components" step below
-# rewrites that block to a local ./components source before compiling. The
-# rewrite asserts the expected block is present, so it fails loudly if the
-# configs' external_components block is ever changed without updating CI.
+# bambuddy_nfc components, and their packages block fetches the espoolbuddy/
+# UI/app YAMLs, both from this repo's main branch on GitHub. To test the code
+# under review instead of main, the "Build local components" step below
+# rewrites both blocks to local sources before compiling. The rewrite asserts
+# the expected blocks are present, so it fails loudly if the configs'
+# external_components or packages block is ever changed without updating CI.
 #
 # Email noise is kept low by only running on pull requests and pushes to main
 # (not every feature-branch push), skipping doc-only changes via the paths
@@ -21,8 +22,9 @@ on:
     paths: &config_paths
       - 'components/**'
       - 'espoolbuddy/**'
-      - 'spoolbuddy_console.yaml'
-      - 'spoolbuddy_scale.yaml'
+      - 'espoolbuddy_console.yaml'
+      - 'espoolbuddy_console_pandatouch.yaml'
+      - 'espoolbuddy_scale.yaml'
       - 'secrets.yaml.example'
       - '.github/workflows/esphome-compile.yml'
   pull_request:
@@ -44,12 +46,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Console = display + LVGL + bambuddy_api (console mode) + bambuddy_nfc.
-        # Scale   = HX711 + status LED + bambuddy_api (scale_mode) + bambuddy_nfc.
+        # Console          = display + LVGL + bambuddy_api (console mode) + bambuddy_nfc,
+        #                    480x320 WT32-SC01 Plus.
+        # Console/Panda    = same shared LVGL UI, 800x480 BigTreeTech Panda
+        #                    Touch — exercises the resolution-independent
+        #                    layout on a second screen size/board.
+        # Scale            = HX711 + status LED + bambuddy_api (scale_mode) + bambuddy_nfc.
         # Together they cover both build modes of the shared components.
         config:
-          - spoolbuddy_console.yaml
-          - spoolbuddy_scale.yaml
+          - espoolbuddy_console.yaml
+          - espoolbuddy_console_pandatouch.yaml
+          - espoolbuddy_scale.yaml
 
     steps:
       - name: Checkout
@@ -63,14 +70,14 @@ jobs:
       - name: Install latest ESPHome
         run: pip install -U esphome
 
-      - name: Build local components instead of the GitHub main source
+      - name: Build local components + packages instead of the GitHub main source
         run: python .github/scripts/use_local_components.py ${{ matrix.config }}
 
       - name: Cache PlatformIO toolchain & frameworks
         uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: platformio-${{ runner.os }}-${{ hashFiles('spoolbuddy_console.yaml', 'spoolbuddy_scale.yaml') }}
+          key: platformio-${{ runner.os }}-${{ hashFiles('espoolbuddy_console.yaml', 'espoolbuddy_console_pandatouch.yaml', 'espoolbuddy_scale.yaml') }}
           restore-keys: |
             platformio-${{ runner.os }}-
 

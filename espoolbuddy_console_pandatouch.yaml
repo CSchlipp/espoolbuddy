@@ -1,0 +1,280 @@
+################################################################################
+# SpoolBuddy Console — EXPERIMENTAL port to BigTreeTech Panda Touch
+#
+# This is a quick "does the UI boot" test on different hardware. It reuses
+# espoolbuddy/app.yaml and lvgl.yaml UNCHANGED — the
+# shared LVGL package is resolution-independent (flex/grid + the
+# screen_width/screen_height/screen_rotation substitutions below), so this
+# file only needs to supply this board's hardware config, not a second UI.
+#   - No PN532 or speaker is attached on Panda Touch. Unlike the console
+#     build, this file does not declare bambuddy_nfc or a speaker/rtttl/
+#     i2s_audio stack, and does not pass nfc_id/speaker_id to bambuddy_api —
+#     the component gracefully no-ops the corresponding calls and the
+#     dependent Settings UI (Sound, NFC-in-sleep) hides itself at boot.
+#   - Hardware: BigTreeTech Panda Touch (ESP32-S3, 8MB octal PSRAM,
+#     800x480 RGB565 parallel LCD, GT911 capacitive touch)
+#     ref: https://github.com/bigtreetech/PandaTouch_IDF/blob/master/docs/pinout.md
+################################################################################
+substitutions:
+  # Branch/tag/commit fetched for the components + espoolbuddy packages
+  # below. Pin to a release tag instead of tracking main if you want
+  # reproducible builds.
+  espoolbuddy_ref: main
+  # Screen geometry consumed by espoolbuddy/lvgl.yaml's root page and
+  # lvgl: rotation — everything below the root sizes itself relative to its
+  # parent (flex/grid/pct), so these are the only resolution-specific values
+  # that need to change per console variant.
+  screen_width: "800"
+  screen_height: "480"
+  screen_rotation: "0"
+
+esphome:
+  name: espoolbuddy-console-pandatouch
+  friendly_name: ESPoolBuddy Console (Panda Touch)
+  project:
+    name: espoolbuddy.console
+    # Version is centralized in espoolbuddy/version.yaml (see packages: below).
+  on_boot:
+    - priority: 600
+      then:
+        - logger.log: "SpoolBuddy booting..."
+        - lambda: bambuddy->configure_pm(false);
+    - priority: -100
+      then:
+        - script.execute: apply_tab
+
+esp32:
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  variant: ESP32S3
+  framework:
+    type: esp-idf
+    version: recommended
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_ESP_TASK_WDT_TIMEOUT_S: "30"
+      CONFIG_MBEDTLS_CERTIFICATE_BUNDLE: "y"
+      CONFIG_PM_ENABLE: "y"
+      CONFIG_FREERTOS_USE_TICKLESS_IDLE: "1"
+    advanced:
+      # ESPHome's own "loopTask" (esp32/core.cpp) runs setup()/App.loop() —
+      # including lv_timer_handler() and every interval lambda — on a
+      # statically-sized stack independent of ESP-IDF's main-task stack
+      # (CONFIG_ESP_MAIN_TASK_STACK_SIZE does NOT apply to it, confirmed via a
+      # real "stack overflow in task loopTask" crash). Default is 8192 B. The
+      # flex/grid UI conversion added several more nested layout: containers
+      # (AMS row -> slot -> icon stack, NFC action row, header sub-rows,
+      # settings rows), deepening LVGL's recursive layout/style recalculation
+      # on every lv_timer_handler() call enough to overflow the default.
+      loop_task_stack_size: 16384
+
+# Panda Touch ships 8MB Octal PSRAM (GPIO33-37 reserved internally for it —
+# unlike the console board, which runs quad mode and frees those pins for I2S).
+psram:
+  mode: octal
+  speed: 80MHz
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/CSchlipp/espoolbuddy.git
+      ref: ${espoolbuddy_ref}
+      path: components
+    components: [bambuddy_api, bambuddy_nfc]
+
+packages:
+  espoolbuddy:
+    url: https://github.com/CSchlipp/espoolbuddy.git
+    ref: ${espoolbuddy_ref}
+    path: espoolbuddy
+    files: [version.yaml, app.yaml, assets.yaml, lvgl.yaml]
+
+logger:
+  # Global level must be DEBUG so the Bambuddy components can emit DEBUG (a
+  # per-tag level may only be RAISED above the global level, never lowered).
+  # The noisy framework tags are raised back to INFO to keep the log readable
+  # while still tracing all Bambuddy HTTP requests/responses and NFC detail.
+  # Change to DEBUG if required
+  level: INFO
+  baud_rate: 115200
+  logs:
+    scheduler: INFO
+    component: INFO
+    sensor: INFO
+    light: INFO
+    lvgl: INFO
+    touchscreen: INFO
+    wifi: INFO
+    api: INFO
+    ota: INFO
+    mdns: INFO
+    # ESP-IDF TLS/HTTP internals: expected errors when backend is temporarily
+    # unreachable (select timeout, connection refused). Raising to WARN keeps
+    # the log clean without hiding our own bambuddy_* DEBUG traces.
+    esp-tls: WARN
+    transport_base: WARN
+    HTTP_CLIENT: WARN
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: light
+  on_connect:
+    - logger.log: "WiFi connected"
+  on_disconnect:
+    - logger.log: "WiFi disconnected"
+
+captive_portal:
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+  reboot_timeout: 0s
+
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: Europe/Berlin
+
+# ============================================================================
+# I2C0 — GT911 touch controller (Panda Touch pinout)
+# ============================================================================
+i2c:
+  - id: i2c_bus
+    sda: GPIO2
+    scl: GPIO1
+    frequency: 400000
+
+# ============================================================================
+# Sensors
+# ============================================================================
+sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    id: wifi_signal_sensor
+    update_interval: 300s
+
+  - platform: uptime
+    name: "Uptime"
+    id: uptime_sensor
+    update_interval: 300s
+
+# ============================================================================
+# Buttons
+# ============================================================================
+button:
+  - platform: template
+    name: "Tare Scale"
+    id: tare_button
+    on_press:
+      then:
+        - lambda: bambuddy->request_tare();
+
+  - platform: restart
+    name: "Restart"
+    id: restart_button
+
+# ============================================================================
+# Backlight — Panda Touch backlight PWM
+# ============================================================================
+output:
+  - platform: ledc
+    pin: GPIO21
+    id: backlight_pwm
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    name: "Display Backlight"
+    id: display_backlight
+    restore_mode: ALWAYS_ON
+    default_transition_length: 0ms
+
+# ============================================================================
+# Display — Panda Touch 800x480 RGB565 parallel panel, DE mode. hsync_pin/
+# vsync_pin are omitted (not physically wired, and optional in DE mode per
+# the mipi_rgb driver — it configures GPIO_NUM_NC for both when unset). The
+# hsync/vsync pulse-width and porch values below are still required — they
+# drive the RGB peripheral's internal timing generator independently of
+# whether the sync signals are exposed on actual pins.
+# ============================================================================
+display:
+  - platform: mipi_rgb
+    model: RPI
+    id: main_display
+    update_interval: never
+    dimensions:
+      width: ${screen_width}
+      height: ${screen_height}
+    de_pin: GPIO38
+    pclk_pin: GPIO5
+    pclk_frequency: 16MHz
+    hsync_pulse_width: 4
+    hsync_back_porch: 8
+    hsync_front_porch: 8
+    vsync_pulse_width: 4
+    vsync_back_porch: 8
+    vsync_front_porch: 8
+    reset_pin: GPIO46
+    color_order: RGB
+    auto_clear_enabled: false
+    data_pins:
+      red:
+        - GPIO6   # R3
+        - GPIO7   # R4
+        - GPIO8   # R5
+        - GPIO9   # R6
+        - GPIO10  # R7
+      green:
+        - GPIO11  # G2
+        - GPIO12  # G3
+        - GPIO13  # G4
+        - GPIO14  # G5
+        - GPIO15  # G6
+        - GPIO16  # G7
+      blue:
+        - GPIO17  # B3
+        - GPIO18  # B4
+        - GPIO48  # B5
+        - GPIO47  # B6
+        - GPIO39  # B7
+
+# ============================================================================
+# Touch — GT911 (Panda Touch pinout)
+# ============================================================================
+touchscreen:
+  - platform: gt911
+    id: touch_screen
+    i2c_id: i2c_bus
+    interrupt_pin: GPIO40
+    reset_pin: GPIO41
+    on_touch:
+      - lambda: |-
+          id(display_backlight).turn_on()
+            .set_brightness(id(backlight_brightness_pct) / 100.0f)
+            .set_transition_length(0).perform();
+
+# ============================================================================
+# BambuddyAPI — same settings as the console build. No PN532 or speaker on
+# Panda Touch, so nfc_id/speaker_id are omitted — bambuddy_api no-ops the
+# corresponding calls and the dependent Settings rows hide themselves.
+# ============================================================================
+bambuddy_api:
+  id: bambuddy
+  backend_url: !secret bambuddy_backend_url
+  api_key: !secret bambuddy_api_key
+  hostname: "SpoolBuddy-Console-PandaTouch"
+  backlight_id: display_backlight
+  inventory_backend: internal
+  heartbeat_interval: 10
+  scale_report_interval: 250
+  printer_poll_interval: 15
+  sleep_factor: 12
+  clock_24h: true
