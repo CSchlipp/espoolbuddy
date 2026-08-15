@@ -306,6 +306,7 @@ class BambuddyAPIComponent : public Component {
   void set_device_id(const std::string &id) { device_id_ = id; }
   void set_hostname(const std::string &hostname) { hostname_ = hostname; }
   void set_heartbeat_interval(uint32_t ms) { heartbeat_interval_ms_ = ms * 1000; }
+  void set_heartbeat_fail_threshold(uint8_t n) { heartbeat_fail_threshold_ = n; }
   void set_scale_report_interval(uint32_t ms) { scale_report_interval_ms_ = ms; }
   void set_printer_poll_interval(uint32_t s) { printer_poll_interval_ms_ = s * 1000; }
   // Scale server mode: this device IS the scale — serves weight/tare/calibrate
@@ -821,6 +822,12 @@ class BambuddyAPIComponent : public Component {
   uint32_t last_heartbeat_ms_{0};
   uint32_t last_register_ms_{0};
   uint32_t last_scale_report_ms_{0};
+  // Debounces backend_state ERROR: only mark the backend down after this many
+  // *consecutive* failed heartbeats, so a single transient blip doesn't flash
+  // the console's cloud/WiFi icons red. A single success always clears this
+  // immediately — recovery is not debounced, only the transition to "down".
+  uint8_t heartbeat_fail_count_{0};
+  uint8_t heartbeat_fail_threshold_{3};
 
   // Printer / AMS polling
   uint32_t printer_poll_interval_ms_{30000};

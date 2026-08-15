@@ -202,16 +202,16 @@ spi:
 # ============================================================================
 bambuddy_nfc:
   id: nfc_reader
-  api_id: bambuddy
+  api_id: bambuddy     # id of the bambuddy_api: component above (required link)
   spi_id: nfc_spi
   cs_pin: GPIO10
   irq_pin:
     number: GPIO14
     mode: INPUT_PULLUP  # PN532 IRQ is open-drain; pull-up required
-  data_rate: 1MHz
-  spi_mode: 0
+  data_rate: 1MHz      # PN532 SPI requirement — don't change without checking the datasheet
+  spi_mode: 0          # PN532 SPI requirement — mode 0 (CPOL=0, CPHA=0)
   poll_interval: 300   # ms — used only in fallback polling mode; IRQ mode uses 10ms guard
-  miss_threshold: 3
+  miss_threshold: 3    # consecutive no-tag responses before declaring tag removed
 
 
 # ============================================================================
@@ -327,27 +327,15 @@ rtttl:
 # ============================================================================
 bambuddy_api:
   id: bambuddy
-  backend_url: !secret bambuddy_backend_url
-  api_key: !secret bambuddy_api_key
-  hostname: "SpoolBuddy-Console"
-  backlight_id: display_backlight
-  # Optional hardware — omit either to build a console without a PN532/speaker;
-  # bambuddy_api gracefully no-ops the corresponding calls and hides the
-  # dependent Settings UI when not set.
-  nfc_id: nfc_reader
-  speaker_id: rtttl_player
-  # Which Bambuddy inventory backend to talk to — must match Settings → Spoolman
-  # in the Bambuddy web UI. "internal" (default) uses Bambuddy's own DB;
-  # "spoolman" delegates spool/tag/assignment calls to Bambuddy's Spoolman
-  # integration instead. Changing Bambuddy's setting later requires reflashing
-  # with the matching value here.
-  inventory_backend: internal   # internal | spoolman
+  backend_url: !secret bambuddy_backend_url   # Bambuddy server base URL, e.g. http://192.168.1.50:5000
+  api_key: !secret bambuddy_api_key           # from Bambuddy → Settings → Devices → this device's API key
+  hostname: "SpoolBuddy-Console"              # display name for this device in Bambuddy's device list (not the network/mDNS hostname)
+  backlight_id: display_backlight             # id of the `light:` below — dimmed/turned off by the sleep state machine
+  nfc_id: nfc_reader             # optional — omit for no PN532 (no-ops + hides Settings UI)
+  speaker_id: rtttl_player       # optional — omit for no speaker (no-ops + hides Settings UI)
+  inventory_backend: internal    # internal | spoolman — must match Bambuddy's Settings → Spoolman toggle (reflash if changed)
   heartbeat_interval: 10        # seconds — tag scan triggers an extra immediate heartbeat
-  scale_report_interval: 250    # ms
-  printer_poll_interval: 15     # seconds
-  # Deep-idle "sleep": sleep_timeout is controlled at runtime by the interval
-  # lambda in espoolbuddy/app.yaml (set_sleep_timeout from sleep_timeout_min
-  # global). sleep_factor stretches heartbeat + poll cadence while asleep.
-  sleep_factor: 12              # while asleep: heartbeat ×12 (10s→120s), poll ×12 (15s→180s)
-  # Header clock format: true = 24-hour (14:05), false = 12-hour (2:05 PM).
-  clock_24h: true
+  # heartbeat_fail_threshold: 3   # consecutive failed heartbeats before cloud/WiFi icons go red (default: 3)
+  printer_poll_interval: 15     # seconds between AMS/printer status polls to Bambuddy
+  sleep_factor: 12               # heartbeat/poll multiplier while asleep (×12: 10s→120s, 15s→180s); sleep_timeout set at runtime in app.yaml
+  clock_24h: true                # 24h format (false = 12h AM/PM)
