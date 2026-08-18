@@ -35,6 +35,13 @@
   default label otherwise). The currently selected printer's name also
   shows in the header next to the clock; it only scrolls if the text is too
   long to fit, otherwise it just sits centered.
+- **AMS rows per screen**: Settings → Features → **Rows/Page** controls how
+  many AMS rows are shown at once (1/2/3 on the WT32-SC01 Plus console,
+  1/2/3/5 on Panda Touch). Fewer rows per page means each row — and its
+  icons and text — grows to fill the freed space instead of leaving it
+  blank; more AMS units than fit on one page are reached via the existing
+  prev/next buttons. Defaults to the max for your console, which looks the
+  same as before this setting existed.
 - **Sleep**: the console dims its backlight after 60 s idle and can go into
   a deep-idle "sleep" tier (backlight off, reduced network cadence) after a
   configurable timeout — any touch, new tag, or weight change wakes it.
