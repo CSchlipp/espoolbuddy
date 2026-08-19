@@ -17,6 +17,14 @@ esphome:
               lv_obj_set_grid_cell(id(row_wifi_sleep_toggle),
                   LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 1, 1);
             }
+            // Clamp a value restored from NVS (e.g. from before this feature
+            // existed, or a card moved between a Console and a Panda Touch
+            // build) to this variant's actual option range.
+            {
+              const int ams_rows_max = (${screen_height} >= 400) ? 5 : 3;
+              if (id(ams_rows_per_page) > ams_rows_max) id(ams_rows_per_page) = ams_rows_max;
+              if (id(ams_rows_per_page) < 1) id(ams_rows_per_page) = 1;
+            }
   # Weight-tab display + stable chime, run every main-loop iteration instead
   # of the 400 ms interval below. console_http_scale_weight() (bambuddy_api)
   # writes a landed scale push into display_state_ immediately from the HTTP
@@ -143,6 +151,10 @@ globals:
     type: bool
     restore_value: no
     initial_value: 'false'
+  - id: ams_rows_per_page    # AMS rows shown per page (Settings "Rows/Page" row).
+    type: int                # Console: 1/2/3. Panda Touch (screen_height>=400): 1/2/3/5.
+    restore_value: yes
+    initial_value: '${screen_height} >= 400 ? 5 : 3'   # defaults to today's visual density
 
 
 # ============================================================================
@@ -206,6 +218,7 @@ script:
           id(update_wifi_sleep_btn).execute();
           id(update_sleep_timeout_lbl).execute();
           id(update_backlight_brightness).execute();
+          id(update_ams_rows_btn).execute();
           // Close the Settings subpages when switching away from settings
           lv_obj_add_flag(id(content_sleep), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(content_system), LV_OBJ_FLAG_HIDDEN);
@@ -259,6 +272,23 @@ script:
               on ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
           lv_obj_set_style_text_color(id(lbl_plateclear_on),
               on ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
+
+  # Highlight the active segment of the Settings "Rows/Page" row from the
+  # ams_rows_per_page global. Called on boot/tab-switch (apply_tab) and on tap.
+  - id: update_ams_rows_btn
+    then:
+      - lambda: |-
+          int n = id(ams_rows_per_page);
+          lv_obj_t *btns[4] = {id(btn_ams_rows_1), id(btn_ams_rows_2), id(btn_ams_rows_3), id(btn_ams_rows_5)};
+          lv_obj_t *lbls[4] = {id(lbl_ams_rows_1), id(lbl_ams_rows_2), id(lbl_ams_rows_3), id(lbl_ams_rows_5)};
+          int vals[4] = {1, 2, 3, 5};
+          for (int i = 0; i < 4; i++) {
+            bool active = (vals[i] == n);
+            lv_obj_set_style_bg_color(btns[i],
+                active ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
+            lv_obj_set_style_text_color(lbls[i],
+                active ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
+          }
 
   # Refresh the Settings "WiFi in sleep" toggle from the wifi_sleep_mode global.
   # Called on boot/tab-switch (apply_tab) and on tap.
@@ -1080,6 +1110,7 @@ interval:
             // Cheap FNV-1a-style signature over the fields that affect rendering.
             uint32_t sig = (uint32_t)n_ams * 2654435761u ^ (uint32_t)s.dual_nozzle
                          ^ ((uint32_t)id(ams_page) * 2246822519u)
+                         ^ ((uint32_t)id(ams_rows_per_page) * 3266489917u)  // Settings row-count change
                          ^ ((uint32_t)s.tray_now   * 1500450271u);  // active spool highlight
             for (int ui = 0; ui < n_ams; ui++) {
               const auto &u = s.ams_units[ui];
@@ -1101,6 +1132,8 @@ interval:
               // ---- Regular-row widget arrays (8 rows) ----
               lv_obj_t *row[8]  = {id(ams_row0),id(ams_row1),id(ams_row2),id(ams_row3),
                                     id(ams_row4),id(ams_row5),id(ams_row6),id(ams_row7)};
+              lv_obj_t *rinfo[8] = {id(ams0_info),id(ams1_info),id(ams2_info),id(ams3_info),
+                                    id(ams4_info),id(ams5_info),id(ams6_info),id(ams7_info)};
               lv_obj_t *ric[8]  = {id(ams0_icon),id(ams1_icon),id(ams2_icon),id(ams3_icon),
                                     id(ams4_icon),id(ams5_icon),id(ams6_icon),id(ams7_icon)};
               lv_obj_t *rht[8]  = {id(ams0_hticon),id(ams1_hticon),id(ams2_hticon),id(ams3_hticon),
@@ -1131,6 +1164,19 @@ interval:
                 {id(ams5_0_act),id(ams5_1_act),id(ams5_2_act),id(ams5_3_act)},
                 {id(ams6_0_act),id(ams6_1_act),id(ams6_2_act),id(ams6_3_act)},
                 {id(ams7_0_act),id(ams7_1_act),id(ams7_2_act),id(ams7_3_act)}};
+              // Slot icon *wrapper* objects (amsN_S_icon) -- holds the fill/hub/
+              // empty/act/bar/barf stack for one slot. apply_slot_geom (below)
+              // resizes this wrapper and every child explicitly per row-height
+              // tier.
+              lv_obj_t *rslicon[8][4] = {
+                {id(ams0_0_icon),id(ams0_1_icon),id(ams0_2_icon),id(ams0_3_icon)},
+                {id(ams1_0_icon),id(ams1_1_icon),id(ams1_2_icon),id(ams1_3_icon)},
+                {id(ams2_0_icon),id(ams2_1_icon),id(ams2_2_icon),id(ams2_3_icon)},
+                {id(ams3_0_icon),id(ams3_1_icon),id(ams3_2_icon),id(ams3_3_icon)},
+                {id(ams4_0_icon),id(ams4_1_icon),id(ams4_2_icon),id(ams4_3_icon)},
+                {id(ams5_0_icon),id(ams5_1_icon),id(ams5_2_icon),id(ams5_3_icon)},
+                {id(ams6_0_icon),id(ams6_1_icon),id(ams6_2_icon),id(ams6_3_icon)},
+                {id(ams7_0_icon),id(ams7_1_icon),id(ams7_2_icon),id(ams7_3_icon)}};
               lv_obj_t *rhub[8][4] = {
                 {id(ams0_0_hub),id(ams0_1_hub),id(ams0_2_hub),id(ams0_3_hub)},
                 {id(ams1_0_hub),id(ams1_1_hub),id(ams1_2_hub),id(ams1_3_hub)},
@@ -1189,6 +1235,11 @@ interval:
               lv_obj_t *pa_ty[5]={id(pair0_a_type),id(pair1_a_type),id(pair2_a_type),id(pair3_a_type),id(pair4_a_type)};
               lv_obj_t *pa_id[5]={id(pair0_a_id),id(pair1_a_id),id(pair2_a_id),id(pair3_a_id),id(pair4_a_id)};
               lv_obj_t *pa_ac[5]={id(pair0_a_act),id(pair1_a_act),id(pair2_a_act),id(pair3_a_act),id(pair4_a_act)};
+              // Icon *wrapper* objects (pairN_X_icon) -- same role as regular
+              // rows' rslicon: holds fill/hub/empty/act/bar/barf as one scaled
+              // unit (tab_ams.yaml), reused via the same apply_slot_geom below.
+              lv_obj_t *pa_icon[5]={id(pair0_a_icon),id(pair1_a_icon),id(pair2_a_icon),id(pair3_a_icon),id(pair4_a_icon)};
+              lv_obj_t *pb_icon[5]={id(pair0_b_icon),id(pair1_b_icon),id(pair2_b_icon),id(pair3_b_icon),id(pair4_b_icon)};
               lv_obj_t *pb_ht[5]={id(pair0_b_ht),id(pair1_b_ht),id(pair2_b_ht),id(pair3_b_ht),id(pair4_b_ht)};
               lv_obj_t *pb_vt[5]={id(pair0_b_vt),id(pair1_b_vt),id(pair2_b_vt),id(pair3_b_vt),id(pair4_b_vt)};
               lv_obj_t *pb_nm[5]={id(pair0_b_name),id(pair1_b_name),id(pair2_b_name),id(pair3_b_name),id(pair4_b_name)};
@@ -1230,42 +1281,321 @@ interval:
               // each widget's index among its (non-hidden) siblings, set below via
               // lv_obj_move_to_index(widget, sp), not from manual x/y.
               //
-              // Rows stay a fixed 70px (same readable size/density on every
-              // screen -- see the comment on ams_rows_wrap in tab_ams.yaml), but
-              // PER_PAGE is computed per-screen so a taller screen shows MORE
-              // rows per page instead of stretching fewer, bigger ones.
-              //
-              // Deliberately NOT measured at runtime via lv_obj_get_height() on
-              // the flex_grow ams_rows_wrap: that size only exists after LVGL's
-              // own layout pass has resolved the whole flex_grow chain (root
-              // wrapper -> content slot -> ams_body -> ams_rows_wrap), and
-              // querying it right after a hide/show change is timing-fragile --
-              // it undercounted rows in practice. screen_height is known at
-              // compile time (the ${screen_height} substitution, textually
-              // substituted into this lambda same as it is into the root
-              // page's width/height in lvgl.yaml), so compute the
-              // available height from that plus the same fixed chrome heights
-              // the YAML itself uses (header 30, bottom nav 40, pagination bar
-              // 26 -- keep these in sync if those ever change).
+              // PER_PAGE is the user's Settings "Rows/Page" choice (the
+              // ams_rows_per_page global -- 1/2/3 on Console, 1/2/3/5 on Panda
+              // Touch), not an auto-computed density. ROW_H is now DERIVED from
+              // that choice (available height / PER_PAGE), so fewer rows means
+              // BIGGER rows that fill the screen instead of leaving blank space
+              // below a fixed 70px row. screen_height is known at compile time
+              // (the ${screen_height} substitution, textually substituted into
+              // this lambda same as it is into the root page's width/height in
+              // lvgl.yaml), so compute the available height from that plus the
+              // same fixed chrome heights the YAML itself uses (header 30,
+              // bottom nav 40, pagination bar 26 -- keep these in sync if those
+              // ever change). Deliberately NOT measured at runtime via
+              // lv_obj_get_height() on the flex_grow ams_rows_wrap: that size
+              // only exists after LVGL's own layout pass has resolved the whole
+              // flex_grow chain, and querying it right after a hide/show change
+              // is timing-fragile -- it undercounted rows in practice.
               const int SCREEN_H = ${screen_height};
-              const int HEADER_H = 30, NAV_H = 40, PG_BAR_H = 26;
-              const int ROW_H = 70, ROW_GAP = 3;
+              const int SCREEN_W = ${screen_width};
+              const int HEADER_H = 30, NAV_H = 40, PG_BAR_H = 26, ROW_GAP = 3;
+              const int AMS_ROWS_MAX = (${screen_height} >= 400) ? 5 : 3;
               int avail_h = SCREEN_H - HEADER_H - NAV_H - PG_BAR_H;
-              int per_page = (avail_h + ROW_GAP) / (ROW_H + ROW_GAP);
-              if (per_page < 1) per_page = 1;
-              const int PER_PAGE = per_page;
+              int PER_PAGE = id(ams_rows_per_page);
+              if (PER_PAGE < 1) PER_PAGE = 1;
+              if (PER_PAGE > AMS_ROWS_MAX) PER_PAGE = AMS_ROWS_MAX;
+              int ROW_H = (avail_h - (PER_PAGE - 1) * ROW_GAP) / PER_PAGE;
+              if (ROW_H < 1) ROW_H = 1;
+
+              // Row-height tier -> icon target size (in the icon's original
+              // 32px-reference frame) + font tier. Each tier's fill/empty/
+              // active art is a separate image decoded at its EXACT target
+              // pixel size at compile time (assets.yaml's
+              // img_spool_*_45/_70/_51/_79) -- the widget just gets pointed at
+              // the right pre-sized image via lv_image_set_src(), no runtime
+              // image scaling. The hub dot and fill-level bar (plain objs, not
+              // images) are resized directly via lv_obj_set_width/height/x/y.
+              int icon_target;  // target on-screen size of the 32px-reference spool icon
+              image::Image *tier_fill_img, *tier_empty_img, *tier_active_img;
+              const font::Font *tier_name_font, *tier_noz_font, *tier_slot_font;
+              if (ROW_H >= 150) {
+                icon_target = 70;  // ~2.2x
+                tier_fill_img = id(img_spool_fill_70); tier_empty_img = id(img_spool_empty_70); tier_active_img = id(img_spool_active_79);
+                tier_name_font = id(roboto_20); tier_noz_font = id(roboto_28); tier_slot_font = id(roboto_16);
+              } else if (ROW_H >= 90) {
+                icon_target = 45;  // ~1.4x
+                tier_fill_img = id(img_spool_fill_45); tier_empty_img = id(img_spool_empty_45); tier_active_img = id(img_spool_active_51);
+                tier_name_font = id(roboto_16); tier_noz_font = id(roboto_20); tier_slot_font = id(roboto_12);
+              } else {
+                icon_target = 32;  // 1.0x -- matches the original fixed-70px look
+                tier_fill_img = id(img_spool_fill); tier_empty_img = id(img_spool_empty); tier_active_img = id(img_spool_active);
+                tier_name_font = id(roboto_12); tier_noz_font = id(roboto_16); tier_slot_font = id(roboto_12);
+              }
+              float ratio = icon_target / 32.0f;
+
+              // name/temp labels (and the nozzle-letter label, shifted right
+              // to match) widen at bigger tiers so long names get more room
+              // instead of always truncating at the base tier's 94px
+              // (regular row) / 90px (pair side). These are plain objs using
+              // ordinary x/y positioning, so growing them past the base
+              // tier's 144px info-block footprint just uses otherwise-idle
+              // row space. Depends only on the ROW_H tier (not ratio/
+              // icon_target below), so computed here before the width-fit
+              // check that needs info_w.
+              int name_grow = (ROW_H >= 150) ? 66 : (ROW_H >= 90) ? 36 : 0;
+              int name_w    = 94 + name_grow;
+              int noz_x     = 128 + name_grow;
+              // noz_lbl's box grows with tier_noz_font so its bigger glyph
+              // has room. info_w ends exactly at noz_x+noz_w -- 144 at the
+              // base tier, matching tab_ams.yaml's compile-time default, so
+              // the base tier's look is unaffected.
+              int noz_w  = (ROW_H >= 150) ? 30 : (ROW_H >= 90) ? 20 : 16;
+              int info_w = noz_x + noz_w;
+              // th_lbl (temp/humidity) holds two lines ("72°\n45%"); its
+              // height scales with tier_name_font so both lines fit at
+              // every tier.
+              int th_h = (ROW_H >= 150) ? 50 : (ROW_H >= 90) ? 40 : 30;
+
+              // The icon wrapper's box must stay bigger than the icon graphic
+              // itself: the fill-level bar sits at x:38, to the icon's right,
+              // so the wrapper needs that margin (its own 44px reference,
+              // scaled) rather than being sized to icon_target. It also needs
+              // a small LEFT margin: the active-ring art (act) is always a
+              // few px bigger than fill/empty and is centered on fill's box
+              // (see apply_slot_geom), so it extends past fill's left edge --
+              // without margin that clips against the wrapper's own left
+              // edge (x=0), which the wrapper clips its children to.
+              // wrap_for() folds that margin into the wrapper size so the
+              // downgrade check below sees the SAME size apply_slot_geom
+              // will actually use.
+              auto wrap_for = [](float r) {
+                return (int)(44.0f * r + 0.5f) + (int)(2.0f * r + 0.5f);
+              };
+              int wrap_size = wrap_for(ratio);
+              // ROW_H (row height) drives icon_target above, but the row's
+              // WIDTH is fixed regardless of PER_PAGE -- 4 slot columns share
+              // whatever's left after info_w, and on the narrower Console
+              // display the XL icon tier's wrap_size doesn't fit that even
+              // with info_w at its smallest (144, i.e. zero name growth), so
+              // capping name_grow can't fix it: the icon tier itself has to
+              // step down to whatever size actually fits the column.
+              const int COL_GAP = 4;  // tab_ams.yaml ams_row's pad_column
+              int slot_col_w = (SCREEN_W - info_w - 4 * COL_GAP) / 4;
+              if (wrap_size > slot_col_w) {
+                if (icon_target > 45 && wrap_for(45.0f / 32.0f) <= slot_col_w) {
+                  icon_target = 45;
+                  tier_fill_img = id(img_spool_fill_45); tier_empty_img = id(img_spool_empty_45); tier_active_img = id(img_spool_active_51);
+                } else if (icon_target > 32) {
+                  icon_target = 32;
+                  tier_fill_img = id(img_spool_fill); tier_empty_img = id(img_spool_empty); tier_active_img = id(img_spool_active);
+                }
+                ratio = icon_target / 32.0f;
+                wrap_size = wrap_for(ratio);
+              }
+              // Left margin so the active-ring art (bigger than fill/empty,
+              // centered on fill's box in apply_slot_geom) doesn't clip
+              // against the wrapper's own left edge -- fill/empty/hub/bar
+              // all shift right by this to make room.
+              int act_x_offset = (int)(2.0f * ratio + 0.5f);
+
+              // Info block (AMS/HT/VT badge icon + name/temp/nozzle) icons stay
+              // fixed size (see apply_info_geom below) -- their original
+              // ~70px-tall layout is unaffected by icon_target, so re-centering
+              // it in a taller row is just a constant shift.
+              int y_shift = (ROW_H - 70) / 2;
+              if (y_shift < 0) y_shift = 0;
+
+              // Slot icon+labels (regular AND pair rows -- both now use the
+              // same 44px-reference icon-wrapper structure, tab_ams.yaml).
+              int slot_label_h = (ROW_H >= 150) ? 20 : 16;  // ~line height for tier_slot_font
+              // The fill/empty/active images are drawn inset from the wrapper's
+              // own top edge (see apply_slot_geom's fill_y offset below), and
+              // the active-ring art is a few px taller than the fill/empty
+              // pair at every tier (act is centered on fill's box, so it
+              // extends (act_h-icon_target)/2 past fill on every side) -- so
+              // the cluster's true visual bottom is neither
+              // slot_cluster_top+icon_target nor wrap_size, it's whichever of
+              // the two reaches lowest. act_h must match whatever tier the
+              // width-fit check above settled on, not necessarily the
+              // ROW_H-implied tier.
+              int icon_top_inset = (int)(6.0f * ratio + 0.5f);
+              int act_h = (icon_target >= 70) ? 79 : (icon_target >= 45) ? 51 : 36;
+              int act_bottom = icon_top_inset + icon_target / 2 + act_h / 2;
+              int icon_visual_h = std::max(icon_top_inset + icon_target, act_bottom);
+              int slot_cluster_h = icon_visual_h + 2 * slot_label_h;
+              int slot_cluster_top = (ROW_H - slot_cluster_h) / 2;
+              if (slot_cluster_top < 0) slot_cluster_top = 0;
+              int slot_icon_y = slot_cluster_top;
+              int slot_type_y = slot_cluster_top + icon_visual_h + 2;
+              int slot_id_y   = slot_type_y + slot_label_h;
+              // Vertical fill-level bar/track geometry, scaled from the
+              // original x:38,y:6,w:5,h:32 (32px-reference) -- exposed here so
+              // place()/fill_side() below can compute the dynamic (per-tray
+              // remaining-weight) fill height/position against the current tier.
+              int slot_bar_w = std::max(1, (int)(5.0f * ratio + 0.5f));
+              int slot_bar_h = (int)(32.0f * ratio + 0.5f);
+              int slot_bar_x = (int)(38.0f * ratio + 0.5f) + act_x_offset;
+              int slot_bar_y = (int)(6.0f * ratio + 0.5f);
+              int slot_bar_r = std::max(1, (int)(2.0f * ratio + 0.5f));
+              int slot_bar_bottom = slot_bar_y + slot_bar_h;
+
+              // Applies the current tier to a row's info block (AMS/HT/VT icon +
+              // name/temp-humidity/nozzle labels). info_box/ic_ams are null for
+              // pair-row sides: pair sides are a flex_grow column with no fixed-
+              // width wrapper to resize, and never show the plain AMS icon.
+              // Icons here are deliberately NOT resized: they sit directly
+              // beside the name label (not above/below it like a slot icon),
+              // so growing them would run straight into the text instead of
+              // just needing more vertical room -- only reposition (re-center)
+              // + grow the font.
+              // use_name_w/use_noz_x/use_info_w are passed in rather than read
+              // from name_w/noz_x/info_w directly: those are sized for a
+              // regular row's fixed 144px-of-480px info column, which is a
+              // much bigger width budget than a pair row's flex_grow half-row
+              // gets on the narrower Console display -- fill_side (below)
+              // computes its own, tighter-capped versions for pair sides.
+              auto apply_info_geom = [&](lv_obj_t *info_box,
+                                         lv_obj_t *ic_ams, lv_obj_t *ic_ht, lv_obj_t *ic_vt,
+                                         lv_obj_t *name_lbl, lv_obj_t *th_lbl, lv_obj_t *noz_lbl,
+                                         int use_name_w, int use_noz_x, int use_info_w) {
+                // info_box's own width is a fixed compile-time 144 (tab_ams.yaml)
+                // that clips its children -- grow it in lockstep with name_w/
+                // noz_x or the widened labels get clipped at the old edge.
+                if (info_box) lv_obj_set_width(info_box, use_info_w);
+                if (ic_ams) lv_obj_set_y(ic_ams, 2 + y_shift);
+                lv_obj_set_y(ic_ht, 2 + y_shift);
+                lv_obj_set_y(ic_vt, 2 + y_shift);
+                lv_obj_set_y(name_lbl, 4 + y_shift);
+                lv_obj_set_width(name_lbl, use_name_w);
+                lv_obj_set_y(th_lbl,   36 + y_shift);
+                lv_obj_set_width(th_lbl, use_name_w);
+                lv_obj_set_height(th_lbl, th_h);
+                lv_obj_set_y(noz_lbl,  4 + y_shift);
+                lv_obj_set_x(noz_lbl,  use_noz_x);
+                lv_obj_set_width(noz_lbl, noz_w);
+                lv_obj_set_style_text_font(name_lbl, tier_name_font, LV_PART_MAIN);
+                lv_obj_set_style_text_font(th_lbl,   tier_name_font, LV_PART_MAIN);
+                lv_obj_set_style_text_font(noz_lbl,  tier_noz_font,  LV_PART_MAIN);
+              };
+              // Applies the current tier to one spool slot's icon cluster
+              // (regular-row OR pair-row side -- both share the same wrapper
+              // structure): resizes the wrapper, points fill/empty/active at
+              // the current tier's pre-sized image (lv_image_set_src -- see
+              // the tier_fill_img/tier_empty_img/tier_active_img selection
+              // above; LVGL image widgets auto-size to their source, so no
+              // manual width/height needed once the source is swapped),
+              // resizes hub/bar directly (plain objs, lv_obj_set_width/
+              // height/radius), and positions the type/id labels below the
+              // result. barf's height/y stay dynamic (set per render by
+              // place()/fill_side() using slot_bar_h/slot_bar_bottom above,
+              // since they depend on each tray's remaining-weight %).
+              // icon_x/label_x are only used for pair-row sides, whose icon
+              // wrapper and type/id labels are absolutely positioned
+              // (tab_ams.yaml's fixed x:148/x:134) rather than flex-centered
+              // like a regular row's slot column -- pass -1 to leave x alone
+              // (regular rows stay centered via their TOP_MID align).
+              auto apply_slot_geom = [&](lv_obj_t *icon_wrap,
+                                         lv_obj_t *fill, lv_obj_t *hub, lv_obj_t *empty, lv_obj_t *act,
+                                         lv_obj_t *bar, lv_obj_t *barf,
+                                         lv_obj_t *type_lbl, lv_obj_t *id_lbl,
+                                         int icon_x, int label_x) {
+                if (icon_x >= 0) lv_obj_set_x(icon_wrap, icon_x);
+                lv_obj_set_width(icon_wrap, wrap_size);
+                lv_obj_set_height(icon_wrap, wrap_size);
+                lv_obj_set_y(icon_wrap, slot_icon_y);
+
+                // Image widgets auto-size to their source on lv_image_set_src
+                // (LV_SIZE_CONTENT is LVGL's default for lv_image), but that
+                // resize goes through a different, less immediate path than a
+                // plain lv_obj_set_width/height call -- set the size
+                // explicitly too (icon_target/act_h are already known exactly
+                // from the tier selection above) so fill/empty/act are never
+                // relying on it, the same reliable pattern already used for
+                // the wrapper/hub/bar below.
+                int fill_x = act_x_offset;
+                int fill_y = (int)(6.0f * ratio + 0.5f);
+                lv_image_set_src(fill, tier_fill_img);
+                lv_obj_set_width(fill, icon_target);
+                lv_obj_set_height(fill, icon_target);
+                lv_obj_set_x(fill, fill_x);
+                lv_obj_set_y(fill, fill_y);
+                lv_image_set_src(empty, tier_empty_img);
+                lv_obj_set_width(empty, icon_target);
+                lv_obj_set_height(empty, icon_target);
+                lv_obj_set_x(empty, fill_x);
+                lv_obj_set_y(empty, fill_y);
+
+                // Center act on fill's actual box (both are square) so the
+                // ring stays concentric regardless of how much margin the
+                // active-ring art itself has within its own canvas.
+                lv_image_set_src(act, tier_active_img);
+                lv_obj_set_width(act, act_h);
+                lv_obj_set_height(act, act_h);
+                lv_obj_set_x(act, fill_x + icon_target / 2 - act_h / 2);
+                lv_obj_set_y(act, fill_y + icon_target / 2 - act_h / 2);
+
+                int hub_size = std::max(2, (int)(12.0f * ratio + 0.5f));
+                lv_obj_set_width(hub, hub_size);
+                lv_obj_set_height(hub, hub_size);
+                lv_obj_set_style_radius(hub, hub_size / 2, LV_PART_MAIN);
+                lv_obj_set_x(hub, (int)(10.0f * ratio + 0.5f) + act_x_offset);
+                lv_obj_set_y(hub, (int)(16.0f * ratio + 0.5f));
+
+                lv_obj_set_width(bar, slot_bar_w);
+                lv_obj_set_height(bar, slot_bar_h);
+                lv_obj_set_x(bar, slot_bar_x);
+                lv_obj_set_y(bar, slot_bar_y);
+                lv_obj_set_style_radius(bar, slot_bar_r, LV_PART_MAIN);
+                lv_obj_set_width(barf, slot_bar_w);
+                lv_obj_set_x(barf, slot_bar_x);
+                lv_obj_set_style_radius(barf, slot_bar_r, LV_PART_MAIN);
+
+                if (label_x >= 0) { lv_obj_set_x(type_lbl, label_x); lv_obj_set_x(id_lbl, label_x); }
+                lv_obj_set_y(type_lbl, slot_type_y);
+                lv_obj_set_y(id_lbl,   slot_id_y);
+                lv_obj_set_style_text_font(type_lbl, tier_slot_font, LV_PART_MAIN);
+                lv_obj_set_style_text_font(id_lbl,   tier_slot_font, LV_PART_MAIN);
+              };
+
               int page = id(ams_page);
               int ds = 0, reg_used = 0, pair_used = 0;
 
-              // Fill one side of a pair row from a single-slot unit.
+              // Fill one side of a pair row from a single-slot unit. p_icon is
+              // the fill/hub/empty/act/bar wrapper (pairN_X_icon,
+              // tab_ams.yaml) -- geometry (zoom + type/id label position) is
+              // handled by apply_slot_geom, same helper regular rows use, since
+              // both now share the identical wrapped-icon structure.
               auto fill_side = [&](const bambuddy_api::AMSUnit &unit,
                                    lv_obj_t *p_ht, lv_obj_t *p_vt,
                                    lv_obj_t *p_nm, lv_obj_t *p_th, lv_obj_t *p_nz,
+                                   lv_obj_t *p_icon,
                                    lv_obj_t *p_fi, lv_obj_t *p_hu, lv_obj_t *p_em,
                                    lv_obj_t *p_ac,
                                    lv_obj_t *p_ty, lv_obj_t *p_id_lbl,
                                    lv_obj_t *p_bar, lv_obj_t *p_barf,
                                    const char *nz) {
+                // A pair side is a flex_grow HALF of the row (minus a 1px
+                // divider) -- a much smaller width budget than a regular
+                // row's dedicated 144px-of-480px info column, so name_w/
+                // noz_x/noz_w (sized for that bigger budget) can run the
+                // nozzle label straight into the icon on a narrower screen.
+                // Recompute a pair-specific noz_x that's capped to leave
+                // wrap_size + margins free for the icon on THIS side, then
+                // derive name_w/icon_x/label_x from that capped value so
+                // everything stays proportioned the same way the regular-row
+                // versions are (name right edge always 4px before noz_x,
+                // icon always a few px after noz_x+noz_w).
+                int pair_side_w = (SCREEN_W - 1) / 2;
+                int pair_text_end_max = pair_side_w - wrap_size - 8;
+                int pair_noz_x = std::max(128, std::min(noz_x, pair_text_end_max - noz_w));
+                int pair_name_w = 94 + (pair_noz_x - 128);
+                apply_info_geom(nullptr, nullptr, p_ht, p_vt, p_nm, p_th, p_nz,
+                                 pair_name_w, pair_noz_x, 0);
+                int pair_icon_x  = pair_noz_x + noz_w + 4;
+                int pair_label_x = pair_icon_x - 14;
+                apply_slot_geom(p_icon, p_fi, p_hu, p_em, p_ac, p_bar, p_barf, p_ty, p_id_lbl,
+                                 pair_icon_x, pair_label_x);
                 if (unit.is_vt) { lv_obj_add_flag(p_ht, LV_OBJ_FLAG_HIDDEN);
                                    lv_obj_clear_flag(p_vt, LV_OBJ_FLAG_HIDDEN); }
                 else             { lv_obj_clear_flag(p_ht, LV_OBJ_FLAG_HIDDEN);
@@ -1325,9 +1655,9 @@ interval:
                 if (present && !unit.trays.empty() && unit.trays[0].label_weight_g > 0.0f) {
                   const auto &tr0 = unit.trays[0];
                   float pct = std::max(0.0f, std::min(1.0f, tr0.remaining_g / tr0.label_weight_g));
-                  int fill_h = (int)(pct * 32.0f + 0.5f);
+                  int fill_h = (int)(pct * slot_bar_h + 0.5f);
                   lv_obj_set_height(p_barf, fill_h);
-                  lv_obj_set_y(p_barf, 38 - fill_h);
+                  lv_obj_set_y(p_barf, slot_bar_bottom - fill_h);
                   lv_obj_set_style_bg_color(p_barf, lv_color_hex(bambuddy_api::remaining_bar_color((int)(pct * 100.0f + 0.5f))), LV_PART_MAIN);
                   lv_obj_clear_flag(p_bar, LV_OBJ_FLAG_HIDDEN);
                 } else {
@@ -1367,14 +1697,15 @@ interval:
                   lv_obj_move_to_index(prow[k], sp);
                   lv_obj_clear_flag(prow[k], LV_OBJ_FLAG_SCROLLABLE);
                   lv_obj_clear_flag(prow[k], LV_OBJ_FLAG_HIDDEN);
+                  lv_obj_set_height(prow[k], ROW_H);
                   fill_side(s.ams_units[pending_u],
                             pa_ht[k],pa_vt[k],pa_nm[k],pa_th[k],pa_nz[k],
-                            pa_fi[k],pa_hu[k],pa_em[k],pa_ac[k],pa_ty[k],pa_id[k],
+                            pa_icon[k],pa_fi[k],pa_hu[k],pa_em[k],pa_ac[k],pa_ty[k],pa_id[k],
                             pa_bar[k],pa_barf[k], pending_nz);
                   if (u_b >= 0)
                     fill_side(s.ams_units[u_b],
                               pb_ht[k],pb_vt[k],pb_nm[k],pb_th[k],pb_nz[k],
-                              pb_fi[k],pb_hu[k],pb_em[k],pb_ac[k],pb_ty[k],pb_id[k],
+                              pb_icon[k],pb_fi[k],pb_hu[k],pb_em[k],pb_ac[k],pb_ty[k],pb_id[k],
                               pb_bar[k],pb_barf[k], nz_b);
                   else
                     blank_b(k);
@@ -1399,6 +1730,9 @@ interval:
                     lv_obj_move_to_index(row[k], sp);
                     lv_obj_clear_flag(row[k], LV_OBJ_FLAG_SCROLLABLE);
                     lv_obj_clear_flag(row[k], LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_set_height(row[k], ROW_H);
+                    apply_info_geom(rinfo[k], ric[k], rht[k], rvt[k], rnm[k], rth[k], rnz[k],
+                                     name_w, noz_x, info_w);
                     { char nb[40];
                       if (!unit.custom_name.empty()) snprintf(nb, sizeof(nb), "%s", unit.custom_name.c_str());
                       else                           snprintf(nb, sizeof(nb), "AMS-%c", 'A' + (int)(unit.id % 26));
@@ -1410,6 +1744,8 @@ interval:
                     lv_obj_add_flag(rht[k], LV_OBJ_FLAG_HIDDEN);
                     lv_obj_add_flag(rvt[k], LV_OBJ_FLAG_HIDDEN);
                     for (int j = 0; j < 4; j++) {
+                      apply_slot_geom(rslicon[k][j], rfill[k][j], rhub[k][j], remp[k][j], ract[k][j],
+                                       rbar[k][j], rbarf[k][j], rtype[k][j], rid_r[k][j], -1, -1);
                       // Show a spool when physically present OR assigned (so a
                       // direct assign to an empty slot is visible). Truly-empty
                       // slots (no assignment) open the assign-by-id dialog.
@@ -1437,9 +1773,9 @@ interval:
                         // Vertical fill bar — only shown when weight is known
                         if (tr.label_weight_g > 0.0f) {
                           float pct = std::max(0.0f, std::min(1.0f, tr.remaining_g / tr.label_weight_g));
-                          int fill_h = (int)(pct * 32.0f + 0.5f);
+                          int fill_h = (int)(pct * slot_bar_h + 0.5f);
                           lv_obj_set_height(rbarf[k][j], fill_h);
-                          lv_obj_set_y(rbarf[k][j], 38 - fill_h);
+                          lv_obj_set_y(rbarf[k][j], slot_bar_bottom - fill_h);
                           lv_obj_set_style_bg_color(rbarf[k][j], lv_color_hex(bambuddy_api::remaining_bar_color((int)(pct * 100.0f + 0.5f))), LV_PART_MAIN);
                           lv_obj_clear_flag(rbar[k][j], LV_OBJ_FLAG_HIDDEN);
                         } else {

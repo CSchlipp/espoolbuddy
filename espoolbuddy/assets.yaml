@@ -22,6 +22,55 @@ image:
     type: grayscale
     transparency: alpha_channel
     resize: 36x36
+  # Pre-rendered per-tier sizes of fill/empty/active, decoded at the EXACT
+  # pixel size each AMS row-height tier needs (espoolbuddy/app.yaml's
+  # apply_slot_geom), swapped in via the runtime lv_image_set_src() overload.
+  # Each one is a further downscale of the same master file as its base
+  # (32x32/32x32/36x36) version above -- see the comment above active's own
+  # _51/_79 entries below for why that matters specifically for active.
+  - platform: file
+    file: espoolbuddy/images/spool_fill.png
+    id: img_spool_fill_45
+    type: grayscale
+    transparency: alpha_channel
+    resize: 45x45
+  - platform: file
+    file: espoolbuddy/images/spool_fill.png
+    id: img_spool_fill_70
+    type: grayscale
+    transparency: alpha_channel
+    resize: 70x70
+  - platform: file
+    file: espoolbuddy/images/spool_empty.png
+    id: img_spool_empty_45
+    type: grayscale
+    transparency: alpha_channel
+    resize: 45x45
+  - platform: file
+    file: espoolbuddy/images/spool_empty.png
+    id: img_spool_empty_70
+    type: grayscale
+    transparency: alpha_channel
+    resize: 70x70
+  # spool_active.png is a 512x512 vector-drawn master. ESPHome's image
+  # `resize:` can only DOWNSCALE -- it silently caps at the source's native
+  # resolution rather than upscaling, per esphome/components/file/image.py's
+  # `min(width, resize[0])` -- so the source must be at least as big as the
+  # largest target (79px) here. img_spool_active/_51/_79 are all plain
+  # downscales of this one file, same pattern as fill/empty's 256px master
+  # above.
+  - platform: file
+    file: espoolbuddy/images/spool_active.png
+    id: img_spool_active_51
+    type: grayscale
+    transparency: alpha_channel
+    resize: 51x51
+  - platform: file
+    file: espoolbuddy/images/spool_active.png
+    id: img_spool_active_79
+    type: grayscale
+    transparency: alpha_channel
+    resize: 79x79
   # AMS unit icon (square) — nav tab at 30px, AMS-card header at 20px
   - platform: file
     file: espoolbuddy/images/ams_tab.png

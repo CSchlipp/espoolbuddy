@@ -883,6 +883,83 @@ lvgl:
                                                       widgets:
                                                         - label: {id: lbl_plateclear_on, text: "On", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
 
+                                            # ---- Row: AMS rows per screen (1 | 2 | 3 | 5 segments;
+                                            #      "5" hidden on Console, screen_height < 400) ----
+                                            - obj:
+                                                id: row_ams_rows_toggle
+                                                grid_cell_row_pos: 2
+                                                grid_cell_column_pos: 0
+                                                bg_opa: TRANSP
+                                                border_width: 0
+                                                pad_left: 14
+                                                pad_top: 0
+                                                pad_bottom: 0
+                                                pad_right: 10
+                                                scrollbar_mode: "OFF"
+                                                layout:
+                                                  type: flex
+                                                  flex_flow: row
+                                                  flex_align_cross: center
+                                                  flex_align_track: center
+                                                  pad_column: 6
+                                                widgets:
+                                                  - label:
+                                                      width: 100
+                                                      text: "Rows/Page"
+                                                      text_font: roboto_16
+                                                      long_mode: DOT
+                                                      pad_top: 4
+                                                      text_color: 0xAAAAAA
+                                                  - button:
+                                                      id: btn_ams_rows_1
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - lambda: 'id(ams_rows_per_page) = 1;'
+                                                          - script.execute: update_ams_rows_btn
+                                                      widgets:
+                                                        - label: {id: lbl_ams_rows_1, text: "1", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+                                                  - button:
+                                                      id: btn_ams_rows_2
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - lambda: 'id(ams_rows_per_page) = 2;'
+                                                          - script.execute: update_ams_rows_btn
+                                                      widgets:
+                                                        - label: {id: lbl_ams_rows_2, text: "2", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+                                                  - button:
+                                                      id: btn_ams_rows_3
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - lambda: 'id(ams_rows_per_page) = 3;'
+                                                          - script.execute: update_ams_rows_btn
+                                                      widgets:
+                                                        - label: {id: lbl_ams_rows_3, text: "3", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+                                                  - button:
+                                                      id: btn_ams_rows_5
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      hidden: !lambda "return ${screen_height} < 400;"
+                                                      on_click:
+                                                        then:
+                                                          - lambda: 'id(ams_rows_per_page) = 5;'
+                                                          - script.execute: update_ams_rows_btn
+                                                      widgets:
+                                                        - label: {id: lbl_ams_rows_5, text: "5", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+
                                 # ---- Sleep settings subpage (nested — opened from within
                                 #      content_system; overlays the full content_cfg area) ----
                                 - obj:
