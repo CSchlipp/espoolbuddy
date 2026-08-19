@@ -268,13 +268,13 @@ touchscreen:
 # ============================================================================
 bambuddy_api:
   id: bambuddy
-  backend_url: !secret bambuddy_backend_url
-  api_key: !secret bambuddy_api_key
-  hostname: "SpoolBuddy-Console-PandaTouch"
-  backlight_id: display_backlight
-  inventory_backend: internal
-  heartbeat_interval: 10
-  scale_report_interval: 250
-  printer_poll_interval: 15
-  sleep_factor: 12
-  clock_24h: true
+  backend_url: !secret bambuddy_backend_url   # Bambuddy server base URL, e.g. http://192.168.1.50:5000
+  api_key: !secret bambuddy_api_key           # from Bambuddy → Settings → Devices → this device's API key
+  hostname: "SpoolBuddy-Console-PandaTouch"   # display name for this device in Bambuddy's device list (not the network/mDNS hostname)
+  backlight_id: display_backlight             # id of the `light:` below — dimmed/turned off by the sleep state machine
+  inventory_backend: internal    # internal | spoolman — must match Bambuddy's Settings → Spoolman toggle (reflash if changed)
+  heartbeat_interval: 10        # seconds — tag scan triggers an extra immediate heartbeat
+  # heartbeat_fail_threshold: 3   # consecutive failed heartbeats before cloud/WiFi icons go red (default: 3)
+  printer_poll_interval: 15     # seconds between AMS/printer status polls to Bambuddy
+  sleep_factor: 12               # heartbeat/poll multiplier while asleep (×12: 10s→120s, 15s→180s); sleep_timeout set at runtime in app.yaml
+  clock_24h: true                # 24h format (false = 12h AM/PM)
