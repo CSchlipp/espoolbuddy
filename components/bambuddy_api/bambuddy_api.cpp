@@ -977,6 +977,12 @@ void BambuddyAPIComponent::api_heartbeat() {
   std::string resp;
   bool ok = http_post("/devices/" + device_id_ + "/heartbeat", js.str(), resp);
   if (!ok) {
+    heartbeat_fail_count_++;
+    if (heartbeat_fail_count_ < heartbeat_fail_threshold_) {
+      ESP_LOGD(TAG, "Heartbeat failed (%u/%u consecutive) — not yet marking backend down",
+               heartbeat_fail_count_, heartbeat_fail_threshold_);
+      return;
+    }
     lock_state();
     display_state_.backend_state = BackendState::ERROR;
     display_state_.status_message = "Lost connection to Bambuddy";
@@ -984,6 +990,7 @@ void BambuddyAPIComponent::api_heartbeat() {
     return;
   }
 
+  heartbeat_fail_count_ = 0;
   lock_state();
   display_state_.backend_state = BackendState::REGISTERED;
   // No reader configured means nothing will ever call set_nfc_ok(true), so
@@ -1628,6 +1635,17 @@ static const char *method_name(esp_http_client_method_t m) {
 //   with_api_key: add the X-API-Key header (backend requests only).
 //   quiet:        log failures at DEBUG instead of WARN — for the routine
 //                 scale→console pushes that fail whenever the console is off.
+//
+// A reused persistent backend connection (see is_backend below) can have been
+// silently closed by the server's idle/keep-alive timeout between calls —
+// e.g. an ASGI server's --timeout-keep-alive shorter than our heartbeat
+// interval closes it server-side while esp_http_client still thinks it's
+// open, so the next write into it fails even though the backend is perfectly
+// reachable. When a request fails on a connection we didn't just create in
+// this same call, retry once on a fresh connection before giving up, so a
+// mismatched server keep-alive timeout never surfaces as a failed heartbeat.
+// A failure on an already-fresh connection is a real connectivity problem
+// and is not retried.
 bool BambuddyAPIComponent::http_request(esp_http_client_method_t method,
                                          const std::string &url,
                                          const std::string &json_body,
@@ -1635,110 +1653,122 @@ bool BambuddyAPIComponent::http_request(esp_http_client_method_t method,
                                          int timeout_ms, bool with_api_key,
                                          bool quiet) {
   const char *m = method_name(method);
-  HttpContext ctx;
 
   // All requests rooted at backend_url_ share a persistent TLS connection so
   // the full mbedTLS cert-chain handshake happens once on first connect (or
   // after a dropped connection) rather than on every call.  Direct scale-push
   // calls (http_post_direct) go to a different host and keep per-call cleanup.
   bool is_backend = !backend_url_.empty() && url.rfind(backend_url_, 0) == 0;
-  esp_http_client_handle_t client;
+  bool reused_connection = is_backend && http_client_ != nullptr;
 
-  if (is_backend) {
-    if (!http_client_) {
+  for (int attempt = 0; attempt < 2; attempt++) {
+    HttpContext ctx;
+    esp_http_client_handle_t client;
+
+    if (is_backend) {
+      if (!http_client_) {
+        esp_http_client_config_t cfg = {};
+        cfg.url                   = url.c_str();
+        cfg.event_handler         = http_event_handler;
+        cfg.user_data             = nullptr;   // set per-call via set_user_data below
+        cfg.timeout_ms            = timeout_ms;
+        cfg.disable_auto_redirect = false;
+        cfg.crt_bundle_attach     = esp_crt_bundle_attach;
+        cfg.transport_type        = HTTP_TRANSPORT_UNKNOWN;
+        cfg.keep_alive_enable     = true;
+        http_client_ = esp_http_client_init(&cfg);
+        if (!http_client_) {
+          ESP_LOGE(TAG, "HTTP client init failed for %s %s", m, url.c_str());
+          return false;
+        }
+        ESP_LOGD(TAG, "Created persistent backend HTTP client");
+      }
+      client = http_client_;
+      esp_http_client_set_url(client, url.c_str());
+      esp_http_client_set_method(client, method);
+      esp_http_client_set_user_data(client, &ctx);
+      if (!json_body.empty()) {
+        esp_http_client_set_header(client, "Content-Type", "application/json");
+        esp_http_client_set_post_field(client, json_body.c_str(), (int)json_body.size());
+      } else {
+        esp_http_client_delete_header(client, "Content-Type");
+        esp_http_client_set_post_field(client, nullptr, 0);
+      }
+      if (with_api_key && !api_key_.empty())
+        esp_http_client_set_header(client, "X-API-Key", api_key_.c_str());
+      else
+        esp_http_client_delete_header(client, "X-API-Key");
+    } else {
       esp_http_client_config_t cfg = {};
       cfg.url                   = url.c_str();
+      cfg.method                = method;
       cfg.event_handler         = http_event_handler;
-      cfg.user_data             = nullptr;   // set per-call via set_user_data below
+      cfg.user_data             = &ctx;
       cfg.timeout_ms            = timeout_ms;
       cfg.disable_auto_redirect = false;
       cfg.crt_bundle_attach     = esp_crt_bundle_attach;
       cfg.transport_type        = HTTP_TRANSPORT_UNKNOWN;
-      cfg.keep_alive_enable     = true;
-      http_client_ = esp_http_client_init(&cfg);
-      if (!http_client_) {
+      client = esp_http_client_init(&cfg);
+      if (!client) {
         ESP_LOGE(TAG, "HTTP client init failed for %s %s", m, url.c_str());
         return false;
       }
-      ESP_LOGD(TAG, "Created persistent backend HTTP client");
+      if (!json_body.empty()) {
+        esp_http_client_set_header(client, "Content-Type", "application/json");
+        esp_http_client_set_post_field(client, json_body.c_str(), (int)json_body.size());
+      }
+      if (with_api_key && !api_key_.empty())
+        esp_http_client_set_header(client, "X-API-Key", api_key_.c_str());
     }
-    client = http_client_;
-    esp_http_client_set_url(client, url.c_str());
-    esp_http_client_set_method(client, method);
-    esp_http_client_set_user_data(client, &ctx);
+
+    ESP_LOGD(TAG, "--> %s %s", m, url.c_str());
     if (!json_body.empty()) {
-      esp_http_client_set_header(client, "Content-Type", "application/json");
-      esp_http_client_set_post_field(client, json_body.c_str(), (int)json_body.size());
-    } else {
-      esp_http_client_delete_header(client, "Content-Type");
-      esp_http_client_set_post_field(client, nullptr, 0);
+      ESP_LOGD(TAG, "    body: %s", json_body.c_str());
     }
-    if (with_api_key && !api_key_.empty())
-      esp_http_client_set_header(client, "X-API-Key", api_key_.c_str());
-    else
-      esp_http_client_delete_header(client, "X-API-Key");
-  } else {
-    esp_http_client_config_t cfg = {};
-    cfg.url                   = url.c_str();
-    cfg.method                = method;
-    cfg.event_handler         = http_event_handler;
-    cfg.user_data             = &ctx;
-    cfg.timeout_ms            = timeout_ms;
-    cfg.disable_auto_redirect = false;
-    cfg.crt_bundle_attach     = esp_crt_bundle_attach;
-    cfg.transport_type        = HTTP_TRANSPORT_UNKNOWN;
-    client = esp_http_client_init(&cfg);
-    if (!client) {
-      ESP_LOGE(TAG, "HTTP client init failed for %s %s", m, url.c_str());
+
+    // Feed the task WDT immediately before the blocking HTTP call.
+    arch_feed_wdt();
+    esp_err_t err = esp_http_client_perform(client);
+    int status = esp_http_client_get_status_code(client);
+
+    if (!is_backend) {
+      esp_http_client_cleanup(client);
+    } else if (err != ESP_OK) {
+      // Connection broke — destroy so the retry below (or the next call, if
+      // we've already retried) reconnects fresh.
+      esp_http_client_cleanup(http_client_);
+      http_client_ = nullptr;
+    }
+
+    if (err != ESP_OK) {
+      if (reused_connection) {
+        ESP_LOGD(TAG, "%s %s failed on a reused connection (%s) — retrying fresh",
+                 m, url.c_str(), esp_err_to_name(err));
+        reused_connection = false;  // at most one retry
+        continue;
+      }
+      if (quiet)
+        ESP_LOGD(TAG, "<-- %s %s failed: %s", m, url.c_str(), esp_err_to_name(err));
+      else
+        ESP_LOGW(TAG, "<-- %s %s failed: %s", m, url.c_str(), esp_err_to_name(err));
       return false;
     }
-    if (!json_body.empty()) {
-      esp_http_client_set_header(client, "Content-Type", "application/json");
-      esp_http_client_set_post_field(client, json_body.c_str(), (int)json_body.size());
+    ESP_LOGD(TAG, "<-- %d %s %s", status, m, url.c_str());
+    ESP_LOGD(TAG, "    resp: %s", ctx.body.c_str());
+    if (status < 200 || status >= 300) {
+      if (quiet)
+        ESP_LOGD(TAG, "%s %s returned %d", m, url.c_str(), status);
+      else
+        ESP_LOGW(TAG, "HTTP %s %s returned %d", m, url.c_str(), status);
+      return false;
     }
-    if (with_api_key && !api_key_.empty())
-      esp_http_client_set_header(client, "X-API-Key", api_key_.c_str());
+    // Move (not copy) the accumulated body out: a large inventory response would
+    // otherwise need a second full-size allocation here, which can exhaust the
+    // internal heap and abort (exceptions are compiled out on ESP-IDF).
+    response_body = std::move(ctx.body);
+    return true;
   }
-
-  ESP_LOGD(TAG, "--> %s %s", m, url.c_str());
-  if (!json_body.empty()) {
-    ESP_LOGD(TAG, "    body: %s", json_body.c_str());
-  }
-
-  // Feed the task WDT immediately before the blocking HTTP call.
-  arch_feed_wdt();
-  esp_err_t err = esp_http_client_perform(client);
-  int status = esp_http_client_get_status_code(client);
-
-  if (!is_backend) {
-    esp_http_client_cleanup(client);
-  } else if (err != ESP_OK) {
-    // Connection broke — destroy so the next call reconnects fresh.
-    esp_http_client_cleanup(http_client_);
-    http_client_ = nullptr;
-  }
-
-  if (err != ESP_OK) {
-    if (quiet)
-      ESP_LOGD(TAG, "<-- %s %s failed: %s", m, url.c_str(), esp_err_to_name(err));
-    else
-      ESP_LOGW(TAG, "<-- %s %s failed: %s", m, url.c_str(), esp_err_to_name(err));
-    return false;
-  }
-  ESP_LOGD(TAG, "<-- %d %s %s", status, m, url.c_str());
-  ESP_LOGD(TAG, "    resp: %s", ctx.body.c_str());
-  if (status < 200 || status >= 300) {
-    if (quiet)
-      ESP_LOGD(TAG, "%s %s returned %d", m, url.c_str(), status);
-    else
-      ESP_LOGW(TAG, "HTTP %s %s returned %d", m, url.c_str(), status);
-    return false;
-  }
-  // Move (not copy) the accumulated body out: a large inventory response would
-  // otherwise need a second full-size allocation here, which can exhaust the
-  // internal heap and abort (exceptions are compiled out on ESP-IDF).
-  response_body = std::move(ctx.body);
-  return true;
+  return false;  // unreachable: every loop path returns or continues
 }
 
 std::string BambuddyAPIComponent::backend_url_for(const char *prefix,

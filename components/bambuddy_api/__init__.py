@@ -28,6 +28,7 @@ CONF_API_KEY = "api_key"
 CONF_DEVICE_ID = "device_id"
 CONF_HOSTNAME = "hostname"
 CONF_HEARTBEAT_INTERVAL = "heartbeat_interval"
+CONF_HEARTBEAT_FAIL_THRESHOLD = "heartbeat_fail_threshold"
 CONF_SCALE_REPORT_INTERVAL = "scale_report_interval"
 CONF_PRINTER_POLL_INTERVAL = "printer_poll_interval"
 CONF_SCALE_MODE = "scale_mode"
@@ -71,6 +72,11 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_DEVICE_ID, default=""): cv.string,
             cv.Optional(CONF_HOSTNAME, default="SpoolBuddy-ESP"): cv.string,
             cv.Optional(CONF_HEARTBEAT_INTERVAL, default=10): cv.positive_int,
+            # Consecutive failed heartbeat POSTs required before the backend is
+            # actually marked down (console cloud/WiFi icons turn red). Debounces
+            # transient network blips — a single successful heartbeat always
+            # clears this immediately, so recovery is never delayed.
+            cv.Optional(CONF_HEARTBEAT_FAIL_THRESHOLD, default=3): cv.positive_int,
             cv.Optional(CONF_SCALE_REPORT_INTERVAL, default=1000): cv.positive_int,
             cv.Optional(CONF_PRINTER_POLL_INTERVAL, default=30): cv.positive_int,
             # Scale mode: this device IS the scale — starts a local HTTP server for
@@ -117,6 +123,7 @@ async def to_code(config):
     cg.add(var.set_device_id(config[CONF_DEVICE_ID]))
     cg.add(var.set_hostname(config[CONF_HOSTNAME]))
     cg.add(var.set_heartbeat_interval(config[CONF_HEARTBEAT_INTERVAL]))
+    cg.add(var.set_heartbeat_fail_threshold(config[CONF_HEARTBEAT_FAIL_THRESHOLD]))
     cg.add(var.set_scale_report_interval(config[CONF_SCALE_REPORT_INTERVAL]))
     cg.add(var.set_printer_poll_interval(config[CONF_PRINTER_POLL_INTERVAL]))
     cg.add(var.set_scale_mode(config[CONF_SCALE_MODE]))

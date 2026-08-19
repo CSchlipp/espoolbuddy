@@ -94,16 +94,12 @@ api:
 # ============================================================================
 bambuddy_api:
   id: bambuddy
-  # No backend_url / api_key — this device never contacts BamBuddy directly
-  hostname: "SpoolBuddy-Scale"
-  scale_mode: true    # starts HTTP server for tare/cal; persists cal in NVS
-  scale_report_interval: 100 # ms — weight push cadence to the console
-  # Push weight + NFC events to the console(s).
-  # Accepts either a single URL or a list of URLs. With multiple, the first
-  # is authoritative: only its heartbeat response is honored for tare/
-  # calibrate/write_tag commands and it alone drives the connectivity LED;
-  # any additional consoles are push-only observers of weight/NFC events.
-  console_url: "http://espoolbuddy-console.local"
+  # backend_url: ""              # not used in scale_mode — it runs its own HTTP server instead
+  # api_key: ""                  # not used in scale_mode — it runs its own HTTP server instead
+  hostname: "SpoolBuddy-Scale"  # display name sent with every push to the console (not the network/mDNS hostname)
+  scale_mode: true             # starts HTTP server for tare/cal; persists cal in NVS
+  scale_report_interval: 100   # ms — weight push cadence to the console
+  console_url: "http://espoolbuddy-console.local"   # or a list; first entry is authoritative for commands/LED, rest are push-only
   # console_url:
   #   - "http://espoolbuddy-console.local"
   #   - "http://espoolbuddy-console-2.local"
@@ -124,14 +120,14 @@ spi:
 # ============================================================================
 bambuddy_nfc:
   id: nfc_reader
-  api_id: bambuddy
+  api_id: bambuddy     # id of the bambuddy_api: component above (required link)
   spi_id: spi_bus
   cs_pin: GPIO18
   irq_pin:
     number: GPIO8
     mode: INPUT_PULLUP  # PN532 IRQ is open-drain; pull-up required
-  data_rate: 1MHz
-  spi_mode: 0
+  data_rate: 1MHz      # PN532 SPI requirement — don't change without checking the datasheet
+  spi_mode: 0          # PN532 SPI requirement — mode 0 (CPOL=0, CPHA=0)
   poll_interval: 300   # ms — used only in fallback polling mode; IRQ mode uses 10ms guard
   miss_threshold: 3    # consecutive no-tag responses before declaring tag removed
 
