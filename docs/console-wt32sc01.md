@@ -73,7 +73,7 @@ the WT32-SC01 Plus board — nothing to connect for those.
   2. Connect the PowerBoost's USB-A output to the WT32-SC01 Plus's USB-C
      power input. Its load-sharing charger runs the console *and* charges
      the battery at the same time whenever USB power is present.
-  3. Wire the PowerBoost's 5V/GND pins to a **magnetic pogo-pin connector**
+  3. Wire the PowerBoost's USB/GND pins to a **magnetic pogo-pin connector**
      mounted at the bottom of the case, so you can dock a charger to top up
      the battery without opening the enclosure. Watch the polarity here too
      — make sure the cable can't be connected backwards!

@@ -71,7 +71,7 @@
   <polyline points="185,230 185,345 380,345" fill="none" stroke="#57606a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="10,7"/>
   <circle cx="185" cy="230" r="7" fill="#57606a" stroke="#ffffff" stroke-width="2"/>
   <circle cx="380" cy="345" r="7" fill="#57606a" stroke="#ffffff" stroke-width="2"/>
-  <text x="230" y="290" text-anchor="start" font-size="12" font-weight="600" fill="#1b1f23">USB 5V</text>
+  <text x="230" y="290" text-anchor="start" font-size="12" font-weight="600" fill="#1b1f23">USB / GND</text>
   <text x="230" y="306" text-anchor="start" font-size="12" font-weight="600" fill="#1b1f23">charge-in*</text>
 
   <!-- Wire: WT32-SC01 speaker JST -> Speaker (straight vertical, same column) -->
