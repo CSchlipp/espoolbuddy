@@ -329,6 +329,13 @@ bool BambuddyNFCComponent::read_bambu_blocks(
       // Sector key: okm[sector*6 .. sector*6+5]
       const uint8_t *key = okm + sector * 6;
       if (!mfc_authenticate(target_num, block, key, uid.data())) {
+        if (!bambu_block_is_required(block)) {
+          ESP_LOGW(NFC_TAG,
+                   "Bambu auth failed for optional block %d (sector %d) - "
+                   "skipping it, the scan stands",
+                   block, sector);
+          continue;
+        }
         ESP_LOGW(NFC_TAG, "Bambu auth failed for block %d sector %d", block,
                  sector);
         return false;
@@ -338,6 +345,13 @@ bool BambuddyNFCComponent::read_bambu_blocks(
 
     uint8_t data[16];
     if (!mfc_read_block(target_num, block, data)) {
+      if (!bambu_block_is_required(block)) {
+        ESP_LOGW(NFC_TAG,
+                 "Bambu read failed for optional block %d - skipping it, the "
+                 "scan stands",
+                 block);
+        continue;
+      }
       ESP_LOGW(NFC_TAG, "Bambu read failed for block %d", block);
       return false;
     }
@@ -368,6 +382,38 @@ bool BambuddyNFCComponent::ntag_write_page(uint8_t target_num, uint8_t page,
 // ============================================================================
 // UUID extraction (matches the Python daemon's tray-UUID extraction)
 // ============================================================================
+
+bool BambuddyNFCComponent::read_bambu_blocks_retry(
+    const std::vector<uint8_t> &uid,
+    std::vector<std::pair<uint8_t, std::array<uint8_t, 16>>> &blocks_out) {
+  for (uint8_t attempt = 1; attempt <= BAMBU_READ_ATTEMPTS; attempt++) {
+    blocks_out.clear();
+    if (read_bambu_blocks(1, uid, blocks_out)) {
+      if (attempt > 1)
+        ESP_LOGI(NFC_TAG, "Bambu read succeeded on attempt %u/%u", attempt,
+                 BAMBU_READ_ATTEMPTS);
+      return true;
+    }
+    if (attempt == BAMBU_READ_ATTEMPTS) break;
+
+    // A failed authentication or read leaves the MIFARE session unusable: the
+    // tag must be re-selected with InListPassiveTarget before the next try.
+    delay(BAMBU_RETRY_DELAY_MS);
+    std::vector<uint8_t> again_uid;
+    uint8_t again_sak = 0;
+    if (!pn532_detect_tag(again_uid, again_sak)) {
+      ESP_LOGD(NFC_TAG, "Bambu read attempt %u: tag left the reader", attempt);
+      return false;
+    }
+    if (again_uid != uid) {
+      ESP_LOGD(NFC_TAG, "Bambu read attempt %u: a different tag is present",
+               attempt);
+      return false;
+    }
+  }
+  ESP_LOGW(NFC_TAG, "Bambu read failed after %u attempts", BAMBU_READ_ATTEMPTS);
+  return false;
+}
 
 // ============================================================================
 // Bambu tag payload decoding
@@ -494,6 +540,30 @@ bambuddy_api::BambuTagInfo BambuddyNFCComponent::parse_bambu_tag(
 
 std::string BambuddyNFCComponent::extract_tray_uuid(
     const std::vector<std::pair<uint8_t, std::array<uint8_t, 16>>> &blocks) {
+  // Block 9 holds the Bambu tray UID: the identity of the *physical spool*, as
+  // opposed to the tag's own card UID. Both tags of a spool carry the same
+  // value and different spools carry different ones, which is exactly what
+  // inventory matching needs. Prefer it whenever the block was read.
+  //
+  // The heuristic below is kept as a fallback for tags whose sector 2 could not
+  // be read. Note that it does not yield a spool-unique value on Bambu tags:
+  // it falls through to the hex of block 4, which holds the filament type, so
+  // every spool of the same type produces an identical "UUID". Anything that
+  // relies on tray_uuid to tell two spools apart breaks in that case.
+  for (const auto &b : blocks) {
+    if (b.first != 9) continue;
+    char hex[33];
+    for (int i = 0; i < 16; i++) snprintf(hex + i * 2, 3, "%02X", b.second[i]);
+    hex[32] = '\0';
+    std::string uuid(hex);
+    if (uuid.find_first_not_of('0') != std::string::npos) {
+      ESP_LOGD(NFC_TAG, "Tray UID from block 9: %s", uuid.c_str());
+      return uuid;
+    }
+    ESP_LOGW(NFC_TAG, "Block 9 is all zeros - falling back to the heuristic");
+    break;
+  }
+
   const uint8_t *blk4 = nullptr;
   const uint8_t *blk5 = nullptr;
   for (const auto &b : blocks) {
@@ -792,7 +862,7 @@ void BambuddyNFCComponent::poll_once() {
       bambuddy_api::BambuTagInfo bambu_info;
       if (sak == 0x08 || sak == 0x18) {
         std::vector<std::pair<uint8_t, std::array<uint8_t, 16>>> blocks;
-        if (read_bambu_blocks(1, uid, blocks)) {
+        if (read_bambu_blocks_retry(uid, blocks)) {
           tray_uuid   = extract_tray_uuid(blocks);
           bambu_info  = parse_bambu_tag(blocks);
           if (bambu_info.valid) {
@@ -812,10 +882,12 @@ void BambuddyNFCComponent::poll_once() {
                uid_str.c_str(), sak, tag_type.c_str(), tray_uuid.c_str());
 
       if (api_) {
-        api_->on_tag_scanned(uid_str, tray_uuid, (int)sak, tag_type);
-        // Must run *after* on_tag_scanned(), which clears any payload left
-        // over from the previous tag.
-        if (bambu_info.valid) api_->set_bambu_tag_info(bambu_info);
+        // The decoded payload rides along with the scan instead of being set
+        // afterwards: on a scale device on_tag_scanned() queues the push to the
+        // console straight away, so anything set after the call would arrive
+        // too late to be forwarded.
+        api_->on_tag_scanned(uid_str, tray_uuid, (int)sak, tag_type,
+                             bambu_info.valid ? &bambu_info : nullptr);
       }
 
       // For NTAG tags: read NDEF pages and refine the format beyond SAK alone.

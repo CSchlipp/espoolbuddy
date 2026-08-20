@@ -58,7 +58,33 @@ static const uint8_t BAMBU_CONTEXT[7] = {
 // Blocks 1, 2, 4, 5 carry material identity and colour; block 6 adds the
 // drying/bed/hotend temperatures.  All five live in sectors 0 and 1, so the
 // extra block costs one read and no additional MIFARE authentication.
-static const uint8_t BAMBU_BLOCKS[] = {1, 2, 4, 5, 6};
+// Block 9 holds the Bambu tray UID — the identifier of the physical spool, as
+// opposed to the tag's own card UID. It lives in sector 2, so reading it costs
+// one extra authentication on top of the extra block read. Currently read for
+// measurement only (logged, not yet used for matching).
+static const uint8_t BAMBU_BLOCKS[] = {1, 2, 4, 5, 6, 9};
+
+// Blocks the caller cannot do without: material identity and colour. A failure
+// on any of these makes the scan useless, so it aborts the attempt.
+// Everything else in BAMBU_BLOCKS is a bonus — block 6 adds temperatures and
+// block 9 the tray UID. Losing one of those costs a detail, not the scan, so a
+// failure there is logged and skipped rather than discarding blocks that were
+// already read successfully. This matters because each additional sector costs
+// another authentication, and the RF link is not always good for that long.
+static const uint8_t BAMBU_BLOCKS_REQUIRED[] = {1, 2, 4, 5};
+
+inline bool bambu_block_is_required(uint8_t block) {
+  for (uint8_t b : BAMBU_BLOCKS_REQUIRED)
+    if (b == block) return true;
+  return false;
+}
+
+// A Bambu read is a long RF exchange — one authentication plus five block
+// reads per sector run — and a single dropout anywhere in it aborts the whole
+// series, losing the scan even though the spool is still sitting on the
+// reader. Retry the series a few times while the same tag stays present.
+static const uint8_t BAMBU_READ_ATTEMPTS = 4;
+static const uint16_t BAMBU_RETRY_DELAY_MS = 30;
 
 enum class NFCState {
   IDLE,
@@ -137,6 +163,13 @@ class BambuddyNFCComponent
   bool mfc_read_block(uint8_t target_num, uint8_t block,
                       uint8_t data_out[16]);
   // Read Bambu blocks 1,2,4,5 using HKDF-derived keys
+  // Re-selects the tag and re-runs read_bambu_blocks() on failure, up to
+  // BAMBU_READ_ATTEMPTS times. Gives up early if the tag left the reader or a
+  // different tag took its place.
+  bool read_bambu_blocks_retry(
+      const std::vector<uint8_t> &uid,
+      std::vector<std::pair<uint8_t, std::array<uint8_t, 16>>> &blocks_out);
+
   bool read_bambu_blocks(uint8_t target_num,
                           const std::vector<uint8_t> &uid,
                           std::vector<std::pair<uint8_t, std::array<uint8_t, 16>>> &blocks_out);
