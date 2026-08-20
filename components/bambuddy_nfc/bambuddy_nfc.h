@@ -7,6 +7,7 @@
 #include "esphome/core/gpio.h"
 #include "esphome/components/spi/spi.h"
 #include "../bambuddy_api/bambuddy_api.h"
+#include "bambu_colors.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -53,8 +54,11 @@ static const uint8_t BAMBU_MASTER_KEY[16] = {
 static const uint8_t BAMBU_CONTEXT[7] = {
     'R', 'F', 'I', 'D', '-', 'A', 0x00
 };
-// Bambu blocks to read for tray_uuid / material info
-static const uint8_t BAMBU_BLOCKS[] = {1, 2, 4, 5};
+// Bambu blocks to read for tray_uuid / material info.
+// Blocks 1, 2, 4, 5 carry material identity and colour; block 6 adds the
+// drying/bed/hotend temperatures.  All five live in sectors 0 and 1, so the
+// extra block costs one read and no additional MIFARE authentication.
+static const uint8_t BAMBU_BLOCKS[] = {1, 2, 4, 5, 6};
 
 enum class NFCState {
   IDLE,
@@ -162,6 +166,12 @@ class BambuddyNFCComponent
                    uint8_t out[32]);
 
   // ---- UUID extraction ----
+  // Decodes material, colour and temperature data from the Bambu blocks read
+  // by read_bambu_blocks().  Purely additive: the tray-UUID extraction above
+  // is left untouched so spool matching behaves exactly as before.
+  static bambuddy_api::BambuTagInfo parse_bambu_tag(
+      const std::vector<std::pair<uint8_t, std::array<uint8_t, 16>>> &blocks);
+
   static std::string extract_tray_uuid(
       const std::vector<std::pair<uint8_t, std::array<uint8_t, 16>>> &blocks);
 

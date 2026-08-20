@@ -369,6 +369,129 @@ bool BambuddyNFCComponent::ntag_write_page(uint8_t target_num, uint8_t page,
 // UUID extraction (matches the Python daemon's tray-UUID extraction)
 // ============================================================================
 
+// ============================================================================
+// Bambu tag payload decoding
+//
+// Ported from bemble/esphome-bambuddy-reader (MIT), which decodes the same
+// block layout.  Kept strictly additive: nothing here influences the tray-UUID
+// used for spool matching.
+// ============================================================================
+
+namespace {
+
+// Bambu stores short strings NUL- or space-padded inside a 16-byte block.
+std::string bambu_trim(const uint8_t *b) {
+  std::string out(reinterpret_cast<const char *>(b), 16);
+  size_t end = out.find('\0');
+  if (end != std::string::npos) out.erase(end);
+  while (!out.empty() && (out.back() == ' ' || out.back() == '\t')) out.pop_back();
+  return out;
+}
+
+uint16_t bambu_u16(const uint8_t *b, size_t off) {
+  return static_cast<uint16_t>(b[off]) | (static_cast<uint16_t>(b[off + 1]) << 8);
+}
+
+float bambu_f32(const uint8_t *b, size_t off) {
+  float v;
+  memcpy(&v, b + off, 4);
+  return v;
+}
+
+const uint8_t *find_block(
+    const std::vector<std::pair<uint8_t, std::array<uint8_t, 16>>> &blocks,
+    uint8_t n) {
+  for (const auto &b : blocks)
+    if (b.first == n) return b.second.data();
+  return nullptr;
+}
+
+}  // namespace
+
+bambuddy_api::BambuTagInfo BambuddyNFCComponent::parse_bambu_tag(
+    const std::vector<std::pair<uint8_t, std::array<uint8_t, 16>>> &blocks) {
+  bambuddy_api::BambuTagInfo info;
+
+  const uint8_t *b1 = find_block(blocks, 1);
+  const uint8_t *b2 = find_block(blocks, 2);
+  const uint8_t *b4 = find_block(blocks, 4);
+  const uint8_t *b5 = find_block(blocks, 5);
+  const uint8_t *b6 = find_block(blocks, 6);
+
+  // Block 2 carries the base material and is what makes the payload usable at
+  // all — without it we return an invalid struct and the caller falls back.
+  if (b2 == nullptr) return info;
+  info.material = bambu_trim(b2);
+  if (info.material.empty()) return info;
+
+  // Block 1: variant id (8B) + material id (8B), both NUL-padded ASCII.
+  if (b1 != nullptr) {
+    std::string variant(reinterpret_cast<const char *>(b1), 8);
+    std::string material_id(reinterpret_cast<const char *>(b1) + 8, 8);
+    for (std::string *v : {&variant, &material_id}) {
+      size_t end = v->find('\0');
+      if (end != std::string::npos) v->erase(end);
+      while (!v->empty() && v->back() == ' ') v->pop_back();
+    }
+    info.variant_id  = variant;
+    info.material_id = material_id;
+  }
+
+  // Block 4: detailed type, e.g. "PLA Matte" -> subtype "Matte".
+  if (b4 != nullptr) {
+    info.detailed_type = bambu_trim(b4);
+    if (info.detailed_type.size() > info.material.size() + 1 &&
+        info.detailed_type.compare(0, info.material.size(), info.material) == 0 &&
+        info.detailed_type[info.material.size()] == ' ') {
+      info.subtype = info.detailed_type.substr(info.material.size() + 1);
+    }
+  }
+  if (info.detailed_type.empty()) info.detailed_type = info.material;
+
+  // Block 5: colour RGBA (4B) + spool weight (2B) + pad (2B) + diameter (4B).
+  if (b5 != nullptr) {
+    char hex[7];
+    snprintf(hex, sizeof(hex), "%02X%02X%02X", b5[0], b5[1], b5[2]);
+    info.color_hex = hex;
+
+    const char *name = find_bambu_color_name(info.detailed_type.c_str(), hex);
+    if (name != nullptr) {
+      std::string cn(name);
+      // The table stores names like "Matte Charcoal"; strip the subtype word so
+      // the inventory entry reads "Charcoal" next to its "Matte" subtype.
+      if (!info.subtype.empty()) {
+        if (cn.size() > info.subtype.size() + 1 &&
+            cn.compare(0, info.subtype.size() + 1, info.subtype + " ") == 0) {
+          cn = cn.substr(info.subtype.size() + 1);
+        } else if (cn.size() > info.subtype.size() + 1 &&
+                   cn.compare(cn.size() - info.subtype.size() - 1,
+                              info.subtype.size() + 1, " " + info.subtype) == 0) {
+          cn = cn.substr(0, cn.size() - info.subtype.size() - 1);
+        }
+      }
+      info.color_name = cn;
+    } else {
+      info.color_name = info.color_hex;
+    }
+
+    info.spool_weight = bambu_u16(b5, 4);
+    info.diameter     = bambu_f32(b5, 8);
+  }
+
+  // Block 6: drying temp (2B) + drying time (2B) + pad (2B) + bed temp (2B)
+  //          + hotend max (2B) + hotend min (2B).
+  if (b6 != nullptr) {
+    info.drying_temp     = bambu_u16(b6, 0);
+    info.drying_time     = bambu_u16(b6, 2);
+    info.bed_temp        = bambu_u16(b6, 6);
+    info.nozzle_temp_max = bambu_u16(b6, 8);
+    info.nozzle_temp_min = bambu_u16(b6, 10);
+  }
+
+  info.valid = true;
+  return info;
+}
+
 std::string BambuddyNFCComponent::extract_tray_uuid(
     const std::vector<std::pair<uint8_t, std::array<uint8_t, 16>>> &blocks) {
   const uint8_t *blk4 = nullptr;
@@ -666,10 +789,22 @@ void BambuddyNFCComponent::poll_once() {
 
       // Try to read Bambu tag data for MIFARE Classic
       std::string tray_uuid;
+      bambuddy_api::BambuTagInfo bambu_info;
       if (sak == 0x08 || sak == 0x18) {
         std::vector<std::pair<uint8_t, std::array<uint8_t, 16>>> blocks;
         if (read_bambu_blocks(1, uid, blocks)) {
-          tray_uuid = extract_tray_uuid(blocks);
+          tray_uuid   = extract_tray_uuid(blocks);
+          bambu_info  = parse_bambu_tag(blocks);
+          if (bambu_info.valid) {
+            ESP_LOGI(NFC_TAG,
+                     "Bambu tag decoded: %s / %s / %s (#%s) %u g, "
+                     "hotend %u-%u C, bed %u C",
+                     bambu_info.material.c_str(),
+                     bambu_info.subtype.empty() ? "-" : bambu_info.subtype.c_str(),
+                     bambu_info.color_name.c_str(), bambu_info.color_hex.c_str(),
+                     bambu_info.spool_weight, bambu_info.nozzle_temp_min,
+                     bambu_info.nozzle_temp_max, bambu_info.bed_temp);
+          }
         }
       }
 
@@ -678,6 +813,9 @@ void BambuddyNFCComponent::poll_once() {
 
       if (api_) {
         api_->on_tag_scanned(uid_str, tray_uuid, (int)sak, tag_type);
+        // Must run *after* on_tag_scanned(), which clears any payload left
+        // over from the previous tag.
+        if (bambu_info.valid) api_->set_bambu_tag_info(bambu_info);
       }
 
       // For NTAG tags: read NDEF pages and refine the format beyond SAK alone.
