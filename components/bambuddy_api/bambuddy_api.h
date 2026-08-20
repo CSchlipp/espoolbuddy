@@ -462,9 +462,12 @@ class BambuddyAPIComponent : public Component {
     unlock_state();
   }
 
-  // Called by the NFC component right after on_tag_scanned() when a Bambu Lab
-  // tag was decoded successfully.  Runs on the NFC poll task, so keep it brief.
-  // Consumed by api_create_spool_from_tag() to populate the new spool.
+  // Attach a decoded Bambu payload to the tag that was already reported via
+  // on_tag_scanned().  Superseded by on_tag_scanned()'s `bambu` parameter,
+  // which is what the NFC component uses: passing the payload with the scan is
+  // the only way it reaches a scale device's push to the console, because that
+  // push is queued from inside on_tag_scanned().  Kept for callers that decode
+  // a tag out of band.  Runs on the NFC poll task, so keep it brief.
   void set_bambu_tag_info(const BambuTagInfo &info) {
     lock_state();
     bambu_tag_info_ = info;
@@ -490,8 +493,13 @@ class BambuddyAPIComponent : public Component {
   }
 
   // ---- Callbacks from NFC component ----
+  // `bambu` carries the payload decoded from a Bambu Lab tag, or nullptr when
+  // the tag is not a Bambu tag / the decode failed.  Passing it in (rather than
+  // a separate setter afterwards) keeps the scale push race-free: the value is
+  // snapshotted into the queued job while the caller still owns it.
   void on_tag_scanned(const std::string &uid, const std::string &tray_uuid,
-                      int sak, const std::string &tag_type);
+                      int sak, const std::string &tag_type,
+                      const BambuTagInfo *bambu = nullptr);
   void on_tag_removed(const std::string &uid);
 
   // ---- Callbacks from scale sensor ----
@@ -629,6 +637,10 @@ class BambuddyAPIComponent : public Component {
     float f1{0.0f};
     float f2{0.0f};  // second float param (e.g. measured_g for UPDATE_CALIBRATION)
     bool b1{false};
+    // Decoded Bambu payload for SCALE_PUSH_NFC_SCANNED.  Snapshotted at
+    // enqueue time so the HTTP task never reads a bambu_tag_info_ that a
+    // later scan has already overwritten.
+    BambuTagInfo bambu{};
   };
 
   static void http_task_trampoline(void *arg);
@@ -730,7 +742,8 @@ class BambuddyAPIComponent : public Component {
   void api_scale_push_heartbeat();
   void api_scale_push_nfc_scanned(const std::string &uid,
                                    const std::string &tray_uuid,
-                                   int sak, const std::string &tag_type);
+                                   int sak, const std::string &tag_type,
+                                   const BambuTagInfo &bambu);
   void api_scale_push_nfc_removed(const std::string &uid);
   void api_scale_push_write_result(int spool_id, const std::string &uid,
                                     bool success, const std::string &msg);
@@ -814,6 +827,14 @@ class BambuddyAPIComponent : public Component {
 
   // JSON helpers
   static std::string json_string(const std::string &s);
+
+  // Serialise the decoded Bambu payload as JSON object members (each one
+  // followed by a comma, empty when the payload is invalid) and parse it back
+  // on the console side.  Used for the scale -> console tag-scanned push so a
+  // tag scanned on the scale reaches the inventory with the same detail as one
+  // scanned on the console itself.
+  static std::string bambu_tag_json_fields(const BambuTagInfo &bt);
+  static BambuTagInfo parse_bambu_tag_json(const std::string &json);
   static std::string bool_str(bool v) { return v ? "true" : "false"; }
   // Parse a specific string field from a minimal JSON response
   static std::string parse_json_string(const std::string &json,
