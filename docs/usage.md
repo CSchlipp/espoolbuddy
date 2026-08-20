@@ -22,7 +22,9 @@
   tag (NTAG, foreign spool, or a tag that could not be decoded) it falls
   back to a default entry (PLA, 1000 g). Either way the spool is linked to
   that tag and carries a `"Created by ESPoolBuddy"` note so it's easy to
-  identify later.
+  identify later. This works the same whether the tag was scanned on the
+  console or on the scale — the scale decodes the tag itself and pushes the
+  decoded values to the console along with the UID.
 - **Unknown tag → link to an existing spool**: from that same panel, use
   **Assign Spool** instead to link the tag to an existing, untagged spool.
   The picker shows your 9 most recently added spools in a grid for quick
