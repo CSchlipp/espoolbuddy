@@ -31,7 +31,11 @@
   `nfc_reader.py` as `raw = blocks[4] + blocks[5]`), so entries created by
   it carry the same wrong identity. Inventory entries created before the fix
   keep their old identity — clear the stored tag link on those spools and
-  they re-link correctly on the next scan.
+  they re-link correctly on the next scan. There is no fallback when block 9
+  cannot be read: the tag then reports no tray UID at all and is identified
+  by its own (unique) card UID, because a colliding identity silently merges
+  distinct spools while an empty one only costs the link between a spool's
+  two tags.
 - **Both tags of a spool must be scanned**: they don't. A Bambu spool
   carries two tags with different card UIDs but the same block-9 tray UID,
   so either side identifies the same spool.
