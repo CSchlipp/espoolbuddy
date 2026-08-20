@@ -543,13 +543,17 @@ std::string BambuddyNFCComponent::extract_tray_uuid(
   // Block 9 holds the Bambu tray UID: the identity of the *physical spool*, as
   // opposed to the tag's own card UID. Both tags of a spool carry the same
   // value and different spools carry different ones, which is exactly what
-  // inventory matching needs. Prefer it whenever the block was read.
+  // inventory matching needs.
   //
-  // The heuristic below is kept as a fallback for tags whose sector 2 could not
-  // be read. Note that it does not yield a spool-unique value on Bambu tags:
-  // it falls through to the hex of block 4, which holds the filament type, so
-  // every spool of the same type produces an identical "UUID". Anything that
-  // relies on tray_uuid to tell two spools apart breaks in that case.
+  // There is deliberately no fallback. The obvious one - deriving something
+  // from blocks 4+5 - produces a value that is identical for every spool of a
+  // given filament type, because that is what those blocks hold: the type name
+  // and the colour/weight record. A colliding identity is worse than none:
+  // it silently merges distinct spools into a single inventory entry, and the
+  // entry keeps that wrong identity long after the read that produced it. An
+  // empty tray UID simply leaves the tag identified by its own card UID, which
+  // is unique per tag; the only thing lost is linking a spool's two tags to
+  // each other, and that recovers by itself on the next successful read.
   for (const auto &b : blocks) {
     if (b.first != 9) continue;
     char hex[33];
@@ -560,53 +564,12 @@ std::string BambuddyNFCComponent::extract_tray_uuid(
       ESP_LOGD(NFC_TAG, "Tray UID from block 9: %s", uuid.c_str());
       return uuid;
     }
-    ESP_LOGW(NFC_TAG, "Block 9 is all zeros - falling back to the heuristic");
-    break;
+    ESP_LOGW(NFC_TAG, "Block 9 is all zeros - reporting no tray UID");
+    return "";
   }
 
-  const uint8_t *blk4 = nullptr;
-  const uint8_t *blk5 = nullptr;
-  for (const auto &b : blocks) {
-    if (b.first == 4) blk4 = b.second.data();
-    if (b.first == 5) blk5 = b.second.data();
-  }
-  if (!blk4 || !blk5) return "";
-
-  // Combine blocks 4+5 (32 bytes)
-  uint8_t raw[32];
-  memcpy(raw, blk4, 16);
-  memcpy(raw + 16, blk5, 16);
-
-  // Preferred: decode as ASCII and keep hex chars
-  std::string hex_chars;
-  for (int i = 0; i < 32; i++) {
-    char c = (char)raw[i];
-    if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
-        (c >= 'A' && c <= 'F')) {
-      hex_chars += c;
-    }
-  }
-  if (hex_chars.size() >= 32) {
-    std::string uuid = hex_chars.substr(0, 32);
-    // Convert to uppercase
-    for (char &ch : uuid) {
-      if (ch >= 'a' && ch <= 'f') ch -= 32;
-    }
-    // Check not all zeros
-    bool all_zero = true;
-    for (char ch : uuid) {
-      if (ch != '0') { all_zero = false; break; }
-    }
-    if (!all_zero) return uuid;
-  }
-
-  // Fallback: first 16 raw bytes as hex
-  char buf[33];
-  for (int i = 0; i < 16; i++) {
-    snprintf(buf + i * 2, 3, "%02X", raw[i]);
-  }
-  buf[32] = '\0';
-  return std::string(buf);
+  ESP_LOGW(NFC_TAG, "Block 9 was not read - reporting no tray UID");
+  return "";
 }
 
 // ============================================================================
