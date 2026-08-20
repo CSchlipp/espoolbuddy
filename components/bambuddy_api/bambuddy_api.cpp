@@ -652,6 +652,10 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
   display_state_.current_filament.tag_type   = tag_type;
   display_state_.current_filament.tag_format = initial_format;
   display_state_.current_filament.sak        = sak;
+  // Drop any Bambu payload decoded for a previous tag.  The NFC component
+  // re-populates this via set_bambu_tag_info() immediately after this call
+  // when the current tag decoded successfully.
+  bambu_tag_info_ = BambuTagInfo{};
   display_state_.status_message = "Tag detected: " + uid;
   display_state_.nfc_scan_generation++;  // lets the UI detect new physical scans
   display_state_.propose_archive = false;  // new scan cancels any pending archive proposal
@@ -3744,10 +3748,60 @@ void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid) {
                              "\"note\":\"Created by ESPoolBuddy\"}";
     ok = http_post_api("/spoolman/inventory/spools", create_js, resp);
   } else {
-    std::string js = "{\"material\":\"PLA\",\"label_weight\":1000,"
-                     "\"tag_uid\":" + json_string(uid) + ","
-                     "\"note\":\"Created by ESPoolBuddy\","
-                     "\"data_origin\":\"spoolbuddy\"}";
+    // Snapshot the decoded Bambu payload (written by the NFC task).
+    BambuTagInfo bt;
+    std::string tray_uuid;
+    lock_state();
+    bt = bambu_tag_info_;
+    tray_uuid = display_state_.current_filament.tray_uuid;
+    unlock_state();
+
+    std::string js;
+    if (bt.valid && !bt.material.empty()) {
+      // Full spool from the tag.  Field names mirror the payload accepted by
+      // Bambuddy's POST /api/v1/inventory/spools.
+      uint16_t label_weight = (bt.spool_weight > 0 && bt.spool_weight <= 5000)
+                                  ? bt.spool_weight
+                                  : 1000;
+      std::string slicer_name = "Bambu " + bt.material;
+      if (!bt.subtype.empty()) slicer_name += " " + bt.subtype;
+
+      js  = "{";
+      js += "\"material\":" + json_string(bt.material) + ",";
+      if (!bt.subtype.empty())
+        js += "\"subtype\":" + json_string(bt.subtype) + ",";
+      if (!bt.color_name.empty())
+        js += "\"color_name\":" + json_string(bt.color_name) + ",";
+      if (!bt.color_hex.empty())
+        js += "\"rgba\":" + json_string(bt.color_hex + "FF") + ",";
+      js += "\"brand\":\"Bambu Lab\",";
+      js += "\"label_weight\":" + std::to_string(label_weight) + ",";
+      js += "\"core_weight\":216,";
+      if (!bt.material_id.empty()) {
+        js += "\"slicer_filament\":" + json_string(bt.material_id) + ",";
+        js += "\"slicer_filament_name\":" + json_string(slicer_name) + ",";
+      }
+      if (bt.nozzle_temp_min > 0)
+        js += "\"nozzle_temp_min\":" + std::to_string(bt.nozzle_temp_min) + ",";
+      if (bt.nozzle_temp_max > 0)
+        js += "\"nozzle_temp_max\":" + std::to_string(bt.nozzle_temp_max) + ",";
+      js += "\"tag_uid\":" + json_string(uid) + ",";
+      if (!tray_uuid.empty())
+        js += "\"tray_uuid\":" + json_string(tray_uuid) + ",";
+      js += "\"tag_type\":\"bambulab\",";
+      js += "\"note\":\"Created by ESPoolBuddy\",";
+      js += "\"data_origin\":\"spoolbuddy\"}";
+      ESP_LOGI(TAG, "Creating spool from Bambu tag: %s %s / %s (%d g)",
+               bt.material.c_str(), bt.subtype.c_str(), bt.color_name.c_str(),
+               (int) label_weight);
+    } else {
+      // No Bambu payload (NTAG, foreign spool, or decode failed) — keep the
+      // original generic placeholder so behaviour is unchanged for those tags.
+      js = "{\"material\":\"PLA\",\"label_weight\":1000,"
+           "\"tag_uid\":" + json_string(uid) + ","
+           "\"note\":\"Created by ESPoolBuddy\","
+           "\"data_origin\":\"spoolbuddy\"}";
+    }
     ok = http_post_api("/inventory/spools", js, resp);
   }
   if (!ok) {

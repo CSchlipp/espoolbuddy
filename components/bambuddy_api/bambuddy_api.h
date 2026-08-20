@@ -134,6 +134,38 @@ enum class TagSource {
 };
 
 /** Filament information decoded from NFC tag / backend response */
+// ---------------------------------------------------------------------------
+// Decoded Bambu Lab MIFARE Classic tag payload.
+//
+// The bambuddy_nfc component already reads the encrypted Bambu blocks in order
+// to derive the tray UUID; this struct carries the *rest* of that payload
+// (material, colour, temperatures) over to the API component so that
+// "Add to Inventory" can create a fully populated spool instead of a generic
+// PLA / 1000 g placeholder.  Field layout per the Bambu tag format:
+//   block 1 -> variant id (8B) + material id (8B)
+//   block 2 -> base material     e.g. "PLA"
+//   block 4 -> detailed type     e.g. "PLA Matte"
+//   block 5 -> colour RGBA (4B) + spool weight (2B) + pad (2B) + diameter (4B)
+//   block 6 -> drying temp/time (4B) + pad (2B) + bed temp (2B) + hotend max/min
+// ---------------------------------------------------------------------------
+struct BambuTagInfo {
+  bool valid{false};
+  std::string material;        // "PLA"          -> material
+  std::string detailed_type;   // "PLA Matte"
+  std::string subtype;         // "Matte"        -> subtype
+  std::string variant_id;      // "A00-K0"
+  std::string material_id;     // "GFA00"        -> slicer_filament
+  std::string color_hex;       // "1A1A1A" (no leading #)
+  std::string color_name;      // "Charcoal" (falls back to the hex string)
+  uint16_t spool_weight{0};    // grams of filament on a full spool
+  float diameter{0.0f};        // mm
+  uint16_t nozzle_temp_min{0};
+  uint16_t nozzle_temp_max{0};
+  uint16_t bed_temp{0};
+  uint16_t drying_temp{0};
+  uint16_t drying_time{0};
+};
+
 struct FilamentInfo {
   std::string tray_uuid;
   std::string material_type;  // "PLA"
@@ -430,6 +462,15 @@ class BambuddyAPIComponent : public Component {
     unlock_state();
   }
 
+  // Called by the NFC component right after on_tag_scanned() when a Bambu Lab
+  // tag was decoded successfully.  Runs on the NFC poll task, so keep it brief.
+  // Consumed by api_create_spool_from_tag() to populate the new spool.
+  void set_bambu_tag_info(const BambuTagInfo &info) {
+    lock_state();
+    bambu_tag_info_ = info;
+    unlock_state();
+  }
+
   // Called by UI to clear the currently displayed (sticky) spool.
   void dismiss_spool() {
     lock_state();
@@ -550,6 +591,10 @@ class BambuddyAPIComponent : public Component {
   void restart_scale_server();
 
  protected:
+  // Last successfully decoded Bambu tag payload; cleared on every new scan by
+  // on_tag_scanned() so a stale payload can never be attached to another tag.
+  BambuTagInfo bambu_tag_info_{};
+
   // ------------------------------------------------------------------
   // Background HTTP task — keeps all blocking network I/O off the main
   // loop so LVGL / touch stay responsive.
