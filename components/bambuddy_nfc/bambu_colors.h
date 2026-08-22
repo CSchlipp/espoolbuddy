@@ -1,0 +1,357 @@
+#pragma once
+// Bambu Lab colour lookup table, sourced from SpoolmanDB via
+// bemble/esphome-bambuddy-reader (MIT). Namespace adapted for ESPoolBuddy.
+
+#include <cstring>
+
+namespace esphome {
+namespace bambuddy_nfc {
+
+struct BambuColorEntry {
+  const char *detailed_type;
+  const char *hex;
+  const char *color_name;
+};
+
+static const BambuColorEntry BAMBU_COLORS[] = {
+  {"ABS", "000000", "Black"},
+  {"ABS", "00AE42", "Bambu Green"},
+  {"ABS", "0A2CA5", "Blue"},
+  {"ABS", "0C2340", "Navy Blue"},
+  {"ABS", "489FDF", "Azure"},
+  {"ABS", "7248BD", "Lavender"},
+  {"ABS", "789D4A", "Olive"},
+  {"ABS", "7AE1BF", "Mint"},
+  {"ABS", "87909A", "Silver"},
+  {"ABS", "AF1685", "Purple"},
+  {"ABS", "D32941", "Red"},
+  {"ABS", "DFD1A7", "Beige"},
+  {"ABS", "FCE900", "Yellow"},
+  {"ABS", "FF6A13", "Orange"},
+  {"ABS", "FFC72C", "Tangerine Yellow"},
+  {"ABS", "FFFFFF", "White"},
+  {"ABS-GF", "000000", "Black"},
+  {"ABS-GF", "0C3B95", "Blue"},
+  {"ABS-GF", "61BF36", "Green"},
+  {"ABS-GF", "C6C6C6", "Gray"},
+  {"ABS-GF", "E83100", "Red"},
+  {"ABS-GF", "F48438", "Orange"},
+  {"ABS-GF", "FFE133", "Yellow"},
+  {"ABS-GF", "FFFFFF", "White"},
+  {"ASA", "000000", "Black"},
+  {"ASA", "00A6A0", "Green"},
+  {"ASA", "2140B4", "Blue"},
+  {"ASA", "8A949E", "Gray"},
+  {"ASA", "E02928", "Red"},
+  {"ASA", "F5F1DD", "White Aero"},
+  {"ASA", "FFFAF2", "White"},
+  {"ASA-CF", "000000", "Black"},
+  {"PA6-CF", "000000", "Black"},
+  {"PA6-GF", "000000", "Black"},
+  {"PA6-GF", "353533", "Gray"},
+  {"PA6-GF", "5B492F", "Brown"},
+  {"PA6-GF", "75AED8", "Blue"},
+  {"PA6-GF", "C5ED48", "Lime"},
+  {"PA6-GF", "EAEAE4", "White"},
+  {"PA6-GF", "FF4800", "Orange"},
+  {"PA6-GF", "FFCE00", "Yellow"},
+  {"PAHT-CF", "000000", "Black"},
+  {"PC", "000000", "Black"},
+  {"PC", "5A5161", "Clear Black"},
+  {"PC", "FFFFFF", "Transparent"},
+  {"PC FR", "000000", "FR Black"},
+  {"PC FR", "A8A8AA", "FR Grey"},
+  {"PC FR", "FFFFFF", "FR White"},
+  {"PET-CF", "000000", "Black"},
+  {"PETG Basic", "000000", "Black"},
+  {"PETG Basic", "001489", "Blue"},
+  {"PETG Basic", "0069B1", "Lake Blue"},
+  {"PETG Basic", "009639", "Green"},
+  {"PETG Basic", "688197", "Blue Gray"},
+  {"PETG Basic", "7CD82B", "Lime Green"},
+  {"PETG Basic", "9E007E", "Purple"},
+  {"PETG Basic", "9EA2A2", "Gray"},
+  {"PETG Basic", "B28B33", "Gold"},
+  {"PETG Basic", "D6001C", "Red"},
+  {"PETG Basic", "F9F7F2", "Nature"},
+  {"PETG Basic", "FCE300", "Yellow"},
+  {"PETG Basic", "FF671F", "Orange"},
+  {"PETG Basic", "FFFFFF", "White"},
+  {"PETG HF", "000000", "HF Black"},
+  {"PETG HF", "002E96", "HF Blue"},
+  {"PETG HF", "00AE42", "HF Green"},
+  {"PETG HF", "1F79E5", "HF Lake Blue"},
+  {"PETG HF", "39541A", "HF Forest Green"},
+  {"PETG HF", "515151", "HF Dark Gray"},
+  {"PETG HF", "6EE53C", "HF Lime Green"},
+  {"PETG HF", "875718", "HF Peanut Brown"},
+  {"PETG HF", "ADB1B2", "HF Gray"},
+  {"PETG HF", "EB3A3A", "HF Red"},
+  {"PETG HF", "F75403", "HF Orange"},
+  {"PETG HF", "F9DFB9", "HF Cream"},
+  {"PETG HF", "FFD00B", "HF Yellow"},
+  {"PETG HF", "FFFFFF", "HF White"},
+  {"PETG Translucent", "61B0FF", "Translucent Light Blue"},
+  {"PETG Translucent", "748C45", "Translucent Olive"},
+  {"PETG Translucent", "77EDD7", "Translucent Teal"},
+  {"PETG Translucent", "8E8E8E", "Translucent Gray"},
+  {"PETG Translucent", "C9A381", "Translucent Brown"},
+  {"PETG Translucent", "D6ABFF", "Translucent Purple"},
+  {"PETG Translucent", "F9C1BD", "Translucent Pink"},
+  {"PETG Translucent", "FF911A", "Translucent Orange"},
+  {"PETG Translucent", "FFFFFF", "Clear"},
+  {"PETG-CF", "000000", "Black"},
+  {"PETG-CF", "16B08E", "Malachite Green"},
+  {"PETG-CF", "324585", "Indigue Blue"},
+  {"PETG-CF", "565656", "Titan Gray"},
+  {"PETG-CF", "583061", "Violet Purple"},
+  {"PETG-CF", "9F332A", "Brick Red"},
+  {"PLA Basic", "000000", "Black"},
+  {"PLA Basic", "0056B8", "Cobalt Blue"},
+  {"PLA Basic", "0086D6", "Cyan"},
+  {"PLA Basic", "00AE42", "Bambu Green"},
+  {"PLA Basic", "00B1B7", "Turquoise"},
+  {"PLA Basic", "0A2989", "Blue"},
+  {"PLA Basic", "3F8E43", "Mistletoe Green"},
+  {"PLA Basic", "482960", "Indigo Purple"},
+  {"PLA Basic", "545454", "Dark Gray"},
+  {"PLA Basic", "5B6579", "Blue Gray"},
+  {"PLA Basic", "5E43B7", "Purple"},
+  {"PLA Basic", "6F5034", "Cocoa Brown"},
+  {"PLA Basic", "847D48", "Bronze"},
+  {"PLA Basic", "8E9089", "Gray"},
+  {"PLA Basic", "9D2235", "Maroon Red"},
+  {"PLA Basic", "9D432C", "Brown"},
+  {"PLA Basic", "A6A9AA", "Silver"},
+  {"PLA Basic", "AD4E38", "Red Granite"},
+  {"PLA Basic", "BECF00", "Bright Green"},
+  {"PLA Basic", "C12E1F", "Red"},
+  {"PLA Basic", "D1D3D5", "Light Gray"},
+  {"PLA Basic", "E4BD68", "Gold"},
+  {"PLA Basic", "EC008C", "Magenta"},
+  {"PLA Basic", "F4EE2A", "Yellow"},
+  {"PLA Basic", "F5547C", "Hot Pink"},
+  {"PLA Basic", "F55A74", "Pink"},
+  {"PLA Basic", "F7E6DE", "Beige"},
+  {"PLA Basic", "F7F3F0", "White Marble"},
+  {"PLA Basic", "FEC600", "Sunflower Yellow"},
+  {"PLA Basic", "FF6A13", "Orange"},
+  {"PLA Basic", "FF9016", "Pumpkin Orange"},
+  {"PLA Basic", "FFFFFF", "Jade White"},
+  {"PLA Dynamic", "000000", "Velvet Eclipse (Black-Red)"},
+  {"PLA Dynamic", "0047BB", "Midnight Blaze (Blue-Red)"},
+  {"PLA Dynamic", "1E63BF", "Aurora Purple (Blue-Purple)"},
+  {"PLA Dynamic", "307FE2", "Ocean to Meadow"},
+  {"PLA Dynamic", "60A4E8", "Blue Hawaii (Blue-Green)"},
+  {"PLA Dynamic", "6FCAEF", "Blueberry Bubblegum"},
+  {"PLA Dynamic", "9CDBD9", "Arctic Whisper"},
+  {"PLA Dynamic", "B6FF43", "Mint Lime"},
+  {"PLA Dynamic", "E7C1D5", "Cotton Candy Cloud"},
+  {"PLA Dynamic", "E94B3C", "Solar Breeze"},
+  {"PLA Dynamic", "F78F77", "Pink Citrus"},
+  {"PLA Dynamic", "FF9425", "Gilded Rose (Pink-Gold)"},
+  {"PLA Galaxy", "3B665E", "Green Galaxy"},
+  {"PLA Galaxy", "424379", "Nebulae Galaxy"},
+  {"PLA Galaxy", "594177", "Purple Galaxy"},
+  {"PLA Galaxy", "684A43", "Brown Galaxy"},
+  {"PLA Glow", "7AC0E9", "Glow Blue"},
+  {"PLA Glow", "A1FFAC", "Glow Green"},
+  {"PLA Glow", "F17B8F", "Glow Pink"},
+  {"PLA Glow", "F8FF80", "Glow Yellow"},
+  {"PLA Glow", "FF9D5B", "Glow Orange"},
+  {"PLA Matte", "000000", "Matte Charcoal"},
+  {"PLA Matte", "0078BF", "Matte Marine Blue"},
+  {"PLA Matte", "042F56", "Matte Dark Blue"},
+  {"PLA Matte", "4D3324", "Matte Dark Chocolate"},
+  {"PLA Matte", "56B7E6", "Matte Sky Blue"},
+  {"PLA Matte", "61C680", "Matte Grass Green"},
+  {"PLA Matte", "68724D", "Matte Dark Green"},
+  {"PLA Matte", "757575", "Matte Nardo Gray"},
+  {"PLA Matte", "7D6556", "Matte Dark Brown"},
+  {"PLA Matte", "950051", "Matte Plum"},
+  {"PLA Matte", "9B9EA0", "Matte Ash Gray"},
+  {"PLA Matte", "A3D8E1", "Matte Ice Blue"},
+  {"PLA Matte", "AE835B", "Matte Caramel"},
+  {"PLA Matte", "AE96D4", "Matte Lilac Purple"},
+  {"PLA Matte", "B15533", "Matte Terracotta"},
+  {"PLA Matte", "BB3D43", "Matte Dark Red"},
+  {"PLA Matte", "C2E189", "Matte Apple Green"},
+  {"PLA Matte", "CBC6B8", "Matte Bone White"},
+  {"PLA Matte", "D3B7A7", "Matte Latte Brown"},
+  {"PLA Matte", "DE4343", "Matte Scarlet Red"},
+  {"PLA Matte", "E8AFCF", "Matte Sakura Pink"},
+  {"PLA Matte", "E8DBB7", "Matte Desert Tan"},
+  {"PLA Matte", "F7D959", "Matte Lemon Yellow"},
+  {"PLA Matte", "F99963", "Matte Mandarin Orange"},
+  {"PLA Matte", "FFFFFF", "Matte Ivory White"},
+  {"PLA Metal", "1D7C6A", "Oxide Green Metallic"},
+  {"PLA Metal", "39699E", "Cobalt Blue Metallic"},
+  {"PLA Metal", "43403D", "Iron Gray Metallic"},
+  {"PLA Metal", "AA6443", "Copper Brown Metallic"},
+  {"PLA Metal", "B39B84", "Iridium Gold Metallic"},
+  {"PLA Silk", "147BD1", "Silk Blue"},
+  {"PLA Silk", "4CE4A0", "Silk Green"},
+  {"PLA Silk", "5E4B3C", "Silk Copper"},
+  {"PLA Silk", "854CE4", "Silk Purple"},
+  {"PLA Silk", "E5B03D", "Silk Gold"},
+  {"PLA Silk", "EAECEB", "Silk Silver"},
+  {"PLA Silk", "EEB1C1", "Silk Pink"},
+  {"PLA Silk", "FFFFFF", "Silk White"},
+  {"PLA Silk+", "008BDA", "Silk+ Blue"},
+  {"PLA Silk+", "018814", "Silk+ Candy Green"},
+  {"PLA Silk+", "5F6367", "Silk+ Titan Gray"},
+  {"PLA Silk+", "8671CB", "Silk+ Purple"},
+  {"PLA Silk+", "96DCB9", "Silk+ Mint"},
+  {"PLA Silk+", "A8C6EE", "Silk+ Baby Blue"},
+  {"PLA Silk+", "BA9594", "Silk+ Rose Gold"},
+  {"PLA Silk+", "C8C8C8", "Silk+ Silver"},
+  {"PLA Silk+", "D02727", "Silk+ Candy Red"},
+  {"PLA Silk+", "F3CFB2", "Silk+ Champagne"},
+  {"PLA Silk+", "F4A925", "Silk+ Gold"},
+  {"PLA Silk+", "F7ADA6", "Silk+ Pink"},
+  {"PLA Silk+", "FFFFFF", "Silk+ White"},
+  {"PLA Sparkle", "2D2B28", "Onyx Black Sparkle"},
+  {"PLA Sparkle", "3F5443", "Alpine Green Sparkle"},
+  {"PLA Sparkle", "483D8B", "Royal Purple Sparkle"},
+  {"PLA Sparkle", "792B36", "Crimson Red Sparkle"},
+  {"PLA Sparkle", "8E9089", "Slate Gray Sparkle"},
+  {"PLA Sparkle", "CEA629", "Classic Gold Sparkle"},
+  {"PLA Tough", "000000", "Tough+ Black"},
+  {"PLA Tough", "009BD8", "Tough+ Cyan"},
+  {"PLA Tough", "959698", "Tough+ Silver"},
+  {"PLA Tough", "AFB1AE", "Tough+ Gray"},
+  {"PLA Tough", "DC3A27", "Tough+ Orange"},
+  {"PLA Tough", "F4D53F", "Tough+ Yellow"},
+  {"PLA Tough", "FFFFFF", "Tough+ White"},
+  {"PLA Translucent", "0047BB", "Translucent Blue"},
+  {"PLA Translucent", "009FA1", "Translucent Teal"},
+  {"PLA Translucent", "8344B0", "Translucent Purple"},
+  {"PLA Translucent", "96D8AF", "Translucent Light Jade"},
+  {"PLA Translucent", "B50011", "Translucent Red"},
+  {"PLA Translucent", "B8ACD6", "Translucent Lavender"},
+  {"PLA Translucent", "B8CDE9", "Translucent Ice Blue"},
+  {"PLA Translucent", "F5B6CD", "Translucent Cherry Pink"},
+  {"PLA Translucent", "F5DBAB", "Translucent Mellow Yellow"},
+  {"PLA Translucent", "F74E02", "Translucent Orange"},
+  {"PLA Wood", "4C241C", "Rosewood"},
+  {"PLA Wood", "4F3F24", "Black Walnut"},
+  {"PLA Wood", "918669", "Classic Birch"},
+  {"PLA Wood", "995F11", "Clay Brown"},
+  {"PLA Wood", "C98935", "Ochre Yellow"},
+  {"PLA Wood", "D6CCA3", "White Oak"},
+  {"PLA-CF", "000000", "Black"},
+  {"PLA-CF", "2842AD", "Royal Blue"},
+  {"PLA-CF", "4D5054", "Lava Gray"},
+  {"PLA-CF", "5C9748", "Matcha Green"},
+  {"PLA-CF", "69398E", "Iris Purple"},
+  {"PLA-CF", "6E88BC", "Jeans Blue"},
+  {"PLA-CF", "951E23", "Burgundy Red"},
+  {"PPS-CF", "000000", "Black"},
+  {"PVA", "F0F1A8", "Clear"},
+  {"Support for ABS", "FFFFFF", "Support for ABS"},
+  {"Support for PA/PET", "BECF00", "Support for PA/PET"},
+  {"Support for PLA", "000000", "Support for PLA/PETG Black"},
+  {"Support for PLA", "FFFFFF", "Support for PLA/PETG Nature"},
+  {"TPU 85A", "C3E2D6", "Light Cyan"},
+  {"TPU 85A", "F68B1B", "Neon Orange"},
+  {"TPU 90A", "000000", "Black"},
+  {"TPU 90A", "F1AAA8", "Blaze"},
+  {"TPU 90A", "FFFFFF", "Frozen"},
+  {"TPU 95A", "0072CE", "Blue"},
+  {"TPU 95A", "101820", "Black"},
+  {"TPU 95A", "898D8D", "Gray"},
+  {"TPU 95A", "C8102E", "Red"},
+  {"TPU 95A", "F3E600", "Yellow"},
+  {"TPU 95A", "FFFFFF", "White"},
+  {"TPU 95A HF", "0072CE", "HF Blue"},
+  {"TPU 95A HF", "101820", "HF Black"},
+  {"TPU 95A HF", "898D8D", "HF Gray"},
+  {"TPU 95A HF", "C8102E", "HF Red"},
+  {"TPU 95A HF", "F3E600", "HF Yellow"},
+  {"TPU 95A HF", "FFFFFF", "HF White"},
+  {"TPU for AMS", "000000", "For AMS Black"},
+  {"TPU for AMS", "5898DD", "For AMS Blue"},
+  {"TPU for AMS", "90FF1A", "For AMS Neon Green"},
+  {"TPU for AMS", "939393", "For AMS Gray"},
+  {"TPU for AMS", "ED0000", "For AMS Red"},
+  {"TPU for AMS", "F9EF41", "For AMS Yellow"},
+  {"TPU for AMS", "FFFFFF", "For AMS White"},
+};
+
+static const size_t BAMBU_COLORS_COUNT = 262;
+
+// Squared RGB distance still counted as "the same catalogue colour". Tags do
+// not always carry the exact hex the catalogue lists: a real Support for
+// PA/PET spool reports C0DF16 where the catalogue says BECF00, a distance of
+// 27. Anything beyond this is a different colour, not a rounding difference.
+static const int BAMBU_COLOR_MAX_DIST2 = 32 * 32;
+
+inline bool bambu_hex_to_rgb(const char *hex, int *r, int *g, int *b) {
+  if (hex == nullptr) return false;
+  int n = 0;
+  while (hex[n] != '\0') n++;
+  if (n < 6) return false;
+  unsigned v = 0;
+  for (int i = 0; i < 6; i++) {
+    char c = hex[i];
+    int d;
+    if (c >= '0' && c <= '9')      d = c - '0';
+    else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+    else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+    else return false;
+    v = (v << 4) | (unsigned) d;
+  }
+  *r = (int) ((v >> 16) & 0xFF);
+  *g = (int) ((v >> 8) & 0xFF);
+  *b = (int) (v & 0xFF);
+  return true;
+}
+
+// Resolve a catalogue colour name for a filament type + colour value.
+//
+// Returns nullptr when the colour cannot be named with confidence. Callers
+// must NOT substitute the raw hex in that case: a hex string shown where a
+// colour name belongs reads as corrupt data in the inventory, and it is
+// indistinguishable from a real name once stored.
+//
+// Three steps, in decreasing confidence:
+//   1. exact type + hex match;
+//   2. the type has exactly one catalogue colour, so there is nothing to
+//      confuse it with, whatever hex the tag reports;
+//   3. the nearest colour of that type, if it is within
+//      BAMBU_COLOR_MAX_DIST2 and strictly nearer than every other.
+inline const char *find_bambu_color_name(const char *detailed_type, const char *hex) {
+  for (size_t i = 0; i < BAMBU_COLORS_COUNT; i++) {
+    if (strcasecmp(BAMBU_COLORS[i].detailed_type, detailed_type) == 0 &&
+        strcasecmp(BAMBU_COLORS[i].hex, hex) == 0)
+      return BAMBU_COLORS[i].color_name;
+  }
+
+  int want_r, want_g, want_b;
+  if (!bambu_hex_to_rgb(hex, &want_r, &want_g, &want_b)) return nullptr;
+
+  size_t type_count = 0, only_idx = 0;
+  size_t best_idx = 0;
+  int best = -1, second_best = -1;
+  for (size_t i = 0; i < BAMBU_COLORS_COUNT; i++) {
+    if (strcasecmp(BAMBU_COLORS[i].detailed_type, detailed_type) != 0) continue;
+    type_count++;
+    only_idx = i;
+    int r, g, b;
+    if (!bambu_hex_to_rgb(BAMBU_COLORS[i].hex, &r, &g, &b)) continue;
+    const int d2 = (r - want_r) * (r - want_r) + (g - want_g) * (g - want_g) +
+                   (b - want_b) * (b - want_b);
+    if (best < 0 || d2 < best) { second_best = best; best = d2; best_idx = i; }
+    else if (second_best < 0 || d2 < second_best) { second_best = d2; }
+  }
+
+  if (type_count == 0) return nullptr;
+  if (type_count == 1) return BAMBU_COLORS[only_idx].color_name;
+  if (best >= 0 && best <= BAMBU_COLOR_MAX_DIST2 &&
+      (second_best < 0 || second_best > best))
+    return BAMBU_COLORS[best_idx].color_name;
+  return nullptr;
+}
+
+}  // namespace bambuddy_nfc
+}  // namespace esphome
