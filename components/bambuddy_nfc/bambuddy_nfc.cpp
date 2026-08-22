@@ -517,7 +517,14 @@ bambuddy_api::BambuTagInfo BambuddyNFCComponent::parse_bambu_tag(
       }
       info.color_name = cn;
     } else {
-      info.color_name = info.color_hex;
+      // Deliberately left empty. The colour value is already carried in
+      // color_hex / rgba, so the swatch is correct either way; putting the hex
+      // where a colour name belongs only produces inventory entries that read
+      // as corrupt ("C0DF16"), and once stored they are indistinguishable from
+      // a real name.
+      ESP_LOGW(NFC_TAG, "No catalogue colour for %s #%s - leaving the name empty",
+               info.detailed_type.c_str(), info.color_hex.c_str());
+      info.color_name.clear();
     }
 
     info.spool_weight = bambu_u16(b5, 4);
@@ -800,9 +807,28 @@ void BambuddyNFCComponent::poll_once() {
   }
 
   if (detected) {
+    // Any detection means a tag is on the reader, so the removal counter
+    // restarts — including when the tag that arrived is a *different* one.
     miss_count_ = 0;
 
-    if (state_ == NFCState::IDLE) {
+    // A detection while TAG_PRESENT is not proof that the same tag is still
+    // lying there.  Presenting a spool's second tag, or swapping spools,
+    // usually happens faster than miss_threshold_ polls, so the reader never
+    // sees the gap: it detects the new tag, resets miss_count_, and the old
+    // "still present" branch swallows the scan entirely.  On a Bambu spool
+    // that is the difference between "either side works" and "only the side
+    // I happened to present first works".  Compare the UID and treat a change
+    // as removal + arrival, which is what physically happened.
+    const bool same_tag =
+        (state_ == NFCState::TAG_PRESENT && uid == current_uid_);
+
+    if (state_ != NFCState::TAG_PRESENT || !same_tag) {
+      if (state_ == NFCState::TAG_PRESENT) {
+        std::string old_uid = uid_to_hex(current_uid_);
+        ESP_LOGI(NFC_TAG, "Tag swapped without a gap: %s -> %s",
+                 old_uid.c_str(), uid_to_hex(uid).c_str());
+        if (api_) api_->on_tag_removed(old_uid);
+      }
       // New tag detected
       state_ = NFCState::TAG_PRESENT;
       current_uid_ = uid;

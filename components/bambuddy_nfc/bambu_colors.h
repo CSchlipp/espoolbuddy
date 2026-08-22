@@ -280,12 +280,76 @@ static const BambuColorEntry BAMBU_COLORS[] = {
 
 static const size_t BAMBU_COLORS_COUNT = 262;
 
+// Squared RGB distance still counted as "the same catalogue colour". Tags do
+// not always carry the exact hex the catalogue lists: a real Support for
+// PA/PET spool reports C0DF16 where the catalogue says BECF00, a distance of
+// 27. Anything beyond this is a different colour, not a rounding difference.
+static const int BAMBU_COLOR_MAX_DIST2 = 32 * 32;
+
+inline bool bambu_hex_to_rgb(const char *hex, int *r, int *g, int *b) {
+  if (hex == nullptr) return false;
+  int n = 0;
+  while (hex[n] != '\0') n++;
+  if (n < 6) return false;
+  unsigned v = 0;
+  for (int i = 0; i < 6; i++) {
+    char c = hex[i];
+    int d;
+    if (c >= '0' && c <= '9')      d = c - '0';
+    else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+    else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+    else return false;
+    v = (v << 4) | (unsigned) d;
+  }
+  *r = (int) ((v >> 16) & 0xFF);
+  *g = (int) ((v >> 8) & 0xFF);
+  *b = (int) (v & 0xFF);
+  return true;
+}
+
+// Resolve a catalogue colour name for a filament type + colour value.
+//
+// Returns nullptr when the colour cannot be named with confidence. Callers
+// must NOT substitute the raw hex in that case: a hex string shown where a
+// colour name belongs reads as corrupt data in the inventory, and it is
+// indistinguishable from a real name once stored.
+//
+// Three steps, in decreasing confidence:
+//   1. exact type + hex match;
+//   2. the type has exactly one catalogue colour, so there is nothing to
+//      confuse it with, whatever hex the tag reports;
+//   3. the nearest colour of that type, if it is within
+//      BAMBU_COLOR_MAX_DIST2 and strictly nearer than every other.
 inline const char *find_bambu_color_name(const char *detailed_type, const char *hex) {
   for (size_t i = 0; i < BAMBU_COLORS_COUNT; i++) {
     if (strcasecmp(BAMBU_COLORS[i].detailed_type, detailed_type) == 0 &&
         strcasecmp(BAMBU_COLORS[i].hex, hex) == 0)
       return BAMBU_COLORS[i].color_name;
   }
+
+  int want_r, want_g, want_b;
+  if (!bambu_hex_to_rgb(hex, &want_r, &want_g, &want_b)) return nullptr;
+
+  size_t type_count = 0, only_idx = 0;
+  size_t best_idx = 0;
+  int best = -1, second_best = -1;
+  for (size_t i = 0; i < BAMBU_COLORS_COUNT; i++) {
+    if (strcasecmp(BAMBU_COLORS[i].detailed_type, detailed_type) != 0) continue;
+    type_count++;
+    only_idx = i;
+    int r, g, b;
+    if (!bambu_hex_to_rgb(BAMBU_COLORS[i].hex, &r, &g, &b)) continue;
+    const int d2 = (r - want_r) * (r - want_r) + (g - want_g) * (g - want_g) +
+                   (b - want_b) * (b - want_b);
+    if (best < 0 || d2 < best) { second_best = best; best = d2; best_idx = i; }
+    else if (second_best < 0 || d2 < second_best) { second_best = d2; }
+  }
+
+  if (type_count == 0) return nullptr;
+  if (type_count == 1) return BAMBU_COLORS[only_idx].color_name;
+  if (best >= 0 && best <= BAMBU_COLOR_MAX_DIST2 &&
+      (second_best < 0 || second_best > best))
+    return BAMBU_COLORS[best_idx].color_name;
   return nullptr;
 }
 
