@@ -442,7 +442,7 @@ void BambuddyAPIComponent::http_task_loop() {
           api_link_tag(job.i1, job.s1, job.s2, job.s3);
           break;
         case HttpJob::CREATE_SPOOL_FROM_TAG:
-          api_create_spool_from_tag(job.s1);
+          api_create_spool_from_tag(job.s1, job.s2, job.bambu);
           break;
         case HttpJob::UPDATE_CALIBRATION:
           api_report_calibration_point(job.f1, job.f2);
@@ -3820,7 +3820,9 @@ void BambuddyAPIComponent::api_link_tag(int spool_id, const std::string &uid,
   }
 }
 
-void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid) {
+void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid,
+                                                      const std::string &tray_uuid,
+                                                      const BambuTagInfo &bt) {
   std::string resp;
   bool ok;
   if (spoolman_inventory_) {
@@ -3831,14 +3833,7 @@ void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid) {
                              "\"note\":\"Created by ESPoolBuddy\"}";
     ok = http_post_api("/spoolman/inventory/spools", create_js, resp);
   } else {
-    // Snapshot the decoded Bambu payload (written by the NFC task).
-    BambuTagInfo bt;
-    std::string tray_uuid;
-    lock_state();
-    bt = bambu_tag_info_;
-    tray_uuid = display_state_.current_filament.tray_uuid;
-    unlock_state();
-
+    // bt and tray_uuid arrive snapshotted from create_spool_from_tag().
     std::string js;
     if (bt.valid && !bt.material.empty()) {
       // Full spool from the tag.  Field names mirror the payload accepted by
@@ -3889,12 +3884,20 @@ void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid) {
   }
   if (!ok) {
     ESP_LOGW(TAG, "api_create_spool_from_tag: failed");
+    // Nothing was created — re-arm the button so the user can try again
+    // without lifting and re-presenting the tag.
+    lock_state();
+    create_spool_issued_ = false;
+    unlock_state();
     set_status("Create spool failed");
     return;
   }
   int new_id = parse_json_int(resp, "id", 0);
   if (new_id <= 0) {
     ESP_LOGW(TAG, "api_create_spool_from_tag: no id in response");
+    lock_state();
+    create_spool_issued_ = false;
+    unlock_state();
     set_status("Create spool failed (no id)");
     return;
   }
@@ -3967,13 +3970,31 @@ void BambuddyAPIComponent::unlink_current_tag() {
 }
 
 void BambuddyAPIComponent::create_spool_from_tag() {
-  std::string uid;
+  std::string uid, tray_uuid;
+  BambuTagInfo bambu;
   lock_state();
-  uid = display_state_.last_tag_uid;
+  // One create per physical scan.  Without this, every extra CLICKED event
+  // from the touch panel — and every impatient second press while the POST is
+  // still in flight — queues another create, and the user ends up with three
+  // inventory entries for one spool, stamped within the same second.
+  if (create_spool_issued_ &&
+      create_spool_issued_gen_ == display_state_.nfc_scan_generation) {
+    unlock_state();
+    ESP_LOGW(TAG, "Add to Inventory ignored: already creating a spool for this scan");
+    return;
+  }
+  create_spool_issued_     = true;
+  create_spool_issued_gen_ = display_state_.nfc_scan_generation;
+  uid       = display_state_.last_tag_uid;
+  tray_uuid = display_state_.current_filament.tray_uuid;
+  bambu     = bambu_tag_info_;
   unlock_state();
+
   HttpJob job;
-  job.kind = HttpJob::CREATE_SPOOL_FROM_TAG;
-  job.s1   = uid;
+  job.kind  = HttpJob::CREATE_SPOOL_FROM_TAG;
+  job.s1    = uid;
+  job.s2    = tray_uuid;   // snapshot: a re-scan must not change what we send
+  job.bambu = bambu;
   enqueue_job(job);
 }
 

@@ -599,6 +599,18 @@ class BambuddyAPIComponent : public Component {
   void restart_scale_server();
 
  protected:
+  // Scan generation for which a spool-create was already issued.  "Add to
+  // Inventory" is a one-shot per physical scan: a bouncing touch panel, or an
+  // impatient second press while the POST is still in flight, must not create
+  // a second inventory entry for the same spool.  Reset on failure so a
+  // genuine retry still works, and naturally re-armed by the next scan
+  // (which increments nfc_scan_generation).
+  // A separate flag rather than a sentinel generation value: any sentinel
+  // picked out of the uint32 range is a value nfc_scan_generation can itself
+  // reach, and on that one scan the button would be dead.
+  bool     create_spool_issued_{false};
+  uint32_t create_spool_issued_gen_{0};
+
   // Last successfully decoded Bambu tag payload; cleared on every new scan by
   // on_tag_scanned() so a stale payload can never be attached to another tag.
   BambuTagInfo bambu_tag_info_{};
@@ -812,7 +824,13 @@ class BambuddyAPIComponent : public Component {
   // Internal: single POST /inventory/spools with tag_uid in the body.
   // Spoolman: POST /spoolman/inventory/spools has no tag field, so this does
   // a create POST followed by a PATCH .../tag to link the new spool.
-  void api_create_spool_from_tag(const std::string &uid);
+  // uid / tray_uuid / bambu are snapshotted when the user presses the button,
+  // not re-read here: a re-scan landing between the press and this call would
+  // otherwise swap the payload out from under it (observed in the field as a
+  // second entry created with an empty tray_uuid).
+  void api_create_spool_from_tag(const std::string &uid,
+                                  const std::string &tray_uuid,
+                                  const BambuTagInfo &bambu);
 
   // JSON array / nested-object parsers
   static std::vector<std::string> json_array_objects(const std::string &json);
