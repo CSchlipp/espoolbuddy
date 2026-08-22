@@ -45,6 +45,25 @@
   re-scan in between could lose it. "Add to Inventory" is now one-shot per
   physical scan (re-armed by the next scan, or immediately if the create
   failed), and the tag payload is snapshotted at the press.
+- **A spool shows a hex value where its colour name should be**: fixed in
+  0.30.0. The catalogue lookup required an exact type + hex match, and tags do
+  not always carry exactly the hex the catalogue lists — a real Support for
+  PA/PET spool reports `C0DF16` where the catalogue says `BECF00`. On a miss
+  the raw hex was stored as the colour name, which reads as corrupt data and
+  is indistinguishable from a real name once saved. The lookup now also
+  accepts a filament type that has only one catalogue colour (nothing to
+  confuse it with) and a near match within a small distance; failing both it
+  leaves the name empty. The colour itself is unaffected either way — it
+  travels in `rgba`, so the swatch was always right.
+- **Only one side of a spool scans; the other is ignored**: fixed in 0.29.0.
+  The poll loop treated any detection while a tag was already present as
+  "same tag still lying there" without comparing UIDs, and every detection
+  reset the removal counter. Presenting the spool's second tag within
+  `miss_threshold` polls (~1 s at the default 300 ms cadence) therefore never
+  produced a scan at all. Flipping the spool slowly, or doing something else
+  first — adding it to the inventory, for instance — left a long enough gap
+  and made it work, which is why the fault looked intermittent. A UID change
+  is now treated as removal + arrival.
 - **Both tags of a spool must be scanned**: they don't. A Bambu spool
   carries two tags with different card UIDs but the same block-9 tray UID,
   so either side identifies the same spool.
