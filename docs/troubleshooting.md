@@ -36,6 +36,15 @@
   by its own (unique) card UID, because a colliding identity silently merges
   distinct spools while an empty one only costs the link between a spool's
   two tags.
+- **One scan produced several inventory entries**: fixed in 0.28.0. Every
+  `CLICKED` event from the touch panel queued its own create, so a bouncing
+  press — or a second press while the first POST was still in flight — added
+  two or three entries for the same spool, stamped within the same second.
+  The extras often had an empty `tray_uuid`, because the payload was re-read
+  when the job ran rather than captured when the button was pressed, and a
+  re-scan in between could lose it. "Add to Inventory" is now one-shot per
+  physical scan (re-armed by the next scan, or immediately if the create
+  failed), and the tag payload is snapshotted at the press.
 - **Both tags of a spool must be scanned**: they don't. A Bambu spool
   carries two tags with different card UIDs but the same block-9 tray UID,
   so either side identifies the same spool.
