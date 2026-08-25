@@ -23,7 +23,8 @@ GIT_BLOCK = """external_components:
       url: https://github.com/CSchlipp/espoolbuddy.git
       ref: ${espoolbuddy_ref}
       path: components
-    components: [bambuddy_api, bambuddy_nfc]"""
+    components: [bambuddy_api, bambuddy_nfc]
+    refresh: always"""
 
 LOCAL_BLOCK = """external_components:
   - source:
@@ -36,7 +37,8 @@ PACKAGES_GIT_CONSOLE = """packages:
     url: https://github.com/CSchlipp/espoolbuddy.git
     ref: ${espoolbuddy_ref}
     path: espoolbuddy
-    files: [version.yaml, app.yaml, assets.yaml, lvgl.yaml]"""
+    files: [version.yaml, app.yaml, assets.yaml, lvgl.yaml]
+    refresh: always"""
 
 PACKAGES_LOCAL_CONSOLE = """packages:
   version: !include espoolbuddy/version.yaml
@@ -49,7 +51,8 @@ PACKAGES_GIT_SCALE = """packages:
     url: https://github.com/CSchlipp/espoolbuddy.git
     ref: ${espoolbuddy_ref}
     path: espoolbuddy
-    files: [version.yaml]"""
+    files: [version.yaml]
+    refresh: always"""
 
 PACKAGES_LOCAL_SCALE = """packages:
   version: !include espoolbuddy/version.yaml"""
