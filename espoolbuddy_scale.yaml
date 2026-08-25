@@ -53,6 +53,7 @@ external_components:
       ref: ${espoolbuddy_ref}
       path: components
     components: [bambuddy_api, bambuddy_nfc]
+    refresh: always
 
 packages:
   espoolbuddy:
@@ -60,6 +61,7 @@ packages:
     ref: ${espoolbuddy_ref}
     path: espoolbuddy
     files: [version.yaml]
+    refresh: always
 
 logger:
   level: INFO
