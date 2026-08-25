@@ -13,6 +13,60 @@
 - **NFC not detecting tags**: double-check the PN532 module is jumpered for
   **SPI mode** (not I²C/UART — most modules default to I²C), and that
   IRQ is wired if you want instant detection instead of ~300 ms polling.
+- **Bambu reads fail intermittently ("Bambu read failed for block N")**: a
+  Bambu read is a long RF exchange — one authentication plus several block
+  reads per sector — and a single dropout aborts the series even though the
+  spool is still on the reader. The firmware retries the whole series up to
+  four times while the same tag stays present (look for `Bambu read
+  succeeded on attempt 2/4`), and treats the temperature and tray-UID blocks
+  as optional, so losing one of those costs a detail rather than the scan.
+  If it still fails repeatedly, the antenna is too far from the tag or the
+  PN532's power supply is sagging.
+- **Every spool of the same type lands on the same inventory entry**: fixed
+  in 0.27.0. The tray UID was previously derived from blocks 4+5, which
+  hold the material name and colour — identical on every spool of a given
+  type, so they all collapsed onto one entry. The real per-spool identity
+  lives in block 9. Note that the official SpoolBuddy client has the same
+  defect (`BAMBU_BLOCKS = [1, 2, 4, 5]` in `daemon/pn5180.py`, combined in
+  `nfc_reader.py` as `raw = blocks[4] + blocks[5]`), so entries created by
+  it carry the same wrong identity. Inventory entries created before the fix
+  keep their old identity — clear the stored tag link on those spools and
+  they re-link correctly on the next scan. There is no fallback when block 9
+  cannot be read: the tag then reports no tray UID at all and is identified
+  by its own (unique) card UID, because a colliding identity silently merges
+  distinct spools while an empty one only costs the link between a spool's
+  two tags.
+- **One scan produced several inventory entries**: fixed in 0.28.0. Every
+  `CLICKED` event from the touch panel queued its own create, so a bouncing
+  press — or a second press while the first POST was still in flight — added
+  two or three entries for the same spool, stamped within the same second.
+  The extras often had an empty `tray_uuid`, because the payload was re-read
+  when the job ran rather than captured when the button was pressed, and a
+  re-scan in between could lose it. "Add to Inventory" is now one-shot per
+  physical scan (re-armed by the next scan, or immediately if the create
+  failed), and the tag payload is snapshotted at the press.
+- **A spool shows a hex value where its colour name should be**: fixed in
+  0.30.0. The catalogue lookup required an exact type + hex match, and tags do
+  not always carry exactly the hex the catalogue lists — a real Support for
+  PA/PET spool reports `C0DF16` where the catalogue says `BECF00`. On a miss
+  the raw hex was stored as the colour name, which reads as corrupt data and
+  is indistinguishable from a real name once saved. The lookup now also
+  accepts a filament type that has only one catalogue colour (nothing to
+  confuse it with) and a near match within a small distance; failing both it
+  leaves the name empty. The colour itself is unaffected either way — it
+  travels in `rgba`, so the swatch was always right.
+- **Only one side of a spool scans; the other is ignored**: fixed in 0.29.0.
+  The poll loop treated any detection while a tag was already present as
+  "same tag still lying there" without comparing UIDs, and every detection
+  reset the removal counter. Presenting the spool's second tag within
+  `miss_threshold` polls (~1 s at the default 300 ms cadence) therefore never
+  produced a scan at all. Flipping the spool slowly, or doing something else
+  first — adding it to the inventory, for instance — left a long enough gap
+  and made it work, which is why the fault looked intermittent. A UID change
+  is now treated as removal + arrival.
+- **Both tags of a spool must be scanned**: they don't. A Bambu spool
+  carries two tags with different card UIDs but the same block-9 tray UID,
+  so either side identifies the same spool.
 - **Scale reads negative or never settles**: verify the load cell's 4-wire
   connections; if the resting reading is negative, the polarity is handled
   in firmware (`multiply: -1` filter) — if it's still inverted, your load

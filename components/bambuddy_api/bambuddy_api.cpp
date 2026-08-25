@@ -291,7 +291,7 @@ void BambuddyAPIComponent::http_task_loop() {
       if (dequeue_job(job)) {
         switch (job.kind) {
           case HttpJob::SCALE_PUSH_NFC_SCANNED:
-            api_scale_push_nfc_scanned(job.s1, job.s2, job.i1, job.s3);
+            api_scale_push_nfc_scanned(job.s1, job.s2, job.i1, job.s3, job.bambu);
             break;
           case HttpJob::SCALE_PUSH_NFC_REMOVED:
             api_scale_push_nfc_removed(job.s1);
@@ -442,7 +442,7 @@ void BambuddyAPIComponent::http_task_loop() {
           api_link_tag(job.i1, job.s1, job.s2, job.s3);
           break;
         case HttpJob::CREATE_SPOOL_FROM_TAG:
-          api_create_spool_from_tag(job.s1);
+          api_create_spool_from_tag(job.s1, job.s2, job.bambu);
           break;
         case HttpJob::UPDATE_CALIBRATION:
           api_report_calibration_point(job.f1, job.f2);
@@ -628,7 +628,8 @@ bool BambuddyAPIComponent::chime_playing() const {
 void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
                                            const std::string &tray_uuid,
                                            int sak,
-                                           const std::string &tag_type) {
+                                           const std::string &tag_type,
+                                           const BambuTagInfo *bambu) {
   ESP_LOGI(TAG, "Tag scanned: uid=%s tray_uuid=%s sak=0x%02X type=%s",
            uid.c_str(), tray_uuid.c_str(), sak, tag_type.c_str());
 
@@ -652,6 +653,11 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
   display_state_.current_filament.tag_type   = tag_type;
   display_state_.current_filament.tag_format = initial_format;
   display_state_.current_filament.sak        = sak;
+  // Adopt the payload decoded for *this* tag, or drop whatever was left over
+  // from the previous one.  Both the local NFC component and the console's
+  // /scale/nfc/tag-scanned handler pass it in here, so a tag scanned on the
+  // scale carries exactly the same detail as one scanned on the console.
+  bambu_tag_info_ = (bambu != nullptr) ? *bambu : BambuTagInfo{};
   display_state_.status_message = "Tag detected: " + uid;
   display_state_.nfc_scan_generation++;  // lets the UI detect new physical scans
   display_state_.propose_archive = false;  // new scan cancels any pending archive proposal
@@ -693,13 +699,16 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
     job.i1 = sak;
     enqueue_job(job);
   } else if (!console_urls_.empty()) {
-    // Scale push mode: forward tag event to the console.
+    // Scale push mode: forward tag event to the console, decoded Bambu
+    // payload included, so the console can create a fully populated spool
+    // instead of a generic placeholder.
     HttpJob job;
     job.kind = HttpJob::SCALE_PUSH_NFC_SCANNED;
     job.s1 = uid;
     job.s2 = tray_uuid;
     job.s3 = tag_type;
     job.i1 = sak;
+    if (bambu != nullptr) job.bambu = *bambu;
     enqueue_job(job);
   }
 }
@@ -2819,13 +2828,28 @@ void BambuddyAPIComponent::api_scale_push_heartbeat() {
 void BambuddyAPIComponent::api_scale_push_nfc_scanned(const std::string &uid,
                                                         const std::string &tray_uuid,
                                                         int sak,
-                                                        const std::string &tag_type) {
+                                                        const std::string &tag_type,
+                                                        const BambuTagInfo &bambu) {
   if (console_urls_.empty()) return;
 
-  char body[384];
-  snprintf(body, sizeof(body),
-           "{\"uid\":\"%s\",\"tray_uuid\":\"%s\",\"sak\":%d,\"tag_type\":\"%s\"}",
-           esc(uid).c_str(), esc(tray_uuid).c_str(), sak, esc(tag_type).c_str());
+  // Built as a std::string rather than a fixed char[]: the decoded Bambu
+  // payload adds up to ~400 bytes of names and colours on top of the base
+  // fields, which would silently truncate in the old 384-byte buffer.
+  std::string body;
+  body.reserve(640);
+  body  = "{";
+  body += "\"uid\":" + json_string(uid) + ",";
+  body += "\"tray_uuid\":" + json_string(tray_uuid) + ",";
+  body += "\"sak\":" + std::to_string(sak) + ",";
+  body += "\"tag_type\":" + json_string(tag_type);
+  std::string bambu_fields = bambu_tag_json_fields(bambu);
+  if (!bambu_fields.empty()) body += "," + bambu_fields;
+  body += "}";
+
+  if (bambu.valid)
+    ESP_LOGI(TAG, "Scale push nfc-scanned with Bambu payload: %s %s / %s",
+             bambu.material.c_str(), bambu.subtype.c_str(),
+             bambu.color_name.c_str());
 
   std::string resp;
   bool ok = push_to_consoles("/scale/nfc/tag-scanned", body, resp);
@@ -3062,20 +3086,26 @@ esp_err_t BambuddyAPIComponent::console_http_scale_nfc_scanned(httpd_req_t *req)
   std::string tray_uuid = parse_json_string(json, "tray_uuid");
   int         sak      = parse_json_int(json, "sak", 0);
   std::string tag_type = parse_json_string(json, "tag_type");
+  // Optional: the decoded Bambu payload.  Older scale firmware does not send
+  // it — parse_bambu_tag_json() then returns an invalid struct and the console
+  // falls back to the generic placeholder exactly as before.
+  BambuTagInfo bambu = parse_bambu_tag_json(json);
 
   if (uid.empty()) {
     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "uid required");
     return ESP_OK;
   }
 
-  ESP_LOGI(TAG, "Console received scale NFC tag-scanned: uid=%s", uid.c_str());
+  ESP_LOGI(TAG, "Console received scale NFC tag-scanned: uid=%s bambu=%s",
+           uid.c_str(), bambu.valid ? bambu.detailed_type.c_str() : "-");
 
   self->lock_state();
   self->last_scale_push_ms_ = millis();
   self->unlock_state();
 
   // Route through the unified NFC path — identical to a locally-scanned tag.
-  self->on_tag_scanned(uid, tray_uuid, sak, tag_type.empty() ? "unknown" : tag_type);
+  self->on_tag_scanned(uid, tray_uuid, sak, tag_type.empty() ? "unknown" : tag_type,
+                       bambu.valid ? &bambu : nullptr);
   // Override source AFTER on_tag_scanned() so write_tag commands are routed back
   // to the scale's PN532 rather than waiting on the console's reader.
   self->last_tag_source_ = TagSource::SCALE;
@@ -3416,6 +3446,63 @@ std::string BambuddyAPIComponent::get_ip_address() {
 // Minimal JSON helpers (no external library dependency)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Bambu payload transport (scale -> console)
+//
+// The scale decodes the tag itself; without these two helpers only the UID
+// crossed the wire and the console fell back to a generic PLA/1000 g spool.
+// Keys are prefixed so they cannot collide with the surrounding envelope
+// fields, and every field is optional on the receiving side: a console running
+// this build still accepts a push from an older scale (no bambu_* keys ->
+// invalid struct -> unchanged placeholder behaviour).
+// ---------------------------------------------------------------------------
+std::string BambuddyAPIComponent::bambu_tag_json_fields(const BambuTagInfo &bt) {
+  if (!bt.valid) return "";
+  std::string js;
+  js.reserve(384);
+  js += "\"bambu_valid\":true,";
+  js += "\"bambu_material\":" + json_string(bt.material) + ",";
+  js += "\"bambu_detailed_type\":" + json_string(bt.detailed_type) + ",";
+  js += "\"bambu_subtype\":" + json_string(bt.subtype) + ",";
+  js += "\"bambu_variant_id\":" + json_string(bt.variant_id) + ",";
+  js += "\"bambu_material_id\":" + json_string(bt.material_id) + ",";
+  js += "\"bambu_color_hex\":" + json_string(bt.color_hex) + ",";
+  js += "\"bambu_color_name\":" + json_string(bt.color_name) + ",";
+  js += "\"bambu_spool_weight\":" + std::to_string(bt.spool_weight) + ",";
+  char dia[16];
+  snprintf(dia, sizeof(dia), "%.2f", bt.diameter);
+  js += "\"bambu_diameter\":" + std::string(dia) + ",";
+  js += "\"bambu_nozzle_temp_min\":" + std::to_string(bt.nozzle_temp_min) + ",";
+  js += "\"bambu_nozzle_temp_max\":" + std::to_string(bt.nozzle_temp_max) + ",";
+  js += "\"bambu_bed_temp\":" + std::to_string(bt.bed_temp) + ",";
+  js += "\"bambu_drying_temp\":" + std::to_string(bt.drying_temp) + ",";
+  js += "\"bambu_drying_time\":" + std::to_string(bt.drying_time);
+  return js;
+}
+
+BambuTagInfo BambuddyAPIComponent::parse_bambu_tag_json(const std::string &json) {
+  BambuTagInfo bt;
+  if (!parse_json_bool(json, "bambu_valid", false)) return bt;  // stays invalid
+  bt.material        = parse_json_string(json, "bambu_material");
+  bt.detailed_type   = parse_json_string(json, "bambu_detailed_type");
+  bt.subtype         = parse_json_string(json, "bambu_subtype");
+  bt.variant_id      = parse_json_string(json, "bambu_variant_id");
+  bt.material_id     = parse_json_string(json, "bambu_material_id");
+  bt.color_hex       = parse_json_string(json, "bambu_color_hex");
+  bt.color_name      = parse_json_string(json, "bambu_color_name");
+  bt.spool_weight    = (uint16_t) parse_json_int(json, "bambu_spool_weight", 0);
+  bt.diameter        = parse_json_float(json, "bambu_diameter", 0.0f);
+  bt.nozzle_temp_min = (uint16_t) parse_json_int(json, "bambu_nozzle_temp_min", 0);
+  bt.nozzle_temp_max = (uint16_t) parse_json_int(json, "bambu_nozzle_temp_max", 0);
+  bt.bed_temp        = (uint16_t) parse_json_int(json, "bambu_bed_temp", 0);
+  bt.drying_temp     = (uint16_t) parse_json_int(json, "bambu_drying_temp", 0);
+  bt.drying_time     = (uint16_t) parse_json_int(json, "bambu_drying_time", 0);
+  // A payload without a material is useless downstream: api_create_spool_from_tag()
+  // requires it, so refuse it here rather than creating a half-empty spool.
+  bt.valid = !bt.material.empty();
+  return bt;
+}
+
 std::string BambuddyAPIComponent::json_string(const std::string &s) {
   std::string out = "\"";
   for (char c : s) {
@@ -3733,7 +3820,9 @@ void BambuddyAPIComponent::api_link_tag(int spool_id, const std::string &uid,
   }
 }
 
-void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid) {
+void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid,
+                                                      const std::string &tray_uuid,
+                                                      const BambuTagInfo &bt) {
   std::string resp;
   bool ok;
   if (spoolman_inventory_) {
@@ -3744,20 +3833,71 @@ void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid) {
                              "\"note\":\"Created by ESPoolBuddy\"}";
     ok = http_post_api("/spoolman/inventory/spools", create_js, resp);
   } else {
-    std::string js = "{\"material\":\"PLA\",\"label_weight\":1000,"
-                     "\"tag_uid\":" + json_string(uid) + ","
-                     "\"note\":\"Created by ESPoolBuddy\","
-                     "\"data_origin\":\"spoolbuddy\"}";
+    // bt and tray_uuid arrive snapshotted from create_spool_from_tag().
+    std::string js;
+    if (bt.valid && !bt.material.empty()) {
+      // Full spool from the tag.  Field names mirror the payload accepted by
+      // Bambuddy's POST /api/v1/inventory/spools.
+      uint16_t label_weight = (bt.spool_weight > 0 && bt.spool_weight <= 5000)
+                                  ? bt.spool_weight
+                                  : 1000;
+      std::string slicer_name = "Bambu " + bt.material;
+      if (!bt.subtype.empty()) slicer_name += " " + bt.subtype;
+
+      js  = "{";
+      js += "\"material\":" + json_string(bt.material) + ",";
+      if (!bt.subtype.empty())
+        js += "\"subtype\":" + json_string(bt.subtype) + ",";
+      if (!bt.color_name.empty())
+        js += "\"color_name\":" + json_string(bt.color_name) + ",";
+      if (!bt.color_hex.empty())
+        js += "\"rgba\":" + json_string(bt.color_hex + "FF") + ",";
+      js += "\"brand\":\"Bambu Lab\",";
+      js += "\"label_weight\":" + std::to_string(label_weight) + ",";
+      js += "\"core_weight\":216,";
+      if (!bt.material_id.empty()) {
+        js += "\"slicer_filament\":" + json_string(bt.material_id) + ",";
+        js += "\"slicer_filament_name\":" + json_string(slicer_name) + ",";
+      }
+      if (bt.nozzle_temp_min > 0)
+        js += "\"nozzle_temp_min\":" + std::to_string(bt.nozzle_temp_min) + ",";
+      if (bt.nozzle_temp_max > 0)
+        js += "\"nozzle_temp_max\":" + std::to_string(bt.nozzle_temp_max) + ",";
+      js += "\"tag_uid\":" + json_string(uid) + ",";
+      if (!tray_uuid.empty())
+        js += "\"tray_uuid\":" + json_string(tray_uuid) + ",";
+      js += "\"tag_type\":\"bambulab\",";
+      js += "\"note\":\"Created by ESPoolBuddy\",";
+      js += "\"data_origin\":\"spoolbuddy\"}";
+      ESP_LOGI(TAG, "Creating spool from Bambu tag: %s %s / %s (%d g)",
+               bt.material.c_str(), bt.subtype.c_str(), bt.color_name.c_str(),
+               (int) label_weight);
+    } else {
+      // No Bambu payload (NTAG, foreign spool, or decode failed) — keep the
+      // original generic placeholder so behaviour is unchanged for those tags.
+      js = "{\"material\":\"PLA\",\"label_weight\":1000,"
+           "\"tag_uid\":" + json_string(uid) + ","
+           "\"note\":\"Created by ESPoolBuddy\","
+           "\"data_origin\":\"spoolbuddy\"}";
+    }
     ok = http_post_api("/inventory/spools", js, resp);
   }
   if (!ok) {
     ESP_LOGW(TAG, "api_create_spool_from_tag: failed");
+    // Nothing was created — re-arm the button so the user can try again
+    // without lifting and re-presenting the tag.
+    lock_state();
+    create_spool_issued_ = false;
+    unlock_state();
     set_status("Create spool failed");
     return;
   }
   int new_id = parse_json_int(resp, "id", 0);
   if (new_id <= 0) {
     ESP_LOGW(TAG, "api_create_spool_from_tag: no id in response");
+    lock_state();
+    create_spool_issued_ = false;
+    unlock_state();
     set_status("Create spool failed (no id)");
     return;
   }
@@ -3830,13 +3970,31 @@ void BambuddyAPIComponent::unlink_current_tag() {
 }
 
 void BambuddyAPIComponent::create_spool_from_tag() {
-  std::string uid;
+  std::string uid, tray_uuid;
+  BambuTagInfo bambu;
   lock_state();
-  uid = display_state_.last_tag_uid;
+  // One create per physical scan.  Without this, every extra CLICKED event
+  // from the touch panel — and every impatient second press while the POST is
+  // still in flight — queues another create, and the user ends up with three
+  // inventory entries for one spool, stamped within the same second.
+  if (create_spool_issued_ &&
+      create_spool_issued_gen_ == display_state_.nfc_scan_generation) {
+    unlock_state();
+    ESP_LOGW(TAG, "Add to Inventory ignored: already creating a spool for this scan");
+    return;
+  }
+  create_spool_issued_     = true;
+  create_spool_issued_gen_ = display_state_.nfc_scan_generation;
+  uid       = display_state_.last_tag_uid;
+  tray_uuid = display_state_.current_filament.tray_uuid;
+  bambu     = bambu_tag_info_;
   unlock_state();
+
   HttpJob job;
-  job.kind = HttpJob::CREATE_SPOOL_FROM_TAG;
-  job.s1   = uid;
+  job.kind  = HttpJob::CREATE_SPOOL_FROM_TAG;
+  job.s1    = uid;
+  job.s2    = tray_uuid;   // snapshot: a re-scan must not change what we send
+  job.bambu = bambu;
   enqueue_job(job);
 }
 
