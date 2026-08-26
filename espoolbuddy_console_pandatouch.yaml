@@ -83,6 +83,7 @@ external_components:
       ref: ${espoolbuddy_ref}
       path: components
     components: [bambuddy_api, bambuddy_nfc]
+    refresh: always
 
 packages:
   espoolbuddy:
@@ -90,6 +91,7 @@ packages:
     ref: ${espoolbuddy_ref}
     path: espoolbuddy
     files: [version.yaml, app.yaml, assets.yaml, lvgl.yaml]
+    refresh: always
 
 logger:
   # Global level must be DEBUG so the Bambuddy components can emit DEBUG (a
@@ -131,6 +133,19 @@ captive_portal:
 ota:
   - platform: esphome
     password: !secret ota_password
+    # This board drives its RGB panel directly from a continuously-scanned
+    # PSRAM framebuffer; a stalled main loop during the flash write shows up
+    # as visible glitching. Blank the backlight for the duration so nothing
+    # is visible, and restore it on any outcome that doesn't reboot.
+    on_begin:
+      - lambda: |-
+          id(backlight_pwm).set_level(0.0f);
+    on_error:
+      - lambda: |-
+          id(backlight_pwm).set_level(id(backlight_brightness_pct) / 100.0f);
+    on_abort:
+      - lambda: |-
+          id(backlight_pwm).set_level(id(backlight_brightness_pct) / 100.0f);
 
 api:
   encryption:

@@ -88,6 +88,7 @@ external_components:
       ref: ${espoolbuddy_ref}
       path: components
     components: [bambuddy_api, bambuddy_nfc]
+    refresh: always
 
 packages:
   espoolbuddy:
@@ -95,6 +96,7 @@ packages:
     ref: ${espoolbuddy_ref}
     path: espoolbuddy
     files: [version.yaml, app.yaml, assets.yaml, lvgl.yaml]
+    refresh: always
 
 logger:
   # Global level must be DEBUG so the Bambuddy components can emit DEBUG (a
