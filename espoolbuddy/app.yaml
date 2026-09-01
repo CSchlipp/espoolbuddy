@@ -1111,7 +1111,8 @@ interval:
             uint32_t sig = (uint32_t)n_ams * 2654435761u ^ (uint32_t)s.dual_nozzle
                          ^ ((uint32_t)id(ams_page) * 2246822519u)
                          ^ ((uint32_t)id(ams_rows_per_page) * 3266489917u)  // Settings row-count change
-                         ^ ((uint32_t)s.tray_now   * 1500450271u);  // active spool highlight
+                         ^ ((uint32_t)s.tray_now   * 1500450271u)  // active spool highlight
+                         ^ ((uint32_t)s.printers.size() * 16777619u);  // "No printer selected" vs "No AMS data"
             for (int ui = 0; ui < n_ams; ui++) {
               const auto &u = s.ams_units[ui];
               sig ^= ((uint32_t)u.id * 40503u) ^ ((uint32_t)u.trays.size() * 6700417u)
