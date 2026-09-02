@@ -492,29 +492,37 @@ interval:
 
           const bambuddy_api::DisplayState s = bambuddy->snapshot();
 
-          // Auto-switch to the NFC tab on:
-          //   (a) A new/different spool tag resolved to an inventory spool, OR
-          //   (b) A rising edge of "tag present but not yet linked"
-          static bool prev_spool_sel    = false;
-          static bool prev_tag_unlinked = false;
-          static std::string prev_scan_uid;
+          // Auto-switch to the NFC tab on every physical scan.  s.nfc_scan_generation
+          // is bumped by on_tag_scanned() for each tag placement and by an AMS spool
+          // removal, so this fires on the first scan and every one after — unlike
+          // edge-detecting the resolved spool/unlinked state, which a fast re-scan
+          // of the same tag can skip.  The episode-end block further down hops back
+          // to the pre-scan tab once the NFC tab has nothing left to show.
+          static bool     prev_spool_sel       = false;
+          static uint32_t prev_switch_scan_gen = 0;
           // UID that was on the reader when the user tapped "Discard" on a linked
           // spool.  dismiss_spool() clears spool_selected but the tag stays present,
           // so without this guard the unlinked panel would flash up immediately.
           // Cleared once the tag physically leaves the reader.
           static std::string dismissed_known_uid;
-          bool tag_unlinked = (s.nfc_state == bambuddy_api::NFCTagState::PRESENT
-                               && !s.spool_selected
-                               && !s.tag_resolving);  // suppress during backend lookup
-          bool switch_nfc = false;
-          if (s.spool_selected && (!prev_spool_sel || s.last_tag_uid != prev_scan_uid))
-            switch_nfc = true;
-          if (tag_unlinked && !prev_tag_unlinked
-              && !id(nfc_unlinked_dismissed)
-              && s.last_tag_uid != dismissed_known_uid)
-            switch_nfc = true;
-          if (switch_nfc && id(active_tab) != 1) {
-            id(active_tab) = 1; id(apply_tab).execute();
+          // Tab to hop back to when the current NFC episode ends.  -1 = nothing to
+          // restore: the tag was scanned while already on the NFC tab, or the user
+          // has since navigated away by hand.  Captured once per episode.
+          static int  nfc_return_tab     = -1;
+          static bool nfc_episode_active = false;
+          static bool nfc_ep_saw_content = false;  // episode showed a panel at least once
+          if (s.nfc_scan_generation != prev_switch_scan_gen) {
+            prev_switch_scan_gen = s.nfc_scan_generation;
+            // A new scan re-arms the unlinked panel: the user may have discarded it,
+            // removed the tag, then placed it again while the sticky TTL kept
+            // nfc_state PRESENT (so the tag-removal clear never fired).
+            id(nfc_unlinked_dismissed) = 0;
+            if (!nfc_episode_active) {
+              nfc_ep_saw_content = false;
+              nfc_return_tab = (id(active_tab) != 1) ? id(active_tab) : -1;
+            }
+            if (id(active_tab) != 1) { id(active_tab) = 1; id(apply_tab).execute(); }
+            nfc_episode_active = true;
           }
           // Detect a "Discard on known tag": spool_selected just fell to false while
           // the same tag is still present → record the UID so the unlinked panel
@@ -530,9 +538,7 @@ interval:
           if (s.nfc_state != bambuddy_api::NFCTagState::PRESENT) {
             dismissed_known_uid.clear();
           }
-          prev_spool_sel    = s.spool_selected;
-          prev_tag_unlinked = tag_unlinked;
-          prev_scan_uid     = s.last_tag_uid;
+          prev_spool_sel = s.spool_selected;
 
           // Wake the backlight to full brightness whenever a tag appears on the
           // reader (mirrors the touch wake), so a scan lights the screen even if
@@ -780,26 +786,6 @@ interval:
           // moved to the on_loop trigger above, so a landed push renders on
           // the next loop tick instead of the next 400 ms interval tick.)
 
-          // ---- NFC: new-scan detection ----
-          // nfc_scan_generation is incremented by on_tag_scanned() on every
-          // physical tag placement.  When it advances, a new scan happened —
-          // clear nfc_unlinked_dismissed so the unlinked panel shows again.
-          // This handles the case where the user discards an unlinked tag,
-          // removes it, then places it again while the sticky TTL is still
-          // active (nfc_state stays PRESENT, so the else branch never fires
-          // and would never clear the flag without this explicit check).
-          {
-            static uint32_t prev_scan_gen = 0;
-            if (s.nfc_scan_generation != prev_scan_gen) {
-              id(nfc_unlinked_dismissed) = 0;
-              prev_scan_gen = s.nfc_scan_generation;
-              // Auto-switch from Scale tab to NFC tab on any new physical scan.
-              if (id(active_tab) == 2) {
-                id(active_tab) = 1; id(apply_tab).execute();
-              }
-            }
-          }
-
           // ---- NFC tab (sticky spool) ----
           if (s.spool_selected) {
             lv_obj_add_flag(id(nfc_waiting), LV_OBJ_FLAG_HIDDEN);
@@ -1022,6 +1008,33 @@ interval:
             lv_obj_clear_flag(id(nfc_waiting),      LV_OBJ_FLAG_HIDDEN);
             lv_label_set_text(id(nfc_waiting),
                 s.tag_resolving ? "Identifying tag..." : "Waiting for tag...");
+          }
+
+          // ---- NFC episode end → restore the pre-scan tab ----
+          // The scan above auto-switched to the NFC tab; hop back once the tab
+          // has nothing sticky left to show — spool discarded, auto-assigned to
+          // an AMS slot, or the sticky TTL expired.  The "saw content" latch
+          // means a scan that is still resolving can't trigger the hop-back
+          // before its panel has had a chance to appear.
+          if (nfc_episode_active) {
+            bool nfc_has_content =
+                s.spool_selected || s.tag_resolving ||
+                (s.nfc_state == bambuddy_api::NFCTagState::PRESENT &&
+                 !id(nfc_unlinked_dismissed) &&
+                 s.last_tag_uid != dismissed_known_uid);
+            if (id(active_tab) != 1) {
+              // user navigated away by hand — drop the pending return
+              nfc_episode_active = false;
+              nfc_return_tab = -1;
+            } else if (nfc_has_content) {
+              nfc_ep_saw_content = true;
+            } else if (nfc_ep_saw_content) {
+              nfc_episode_active = false;
+              if (nfc_return_tab >= 0) {
+                id(active_tab) = nfc_return_tab; id(apply_tab).execute();
+              }
+              nfc_return_tab = -1;
+            }
           }
 
           // ---- Spool picker: populate grid when recent_spools changes ----

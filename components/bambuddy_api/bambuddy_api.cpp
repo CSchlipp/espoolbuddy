@@ -3723,6 +3723,13 @@ void BambuddyAPIComponent::record_scale_weight(int spool_id, float total_grams) 
                  : 0.0f;
     fi.weight_used_g = used;
   }
+  // Weighing is a mid-flow action, not a completion: restart the auto-assign
+  // TTL so the user keeps the full window to load the spool into an AMS slot
+  // afterwards (matches the fresh TTL that linking/creating a tag already gives).
+  if (pending_assign_spool_id_ > 0 && pending_assign_spool_id_ == spool_id) {
+    pending_assign_expiry_ms_ = millis() + ASSIGN_TTL_MS;
+    display_state_.spool_assign_expiry_ms = pending_assign_expiry_ms_;
+  }
   unlock_state();
   HttpJob job;
   job.kind = HttpJob::UPDATE_SPOOL_WEIGHT;
