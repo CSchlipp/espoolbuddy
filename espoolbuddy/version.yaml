@@ -5,7 +5,7 @@
 # entry-point YAML so there is exactly one number to update.
 esphome:
   project:
-    version: "0.27.0"
+    version: "0.27.1"
 
 # Reports the same version to Home Assistant (via the native api: component,
 # already present in every entry-point YAML) as a diagnostic text sensor.
