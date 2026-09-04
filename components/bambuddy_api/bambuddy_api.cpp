@@ -1735,8 +1735,11 @@ bool BambuddyAPIComponent::http_request(esp_http_client_method_t method,
       ESP_LOGD(TAG, "    body: %s", json_body.c_str());
     }
 
-    // Feed the task WDT immediately before the blocking HTTP call.
-    arch_feed_wdt();
+    // Feed the task WDT immediately before the blocking HTTP call — but only in
+    // console mode.  The scale-push task is deliberately not subscribed to the
+    // TWDT (see http_task_loop), so arch_feed_wdt() -> esp_task_wdt_reset() there
+    // just spams "task not found" on every heartbeat.
+    if (!scale_mode_) arch_feed_wdt();
     esp_err_t err = esp_http_client_perform(client);
     int status = esp_http_client_get_status_code(client);
 
