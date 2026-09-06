@@ -250,7 +250,8 @@ script:
           if (!lv_obj_has_flag(id(quick_settings), LV_OBJ_FLAG_HIDDEN)) return;
           // Anything already claiming the screen wins: a swipe over an open
           // dialog must not pull the drawer over it, and the wake guard has to
-          // absorb the wake touch before gestures do anything.
+          // absorb the wake touch before gestures do anything. Keep in step
+          // with the blocker list in ams_page_step below.
           lv_obj_t *blockers[] = {id(ams_modal_card), id(printer_modal), id(cal_modal),
                                   id(confirm_modal), id(assign_id_modal), id(plate_clear_popup),
                                   id(wake_guard), id(nfc_weight_popup),
@@ -339,8 +340,14 @@ script:
     then:
       - lambda: |-
           if (id(active_tab) != 0) return;
-          lv_obj_t *blockers[] = {id(quick_settings), id(ams_modal_card), id(confirm_modal),
-                                  id(assign_id_modal), id(plate_clear_popup), id(wake_guard)};
+          // The active tab is not a proxy for which dialogs can be open: the
+          // quick-settings drawer opens over any tab and hands off to the
+          // printer picker from there, so a modal belonging to another tab can
+          // be on screen while this one is active. Keep in step with the
+          // blocker list in qs_open above.
+          lv_obj_t *blockers[] = {id(quick_settings), id(ams_modal_card), id(printer_modal),
+                                  id(cal_modal), id(confirm_modal), id(assign_id_modal),
+                                  id(plate_clear_popup), id(wake_guard)};
           for (auto *b : blockers)
             if (!lv_obj_has_flag(b, LV_OBJ_FLAG_HIDDEN)) return;
           lv_obj_t *btn = delta > 0 ? id(ams_pg_next) : id(ams_pg_prev);
