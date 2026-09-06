@@ -80,6 +80,53 @@ lvgl:
             border_width: 0
             pad_all: 0
             scrollbar_mode: "OFF"
+            # Quick Settings drawer gesture, handled here on the root obj so one
+            # pair of triggers covers all four tabs and every widget in them.
+            # qs_open decides whether opening is allowed right now.
+            #
+            # gesture_bubble must be off on exactly this obj. LVGL picks the
+            # gesture target by walking up from the pressed widget for as long as
+            # LV_OBJ_FLAG_GESTURE_BUBBLE is set, and delivers the event to the
+            # first ancestor without it (lv_indev.c, indev_gesture). The flag is
+            # on by default everywhere, so leaving it set here walks past the
+            # screen to a NULL parent and the gesture is dropped instead of
+            # arriving anywhere.
+            gesture_bubble: false
+            # A swipe is not a tap. LVGL still delivers LV_EVENT_CLICKED to
+            # whatever the finger came down on when the swipe ends, which would
+            # open e.g. an AMS slot behind the drawer, so the pending press is
+            # dropped: lv_indev_wait_release sends PRESS_LOST and clears act_obj,
+            # and the touch is ignored until the finger lifts.
+            on_swipe_down:
+              then:
+                - lambda: |-
+                    if (lv_indev_t *indev = lv_indev_active()) lv_indev_wait_release(indev);
+                - script.execute: qs_open
+            on_swipe_up:
+              then:
+                - lambda: |-
+                    if (lv_indev_t *indev = lv_indev_active()) lv_indev_wait_release(indev);
+                - script.execute: qs_dismiss
+            # Horizontal swipes page the AMS tab, in the direction the content
+            # would move: swipe left for the next page, right for the previous.
+            # ams_page_step decides whether a step is allowed. These live here
+            # with the vertical ones because LVGL delivers a gesture to exactly
+            # one widget — the nearest ancestor without gesture_bubble — so this
+            # obj is where every gesture in the tree arrives.
+            on_swipe_left:
+              then:
+                - lambda: |-
+                    if (lv_indev_t *indev = lv_indev_active()) lv_indev_wait_release(indev);
+                - script.execute:
+                    id: ams_page_step
+                    delta: 1
+            on_swipe_right:
+              then:
+                - lambda: |-
+                    if (lv_indev_t *indev = lv_indev_active()) lv_indev_wait_release(indev);
+                - script.execute:
+                    id: ams_page_step
+                    delta: -1
             widgets:
 
               # ---------------- MAIN FLEX COLUMN ----------------
@@ -2666,6 +2713,203 @@ lvgl:
                                       bambuddy->confirm_plate_cleared();
                               widgets:
                                 - label: {text: "Confirm", text_font: roboto_16, text_color: 0x1B5E20, align: CENTER}
+
+              # ================ QUICK SETTINGS ================================
+              # Android-style drawer, slid in and out by animating translate_y
+              # (see qs_open / qs_dismiss in app.yaml). A swipe down from
+              # anywhere on screen opens it; a swipe up, the chevron handle, or
+              # a tap on the dimmed area closes it.
+              # Declared after every modal so it draws above them, but before
+              # the wake guard so a wake touch is still absorbed first.
+              #
+              # Unlike the modals above, this one gets a backdrop: the drawer
+              # is a layer over the whole app rather than a card about one
+              # thing, and the scrim doubles as the tap-outside-to-close target
+              # — without it the bottom nav stays tappable under an open drawer.
+              #
+              # Dims the whole screen behind the drawer, and catches the taps
+              # that close it — without this object the bottom nav stays
+              # tappable under an open drawer.
+              #
+              # It takes this much opacity to read at all: the UI is already
+              # near-black, so most of the visible effect is the bright spool
+              # swatches and text dimming rather than the background. The exact
+              # value is free — the blend costs the same whatever it is — but
+              # having the layer at all is not, since it is composited into
+              # every region the slide redraws. Setting bg_opa to TRANSP skips
+              # it entirely and is the first thing to try if the drawer's frame
+              # rate needs to come back up.
+              - obj:
+                  id: qs_scrim
+                  width: 100%
+                  height: 100%
+                  bg_color: 0x000000
+                  bg_opa: 70%
+                  border_width: 0
+                  radius: 0
+                  pad_all: 0
+                  scrollbar_mode: "OFF"
+                  scrollable: false
+                  hidden: true
+                  on_click:
+                    then:
+                      - script.execute: qs_dismiss
+
+              # Sized in absolute pixels, not in percent: the fonts are fixed
+              # size on both console variants, so a percentage height would be a
+              # full panel on the 480x320 WT32-SC01 Plus and a mostly empty one
+              # on the 800x480 Panda Touch.
+              #
+              # Square corners: a radius puts LVGL on mask-based rect drawing
+              # for every frame of the slide. With no radius the drawer can also
+              # sit flush against the top edge instead of being offset upwards
+              # to hide its rounded top corners off screen.
+              - obj:
+                  id: quick_settings
+                  width: 100%
+                  height: SIZE_CONTENT
+                  align: TOP_MID
+                  bg_color: 0x0D0D16
+                  bg_opa: COVER
+                  border_color: 0x454572
+                  border_width: 2
+                  border_side: BOTTOM
+                  radius: 0
+                  pad_left: 10
+                  pad_right: 10
+                  pad_top: 10
+                  pad_bottom: 10
+                  # No drop shadow: it is a blurred band redrawn on every frame
+                  # the drawer moves through, and the dim scrim already separates
+                  # the drawer from the content behind it.
+                  shadow_width: 0
+                  shadow_opa: TRANSP
+                  scrollbar_mode: "OFF"
+                  scrollable: false
+                  hidden: true
+                  layout:
+                    type: flex
+                    flex_flow: column
+                    pad_row: 8
+                  widgets:
+                    - label:
+                        width: 100%
+                        text: "Quick Settings"
+                        text_font: roboto_20
+                        text_color: 0x7BB4FF
+                        text_align: CENTER
+                    # Tiles keep their size and centre instead of stretching, so
+                    # the Panda Touch's extra 320 px of width becomes margin.
+                    - obj:
+                        width: 100%
+                        height: SIZE_CONTENT
+                        bg_opa: TRANSP
+                        border_width: 0
+                        pad_all: 0
+                        clickable: false
+                        scrollbar_mode: "OFF"
+                        layout:
+                          type: flex
+                          flex_flow: row
+                          flex_align_main: center
+                          pad_column: 12
+                        widgets:
+                          # Labels are direct children of the button on purpose:
+                          # an intermediate obj is clickable by default and would
+                          # swallow the press instead of letting the button see
+                          # it (same trap as the NFC picker tiles).
+                          - button:
+                              id: qs_tile_printer
+                              width: 40%
+                              max_width: 190
+                              height: 96
+                              styles: sty_card
+                              border_color: 0x454572
+                              border_width: 1
+                              pad_all: 6
+                              shadow_width: 0
+                              shadow_opa: TRANSP
+                              scrollbar_mode: "OFF"
+                              layout:
+                                type: flex
+                                flex_flow: column
+                                flex_align_main: center
+                                flex_align_cross: center
+                                pad_row: 2
+                              # on_short_click, not on_click: LV_EVENT_CLICKED
+                              # also fires after a long press, which would cycle
+                              # the printer *and* open the picker.
+                              on_short_click:
+                                then:
+                                  - lambda: |-
+                                      int n = id(printer_count);
+                                      if (n <= 1) return;
+                                      int nx = (id(selected_printer_idx) + 1) % n;
+                                      id(selected_printer_idx) = nx;
+                                      bambuddy->set_selected_printer(nx);
+                              # printer_modal is declared earlier, so the drawer
+                              # and its scrim render on top of it. Closing has to
+                              # be the immediate qs_close, not the animated
+                              # qs_dismiss, or the modal sits behind a drawer
+                              # that is still sliding out.
+                              on_long_press:
+                                then:
+                                  - script.execute: qs_close
+                                  - lambda: 'lv_obj_clear_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);'
+                              widgets:
+                                - label: {id: qs_printer_icon, text: "\U000F042B", text_font: mdi_30, text_color: 0x666688}
+                                - label: {text: "Printer", text_font: roboto_16, text_color: 0xDDDDEE}
+                                - label: {id: qs_printer_sub, width: 100%, text: "-", text_font: roboto_12,
+                                          text_color: 0xBBBBCC, text_align: CENTER, long_mode: DOT}
+                          - button:
+                              id: qs_tile_sound
+                              width: 40%
+                              max_width: 190
+                              height: 96
+                              styles: sty_card
+                              border_color: 0x454572
+                              border_width: 1
+                              pad_all: 6
+                              shadow_width: 0
+                              shadow_opa: TRANSP
+                              scrollbar_mode: "OFF"
+                              layout:
+                                type: flex
+                                flex_flow: column
+                                flex_align_main: center
+                                flex_align_cross: center
+                                pad_row: 2
+                              on_click:
+                                then:
+                                  - lambda: 'id(sound_enabled) = id(sound_enabled) ? 0 : 1;'
+                                  - script.execute: update_sound_btn
+                              widgets:
+                                - label: {id: qs_sound_icon, text: "\U000F057E", text_font: mdi_30, text_color: 0x4ECDC4}
+                                - label: {text: "Sound", text_font: roboto_16, text_color: 0xDDDDEE}
+                                - label: {id: qs_sound_sub, width: 100%, text: "On", text_font: roboto_12,
+                                          text_color: 0xBBBBCC, text_align: CENTER, long_mode: DOT}
+                    # Grab handle — the tappable equivalent of the swipe-up.
+                    - button:
+                        id: qs_close_btn
+                        width: 100%
+                        height: 24
+                        bg_opa: TRANSP
+                        border_width: 0
+                        radius: 0
+                        pad_all: 0
+                        # The default theme gives every button a grey shadow
+                        # offset downwards. Behind an opaque button it just
+                        # blends in, but this one is transparent, so the shadow
+                        # is all that renders — a halo down the left, right and
+                        # bottom edges of the chevron.
+                        shadow_width: 0
+                        shadow_opa: TRANSP
+                        scrollbar_mode: "OFF"
+                        on_click:
+                          then:
+                            - script.execute: qs_dismiss
+                        widgets:
+                          - label: {text: "\U000F0143", text_font: mdi_24, text_color: 0x8585B8, align: CENTER}
 
               # ================ WAKE GUARD ====================================
               # Full-screen transparent overlay that sits on top of all other

@@ -41,6 +41,9 @@
   default label otherwise). The currently selected printer's name also
   shows in the header next to the clock; it only scrolls if the text is too
   long to fit, otherwise it just sits centered.
+- **Swipe between AMS pages**: on the AMS tab, swipe left for the next page and
+  right for the previous one — the same thing the prev/next buttons do, and
+  equally limited to the pages that actually exist.
 - **AMS rows per screen**: Settings → Features → **Rows/Page** controls how
   many AMS rows are shown at once (1/2/3 on the WT32-SC01 Plus console,
   1/2/3/5 on Panda Touch). Fewer rows per page means each row — and its
@@ -48,6 +51,14 @@
   blank; more AMS units than fit on one page are reached via the existing
   prev/next buttons. Defaults to the max for your console, which looks the
   same as before this setting existed.
+- **Quick settings**: swipe down from anywhere on the console to pull open a
+  quick-settings drawer, and swipe up, tap its chevron handle, or tap the
+  dimmed area behind it to close it again. It holds two tiles for now:
+  **Printer** — tap to switch to the next printer, hold to open the full
+  printer picker; the icon is green while that printer is reachable — and
+  **Sound**, which mutes/unmutes the chimes and stays in sync with
+  Settings → Features → Sound. The drawer stays out of the way while a
+  dialog is open or the screen is asleep.
 - **Sleep**: the console dims its backlight after 60 s idle and can go into
   a deep-idle "sleep" tier (backlight off, reduced network cadence) after a
   configurable timeout — any touch, new tag, or weight change wakes it.

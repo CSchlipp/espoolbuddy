@@ -177,6 +177,7 @@ font:
       - "\U000F0142"   # chevron-right (AMS pagination next)
       - "\U000F0472"   # scale (scale device icon in Settings picker)
       - "\U000F042B"   # printer-3d (printer status icon)
+      - "\U000F0143"   # chevron-up (quick-settings grab handle)
   - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
     id: mdi_30
     size: 30
@@ -186,6 +187,9 @@ font:
       - "\U000F0396"   # nfc    (NFC tab)
       - "\U000F0493"   # cog    (Settings tab)
       - "\U000F003C"   # archive (empty-spool popup)
+      - "\U000F042B"   # printer-3d (quick-settings Printer tile)
+      - "\U000F057E"   # volume-high (quick-settings Sound tile, on)
+      - "\U000F0581"   # volume-off  (quick-settings Sound tile, off)
   - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
     id: mdi_48
     size: 48

@@ -26,7 +26,8 @@ a speaker, since the board doesn't have either.
   still reach Bambuddy, just via the scale instead of the console.
 - **No speaker.** The tag-scan/weight-stable chimes are silently skipped —
   the Settings screen hides the Sound toggle automatically since there's no
-  speaker to control.
+  speaker to control, and the quick-settings drawer drops its Sound tile for
+  the same reason.
 - **Occasional display glitches.** This build has shown intermittent visual
   artifacts on real hardware. It's believed to be related to how this
   board's RGB-parallel display works, rather than a firmware bug — the

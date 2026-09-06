@@ -230,7 +230,7 @@ display:
       height: ${screen_height}
     de_pin: GPIO38
     pclk_pin: GPIO5
-    pclk_frequency: 16MHz
+    pclk_frequency: 14.5MHz
     hsync_pulse_width: 4
     hsync_back_porch: 8
     hsync_front_porch: 8
