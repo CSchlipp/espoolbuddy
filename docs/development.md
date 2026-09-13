@@ -15,7 +15,8 @@ espoolbuddy/
 │   ├── app.yaml                       #   UI logic, sleep state machine, NFC/scale wiring, sensors
 │   ├── lvgl.yaml                      #   LVGL screen/widget layout (resolution-independent)
 │   ├── assets.yaml                    #   Fonts (MDI webfont) and image declarations
-│   ├── images/                        #   PNG icons (spool fill/hub/shine/empty, AMS icons)
+│   ├── images/                        #   PNG icons (spool fill/shine/empty, AMS icons)
+│                                      #   downloaded from GitHub at compile time, see below
 │   └── lvgl/                          #   Per-tab LVGL definitions (AMS tab, NFC tab)
 ├── components/                        # Shared ESPHome external_components
 │   ├── bambuddy_api/                  #   HTTP client/server + Bambuddy API protocol (C++)
@@ -30,10 +31,14 @@ once and shared; only hardware pinout/wiring differs between the two files.
 
 `components/` is pulled by all three entry-point YAMLs via
 `external_components: source: git ...` pointed at this repo's own `main`
-branch, so each YAML also works as a standalone copy-paste example. When
-developing components locally, CI rewrites that block to a local
-`./components` checkout before compiling — see
-`.github/scripts/use_local_components.py` if you're doing the same.
+branch, so each YAML also works as a standalone copy-paste example. The PNGs
+in `espoolbuddy/images/` are fetched the same way: `assets.yaml` builds their
+URLs from an `espoolbuddy_images` substitution pinned to the same
+`${espoolbuddy_ref}`, and ESPHome downloads and caches them at compile time
+(under `.esphome/image/`) rather than reading them off disk. When developing
+locally, CI rewrites the components, packages and image sources to the local
+checkout before compiling — see `.github/scripts/use_local_components.py` if
+you're doing the same.
 
 No other build tooling, no lint step, no unit tests — the closest thing to
 a test suite is a full firmware compile of all three configs, both locally

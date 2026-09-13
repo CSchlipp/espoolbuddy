@@ -9,9 +9,9 @@ you're flashing:
 
 | Device | File |
 |---|---|
-| Console — WT32-SC01 Plus | `espoolbuddy_console.yaml` |
-| Console — Panda Touch | `espoolbuddy_console_pandatouch.yaml` |
-| Scale | `espoolbuddy_scale.yaml` |
+| Console — WT32-SC01 Plus | [`espoolbuddy_console.yaml`](../espoolbuddy_console.yaml) |
+| Console — Panda Touch | [`espoolbuddy_console_pandatouch.yaml`](../espoolbuddy_console_pandatouch.yaml) |
+| Scale | [`espoolbuddy_scale.yaml`](../espoolbuddy_scale.yaml) |
 
 ## 1. Get Bambuddy running first
 
@@ -28,15 +28,24 @@ It covers the CLI (`pip install esphome`), the desktop ESPHome Dashboard, and
 the Home Assistant Add-on, and stays accurate as ESPHome's install process
 evolves. Any of those work here; the commands below assume the CLI.
 
-## 3. Clone this repo and set up secrets
+## 3. Get your device's config file and set up secrets
+
+There's nothing to clone. Each entry-point YAML is self-contained — it pulls
+the C++ components, the shared UI packages and (on a console) the images from
+this repo over the network at build time. Your ESPHome config directory needs
+just two files: your device's YAML, and a `secrets.yaml` beside it.
+
+With the CLI, download the one file for your device:
 
 ```bash
-git clone https://github.com/CSchlipp/espoolbuddy.git
-cd espoolbuddy
-cp secrets.yaml.example secrets.yaml
+curl -O https://raw.githubusercontent.com/CSchlipp/espoolbuddy/main/<console file>
 ```
 
-Edit `secrets.yaml`:
+In the ESPHome Dashboard or the Home Assistant add-on, create a new device
+instead and replace the YAML it generates with the contents of the file
+linked in the table above.
+
+Then create `secrets.yaml` next to it:
 
 ```yaml
 wifi_ssid: "YourWiFiSSID"
@@ -52,6 +61,24 @@ api_encryption_key: "REPLACE_WITH_YOUR_OWN_KEY"      # generate: openssl rand -b
 One `secrets.yaml` is shared by every device — the scale just ignores
 `bambuddy_backend_url` / `bambuddy_api_key` since it never talks to Bambuddy
 directly.
+
+### Tracking `main` vs. pinning a release
+
+Out of the box a device builds against this repo's `main` branch, so every
+flash picks up the latest firmware. To hold one on a known-good release
+instead, change the single substitution at the top of its YAML:
+
+```yaml
+substitutions:
+  espoolbuddy_ref: v0.27.1   # instead of: main
+```
+
+That one value covers the components, the shared UI packages and the images
+alike — see [releases](https://github.com/CSchlipp/espoolbuddy/releases) for
+what's available.
+
+Planning to modify the firmware itself rather than just flash it? Clone the
+repo and see the [development guide](development.md) for the layout.
 
 ## 4. First flash (over USB)
 

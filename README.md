@@ -61,8 +61,9 @@ build).
    API key from its device settings.
 2. Pick a console above and open its page for the parts list, wiring, and
    case options.
-3. Follow the [setup & flashing guide](docs/setup.md) — install ESPHome,
-   fill in your WiFi/Bambuddy details, and flash it.
+3. Follow the [setup & flashing guide](docs/setup.md) — install ESPHome, grab
+   the one config file for your device, fill in your WiFi/Bambuddy details,
+   and flash it. No clone needed; the config pulls everything else itself.
 4. Optional: build a [Scale](docs/scale.md) too, for automatic spool
    weighing.
 
