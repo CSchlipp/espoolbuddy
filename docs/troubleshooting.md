@@ -74,7 +74,13 @@
   filter in `espoolbuddy_scale.yaml`.
 - **Config won't compile locally**: make sure you have a recent ESPHome
   (`pip install -U esphome`) — this project uses `mipi_spi`/LVGL features
-  from modern ESPHome releases.
+  from modern ESPHome releases. A build also has to reach GitHub, since the
+  entry-point YAML fetches the components, the shared UI packages and the
+  console's images from there. Everything it downloads is cached under
+  `.esphome/`, so once one build has succeeded later ones survive going
+  offline — a first build can't. `Could not download from
+  https://raw.githubusercontent.com/...` on a first build means no network,
+  or an `espoolbuddy_ref` pointing at a branch/tag that doesn't exist.
 - **Printer picker only shows some of my printers**: the printer-selection
   popup (Settings tab) is backed by a fixed 25 static LVGL widget slots, not
   a true dynamic list — ESPHome's LVGL YAML can't create widgets at runtime,

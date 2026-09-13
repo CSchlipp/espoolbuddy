@@ -25,6 +25,11 @@ same `bambuddy_api` component; several options only apply to one mode.
 | `bambuddy_nfc.miss_threshold` | Both | `3` | Missed reads before a "tag removed" event fires |
 | `bambuddy_api.clock_24h` | Console | `true` | Header clock format |
 
+The `espoolbuddy_ref` substitution at the very top of each file is a
+different kind of knob: it decides which version of this repo the build
+pulls its components, UI packages and images from — see
+[tracking `main` vs. pinning a release](setup.md#tracking-main-vs-pinning-a-release).
+
 The Panda Touch console omits `nfc_id` / `speaker_id` entirely rather than
 setting them — see its [known limitations](console-pandatouch.md#known-limitations)
 for what that changes.
