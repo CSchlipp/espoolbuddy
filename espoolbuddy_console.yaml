@@ -270,7 +270,7 @@ display:
     model: WT32-SC01-PLUS
     id: main_display
     spi_id: octal_spi
-    data_rate: 20MHz
+    data_rate: 40MHz
     reset_pin: GPIO4
     auto_clear_enabled: false
     update_interval: never

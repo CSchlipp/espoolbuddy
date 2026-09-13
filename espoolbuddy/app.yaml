@@ -1,8 +1,8 @@
 esphome:
-  # Remove (not just hide) Settings rows for hardware this device doesn't
-  # have, so the row below shifts up into the freed grid slot instead of
-  # leaving a gap. Runs at the same late priority as apply_tab (below) so
-  # the LVGL widgets already exist.
+  # Remove (not just hide) Settings rows and quick-settings tiles for hardware
+  # this device doesn't have, so the row below shifts up into the freed grid
+  # slot instead of leaving a gap. Runs at the same late priority as apply_tab
+  # (below) so the LVGL widgets already exist.
   on_boot:
     - priority: -100
       then:
@@ -11,6 +11,9 @@ esphome:
               lv_obj_del(id(row_sound_toggle));
               lv_obj_set_grid_cell(id(row_plateclear_toggle),
                   LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 0, 1);
+              // The quick-settings tiles row is a centred flex row, so removing
+              // the Sound tile just re-centres the Printer tile — no re-flow.
+              lv_obj_del(id(qs_tile_sound));
             }
             if (!bambuddy->has_nfc()) {
               lv_obj_del(id(row_nfc_sleep_toggle));
@@ -65,7 +68,6 @@ esphome:
           bambuddy->play_chime("stable:d=16,o=6,b=150:c,e,g");
         }
         prev_weight_stable = stable_now;
-
 
 # ============================================================================
 # Persistent globals
@@ -151,6 +153,14 @@ globals:
     type: bool
     restore_value: no
     initial_value: 'false'
+  - id: qs_height            # measured drawer height; -qs_height is fully hidden
+    type: int
+    restore_value: no
+    initial_value: '200'
+  - id: printer_count        # printers Bambuddy currently reports; drives the
+    type: int                # quick-settings Printer tile's tap-to-cycle
+    restore_value: no
+    initial_value: '0'
   - id: ams_rows_per_page    # AMS rows shown per page (Settings "Rows/Page" row).
     type: int                # Console: 1/2/3. Panda Touch (screen_height>=400): 1/2/3/5.
     restore_value: yes
@@ -201,6 +211,7 @@ script:
           lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(assign_id_modal), LV_OBJ_FLAG_HIDDEN);
+          id(qs_close).execute();
           id(confirm_action) = 0;
           // Sync the calibration reference weight label with the restored global
           char cal_buf[10];
@@ -223,6 +234,128 @@ script:
           lv_obj_add_flag(id(content_sleep), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(content_system), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(content_features), LV_OBJ_FLAG_HIDDEN);
+
+  # Quick Settings drawer. Its position is translate_y: 0 fully open, -qs_height
+  # fully hidden, animated between the two by the scripts below.
+  #
+  # qs_open / qs_dismiss are what the swipe triggers, the chevron handle and a
+  # tap on the dim scrim reach. qs_close is the immediate version, for the cases
+  # with nobody watching an animation: switching tabs and dropping into sleep.
+  #
+  # Durations scale with the distance left to travel, so reversing part-way
+  # through settles quickly instead of taking a full sweep's worth of time.
+  - id: qs_open
+    then:
+      - lambda: |-
+          if (!lv_obj_has_flag(id(quick_settings), LV_OBJ_FLAG_HIDDEN)) return;
+          // Anything already claiming the screen wins: a swipe over an open
+          // dialog must not pull the drawer over it, and the wake guard has to
+          // absorb the wake touch before gestures do anything. Keep in step
+          // with the blocker list in ams_page_step below.
+          lv_obj_t *blockers[] = {id(ams_modal_card), id(printer_modal), id(cal_modal),
+                                  id(confirm_modal), id(assign_id_modal), id(plate_clear_popup),
+                                  id(wake_guard), id(nfc_weight_popup),
+                                  id(nfc_archive_proposal_popup), id(nfc_picker_panel)};
+          for (auto *b : blockers)
+            if (!lv_obj_has_flag(b, LV_OBJ_FLAG_HIDDEN)) return;
+
+          // Park it off screen before revealing, so measuring the height can't
+          // flash the drawer at its open position for a frame. The height is
+          // SIZE_CONTENT, so it is measured rather than assumed.
+          lv_obj_set_style_translate_y(id(quick_settings), -400, LV_PART_MAIN);
+          lv_obj_clear_flag(id(qs_scrim), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_clear_flag(id(quick_settings), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_update_layout(id(quick_settings));
+          int h = lv_obj_get_height(id(quick_settings));
+          if (h > 0) id(qs_height) = h;
+          int cur = -id(qs_height);
+          lv_obj_set_style_translate_y(id(quick_settings), cur, LV_PART_MAIN);
+
+          // Slide speed: ms per pixel of travel, then clamped. Opening and
+          // closing each carry a fixed ~200-430 ms frame, where the band of
+          // AMS content the drawer covers or uncovers is composited in one
+          // go. That cost is paid once per sweep rather than spread over it,
+          // so the duration has to stay well clear of it: at ~450 ms almost
+          // the whole sweep is that single frame and no motion is visible.
+          uint32_t dur = (uint32_t) abs(0 - cur) * 52 / 10;
+          if (dur < 420) dur = 420;
+          if (dur > 1000) dur = 1000;
+          lv_anim_delete(id(quick_settings), nullptr);
+          lv_anim_t a;
+          lv_anim_init(&a);
+          lv_anim_set_var(&a, id(quick_settings));
+          lv_anim_set_exec_cb(&a, [](void *obj, int32_t v) {
+            lv_obj_set_style_translate_y((lv_obj_t *) obj, v, LV_PART_MAIN);
+          });
+          lv_anim_set_values(&a, cur, 0);
+          lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+          lv_anim_set_duration(&a, dur);
+          lv_anim_start(&a);
+
+  - id: qs_dismiss
+    then:
+      - lambda: |-
+          if (lv_obj_has_flag(id(quick_settings), LV_OBJ_FLAG_HIDDEN)) return;
+          int cur = lv_obj_get_style_translate_y(id(quick_settings), LV_PART_MAIN);
+          int target = -id(qs_height);
+          // Closing runs a little quicker than opening, same tuning as qs_open.
+          uint32_t dur = (uint32_t) abs(target - cur) * 44 / 10;
+          if (dur < 350) dur = 350;
+          if (dur > 850) dur = 850;
+          lv_anim_delete(id(quick_settings), nullptr);
+          lv_anim_t a;
+          lv_anim_init(&a);
+          lv_anim_set_var(&a, id(quick_settings));
+          lv_anim_set_exec_cb(&a, [](void *obj, int32_t v) {
+            lv_obj_set_style_translate_y((lv_obj_t *) obj, v, LV_PART_MAIN);
+          });
+          lv_anim_set_values(&a, cur, target);
+          lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+          lv_anim_set_duration(&a, dur);
+          // Only a run to completion hides the drawer. lv_anim_delete, which is
+          // how a re-open or qs_close cancels this, does not call it.
+          lv_anim_set_completed_cb(&a, [](lv_anim_t *anim) {
+            lv_obj_add_flag(id(quick_settings), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(qs_scrim), LV_OBJ_FLAG_HIDDEN);
+          });
+          lv_anim_start(&a);
+
+  - id: qs_close
+    then:
+      - lambda: |-
+          lv_anim_delete(id(quick_settings), nullptr);
+          lv_obj_add_flag(id(quick_settings), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(qs_scrim), LV_OBJ_FLAG_HIDDEN);
+
+  # AMS page change from a horizontal swipe (root obj triggers in lvgl.yaml).
+  # Mirrors the prev/next buttons rather than reimplementing pagination: it only
+  # writes ams_page, and the AMS interval lambda repaints from there, so a swipe
+  # lands exactly like a tap would. Their hidden/disabled state is also the
+  # authority on whether a step is possible at all — hidden means there is only
+  # one page, disabled means this is already the first or last one, and LVGL
+  # would not deliver a click to a disabled button either.
+  - id: ams_page_step
+    parameters:
+      delta: int
+    then:
+      - lambda: |-
+          if (id(active_tab) != 0) return;
+          // The active tab is not a proxy for which dialogs can be open: the
+          // quick-settings drawer opens over any tab and hands off to the
+          // printer picker from there, so a modal belonging to another tab can
+          // be on screen while this one is active. Keep in step with the
+          // blocker list in qs_open above.
+          lv_obj_t *blockers[] = {id(quick_settings), id(ams_modal_card), id(printer_modal),
+                                  id(cal_modal), id(confirm_modal), id(assign_id_modal),
+                                  id(plate_clear_popup), id(wake_guard)};
+          for (auto *b : blockers)
+            if (!lv_obj_has_flag(b, LV_OBJ_FLAG_HIDDEN)) return;
+          lv_obj_t *btn = delta > 0 ? id(ams_pg_next) : id(ams_pg_prev);
+          if (lv_obj_has_flag(btn, LV_OBJ_FLAG_HIDDEN)) return;
+          if (lv_obj_has_state(btn, LV_STATE_DISABLED)) return;
+          int p = id(ams_page) + delta;
+          if (p < 0) return;
+          id(ams_page) = p;
 
   # Highlight the active segment of the Settings "NFC in sleep" Off/Slow/On row
   # from the nfc_sleep_mode global. Called on boot/tab-switch (apply_tab) and tap.
@@ -256,6 +389,12 @@ script:
               on ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
           lv_obj_set_style_text_color(id(lbl_sound_on),
               on ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
+          // Quick-settings Sound tile — same global, so routing every caller
+          // through this script keeps the two controls showing the same state.
+          lv_label_set_text(id(qs_sound_icon), on ? "\U000F057E" : "\U000F0581");
+          lv_obj_set_style_text_color(id(qs_sound_icon),
+              on ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
+          lv_label_set_text(id(qs_sound_sub), on ? "On" : "Off");
 
   # Refresh the Settings "Confirm Plate Clear: Off/On" toggle from the
   # plate_clear_confirm_enabled global. Called on boot/tab-switch (apply_tab)
@@ -632,6 +771,7 @@ interval:
                 // Show the wake guard so the first touch only wakes (does not
                 // also press a button underneath).
                 lv_obj_clear_flag(id(wake_guard), LV_OBJ_FLAG_HIDDEN);
+                id(qs_close).execute();
                 id(display_backlight).turn_on().set_brightness(0.0f).set_transition_length(800).perform();
                 // Defer WiFi-off + PM configure by 300 ms so the power_state
                 // "Sleep" publish (below) has time to flush to HA over TCP first.
@@ -1933,6 +2073,26 @@ interval:
             } else {
               lv_label_set_text(id(lbl_printer_sel), np > 0 ? "Select printer" : "No printers");
               lv_obj_set_style_text_color(id(lbl_printer_sel_icon), lv_color_hex(0x666688), LV_PART_MAIN);
+            }
+            // Quick-settings Printer tile. It lives here, in the block that
+            // runs every tick, rather than inside the AMS dirty-check above:
+            // widgets that depend on the printer list go stale there unless
+            // their inputs are part of the signature. printer_count is what the
+            // tile's tap-to-cycle reads, so the tap needs no state snapshot.
+            id(printer_count) = np;
+            if (np > 0 && sel >= 0 && sel < np) {
+              char qs_buf[40];
+              if (np > 1)
+                snprintf(qs_buf, sizeof(qs_buf), "%s (%d/%d)", s.printers[sel].name.c_str(), sel + 1, np);
+              else
+                snprintf(qs_buf, sizeof(qs_buf), "%s", s.printers[sel].name.c_str());
+              lv_label_set_text(id(qs_printer_sub), qs_buf);
+              lv_obj_set_style_text_color(id(qs_printer_icon),
+                  s.printer_connected ? lv_color_hex(0x4CAF50) : lv_color_hex(0xF44336),
+                  LV_PART_MAIN);
+            } else {
+              lv_label_set_text(id(qs_printer_sub), "No printers");
+              lv_obj_set_style_text_color(id(qs_printer_icon), lv_color_hex(0x666688), LV_PART_MAIN);
             }
           }
 

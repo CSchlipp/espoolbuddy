@@ -1953,6 +1953,10 @@ obj:
               layout: {type: flex, flex_flow: row, flex_align_cross: center}
               widgets:
                 - button:
+                    # A horizontal swipe anywhere on the tab does the same
+                    # thing (root obj triggers in lvgl.yaml -> ams_page_step),
+                    # and reads this button's hidden/disabled state to decide
+                    # whether the step is allowed.
                     id: ams_pg_prev
                     width: 68
                     height: 26
