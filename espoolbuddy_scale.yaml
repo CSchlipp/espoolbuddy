@@ -250,7 +250,7 @@ light:
     pin: GPIO48
     num_leds: 1
     chipset: WS2812
-    rgb_order: GRB
+    channel_colors: GRB
     restore_mode: ALWAYS_OFF
 
 interval:
