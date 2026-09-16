@@ -456,6 +456,21 @@ void BambuddyAPIComponent::http_task_loop() {
         case HttpJob::CLEAR_PLATE:
           api_clear_plate(job.s1);
           break;
+        case HttpJob::FETCH_LOCATIONS:
+          api_get_locations();
+          break;
+        case HttpJob::LINK_LOCATION_TAG:
+          api_link_location_tag(job.i1, job.s1);
+          break;
+        case HttpJob::LINK_LOCATION_TAG_CHECKED:
+          api_link_location_tag_checked(job.i1, job.s1);
+          break;
+        case HttpJob::UNLINK_LOCATION_TAG:
+          api_link_location_tag(job.i1, "");
+          break;
+        case HttpJob::SET_SPOOL_LOCATION:
+          api_set_spool_location(job.i1, job.i2);
+          break;
         case HttpJob::SCALE_PUSH_NFC_SCANNED:
         case HttpJob::SCALE_PUSH_NFC_REMOVED:
           // Scale-mode-only job kinds — never enqueued here since the
@@ -532,6 +547,7 @@ void BambuddyAPIComponent::http_task_loop() {
       last_ams_fast_poll_ms_ = now;  // full poll resets the fast-poll clock too
       api_get_printers();
       api_get_ams();
+      if (!spoolman_mode()) request_storage_locations();
       {
         lock_state();
         std::string pid = display_state_.selected_printer_id;
@@ -632,6 +648,85 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
                                            const BambuTagInfo *bambu) {
   ESP_LOGI(TAG, "Tag scanned: uid=%s tray_uuid=%s sak=0x%02X type=%s",
            uid.c_str(), tray_uuid.c_str(), sak, tag_type.c_str());
+
+  // Every physical scan gets the "tag scanned" chime, spool or storage
+  // location alike — bumped unconditionally, ahead of both branches below.
+  lock_state();
+  display_state_.scan_chime_generation++;
+  unlock_state();
+
+  // ---- Storage-location tag handling (local-DB mode only) ----
+  // Checked first, before any of the spool-scan state below is touched, so a
+  // location-tag scan never disturbs whatever spool/panel the NFC tab is
+  // currently showing.
+  if (!spoolman_mode()) {
+    int link_pending_id = 0;
+    lock_state();
+    link_pending_id = display_state_.location_link_pending_id;
+    unlock_state();
+    if (link_pending_id > 0) {
+      // "Scan to Link" mode, armed from the Storage Locations screen: this
+      // scan claims the tag for that location instead of resolving a spool.
+      // Guard against the same tag ending up linked to two locations at
+      // once (which would make a later scan of it ambiguous) — refuse and
+      // tell the user which other location already owns it, rather than
+      // silently overwriting the link there client-side while the backend
+      // still has that location's identifier pointing at the same tag.
+      std::string conflict_name = find_conflicting_location(uid, link_pending_id);
+      lock_state();
+      display_state_.location_link_pending_id = 0;
+      if (!conflict_name.empty()) {
+        display_state_.location_link_conflict_msg =
+            "This tag is already linked to \"" + conflict_name +
+            "\". Unlink it there before linking it here.";
+      }
+      unlock_state();
+      if (!conflict_name.empty()) return;
+      // LINK_LOCATION_TAG_CHECKED (rather than a plain LINK_LOCATION_TAG)
+      // first looks the uid up in the spool inventory — it must not become
+      // a location's identifier while it's already a spool's tag, same
+      // symmetry as the reverse direction (link_tag_to_spool() below checks
+      // storage_locations before linking a tag to a spool).
+      HttpJob job;
+      job.kind = HttpJob::LINK_LOCATION_TAG_CHECKED;
+      job.i1   = link_pending_id;
+      job.s1   = uid;
+      enqueue_job(job);
+      return;
+    }
+
+    StorageLocation matched;
+    bool found = false;
+    lock_state();
+    for (const auto &loc : display_state_.storage_locations) {
+      if (!loc.identifier.empty() && loc.identifier == uid) {
+        matched = loc;
+        found = true;
+        break;
+      }
+    }
+    unlock_state();
+    if (found) {
+      int staged_spool_id = 0;
+      lock_state();
+      if (display_state_.spool_selected && display_state_.current_filament.spool_id > 0)
+        staged_spool_id = display_state_.current_filament.spool_id;
+      unlock_state();
+      if (staged_spool_id > 0) {
+        // A spool is staged (scanned, or ejected from an AMS slot) — assign
+        // it to this location without disturbing its staged/TTL state.
+        HttpJob job;
+        job.kind = HttpJob::SET_SPOOL_LOCATION;
+        job.i1   = staged_spool_id;
+        job.i2   = matched.id;
+        enqueue_job(job);
+        set_status("Assigned to " + matched.name);
+      } else {
+        set_status("Location tag: " + matched.name);
+      }
+      return;
+    }
+  }
 
   // Immediate (non-blocking) UI feedback under the state lock.
   // tag_format is seeded here for BambuLab (Mifare Classic) where SAK is
@@ -1304,6 +1399,10 @@ void BambuddyAPIComponent::api_get_spool(int spool_id, bool check_empty) {
   float core_w    = parse_json_float(resp, "core_weight", 0.0f);
   float tmin      = parse_json_float(resp, "nozzle_temp_min", 0.0f);
   float tmax      = parse_json_float(resp, "nozzle_temp_max", 0.0f);
+  // Storage location is a local-DB-only concept (see spoolman_mode()) — skip
+  // parsing it at all on the spoolman branch, consistent with disabling the
+  // whole feature there.
+  std::string storage_loc = spoolman_inventory_ ? "" : parse_json_string(resp, "storage_location");
 
   lock_state();
   // Only merge into the still-selected spool (guard against a race where the
@@ -1315,6 +1414,7 @@ void BambuddyAPIComponent::api_get_spool(int spool_id, bool check_empty) {
     fi.subtype    = subtype;
     fi.color_name = color_name;
     fi.brand      = brand;
+    if (!spoolman_inventory_) fi.storage_location = storage_loc;
     if (rgba.size() >= 6)    fi.color_hex = rgba.substr(0, 6);
     if (label_w > 0)         fi.label_weight_g = label_w;
     fi.weight_used_g = used_w;
@@ -2145,6 +2245,11 @@ void BambuddyAPIComponent::api_get_ams() {
               display_state_.assign_slot_desc = std::string(desc);
               unlock_state();
               assign_clear_ms_ = millis() + 4000;  // clear NFC page after 4 s
+              // Bambuddy does not clear a spool's storage location on its own
+              // when it's loaded back into an AMS — do it here if the user
+              // opted in via the "Clear Location on AMS Load" setting.
+              if (!spoolman_mode() && clear_location_on_ams_load_)
+                api_set_spool_location(pending_id, 0);
             }
           }
         }
@@ -3711,6 +3816,125 @@ void BambuddyAPIComponent::api_get_recent_spools() {
   finish(std::move(top));
 }
 
+// ---------------------------------------------------------------------------
+// Storage locations — local-DB mode only (no Spoolman endpoint exists for
+// these). Locations are few (one per shelf/bin), so unlike the spool list
+// above this fetches and parses the whole response in one shot via the same
+// json_array_objects() helper used for the (similarly small) printer list.
+// ---------------------------------------------------------------------------
+
+void BambuddyAPIComponent::api_get_locations() {
+  std::string resp;
+  if (!http_get_api("/inventory/locations", resp)) {
+    ESP_LOGW(TAG, "api_get_locations: GET failed");
+    lock_state();
+    display_state_.storage_locations_loading = false;
+    unlock_state();
+    return;
+  }
+  std::vector<StorageLocation> locations;
+  for (const auto &obj : json_array_objects(resp)) {
+    StorageLocation loc;
+    loc.id          = parse_json_int(obj, "id", 0);
+    if (loc.id <= 0) continue;
+    loc.name        = parse_json_string(obj, "name");
+    loc.identifier  = parse_json_string(obj, "identifier");
+    loc.spool_count = parse_json_int(obj, "spool_count", 0);
+    locations.push_back(std::move(loc));
+  }
+  ESP_LOGI(TAG, "api_get_locations: %d location(s)", (int)locations.size());
+  lock_state();
+  display_state_.storage_locations = std::move(locations);
+  display_state_.storage_locations_loading = false;
+  display_state_.storage_locations_generation++;
+  unlock_state();
+}
+
+std::string BambuddyAPIComponent::find_conflicting_location(const std::string &uid,
+                                                              int exclude_location_id) {
+  std::string name;
+  lock_state();
+  for (const auto &loc : display_state_.storage_locations) {
+    if (loc.id == exclude_location_id) continue;
+    if (!loc.identifier.empty() && loc.identifier == uid) { name = loc.name; break; }
+  }
+  unlock_state();
+  return name;
+}
+
+void BambuddyAPIComponent::api_link_location_tag(int location_id, const std::string &uid) {
+  std::ostringstream js;
+  js << "{\"identifier\":" << json_string(uid) << "}";
+  char path[48];
+  snprintf(path, sizeof(path), "/inventory/locations/%d", location_id);
+  std::string resp;
+  bool ok = http_patch_api(path, js.str(), resp);
+  if (!ok) {
+    ESP_LOGW(TAG, "api_link_location_tag %d %s: failed", location_id,
+             uid.empty() ? "unlink" : "link");
+    set_status(uid.empty() ? "Unlink failed" : "Location link failed");
+    return;
+  }
+  set_status(uid.empty() ? "Location unlinked" : "Location linked");
+  // Refresh the cache so the Settings list and the scan-time identifier
+  // lookup both see the change immediately.
+  api_get_locations();
+}
+
+void BambuddyAPIComponent::api_link_location_tag_checked(int location_id, const std::string &uid) {
+  // GET /inventory/spools/by-tag is a plain read-only inventory lookup — no
+  // scan-report side effect on the backend, unlike POST /nfc/tag-scanned —
+  // so it's safe to use purely as a "does a spool already own this tag?"
+  // check ahead of the location PATCH.
+  std::string resp;
+  bool found = http_get_api("/inventory/spools/by-tag?tag_uid=" + uid, resp);
+  if (found) {
+    std::string material   = parse_json_string(resp, "material");
+    std::string color_name = parse_json_string(resp, "color_name");
+    int spool_id = parse_json_int(resp, "id", 0);
+    std::string label = material;
+    if (!label.empty() && !color_name.empty()) label += " " + color_name;
+    if (label.empty() && spool_id > 0) label = "spool #" + std::to_string(spool_id);
+    if (label.empty()) label = "a spool";
+    ESP_LOGW(TAG, "api_link_location_tag_checked: uid already belongs to %s — refusing "
+             "to link location %d", label.c_str(), location_id);
+    lock_state();
+    display_state_.location_link_conflict_msg =
+        "This tag is already linked to " + label + ". Unlink it there before linking it to a location.";
+    unlock_state();
+    return;
+  }
+  // Not found (404 = no spool owns this tag) or the lookup itself failed
+  // (e.g. a network blip) both return false here — proceed with the link in
+  // either case rather than blocking on an inconclusive check. This is the
+  // same "best effort against a possibly-stale/unreachable check" tradeoff
+  // the location<->location guard above already accepts.
+  api_link_location_tag(location_id, uid);
+}
+
+void BambuddyAPIComponent::api_set_spool_location(int spool_id, int location_id) {
+  std::ostringstream js;
+  js << "{\"location_id\":";
+  if (location_id > 0) js << location_id; else js << "null";
+  js << "}";
+  char path[48];
+  snprintf(path, sizeof(path), "/inventory/spools/%d", spool_id);
+  std::string resp;
+  if (!http_patch_api(path, js.str(), resp)) {
+    ESP_LOGW(TAG, "api_set_spool_location spool %d -> location %d: failed",
+             spool_id, location_id);
+    set_status("Location update failed");
+    return;
+  }
+  // Refresh the displayed spool's storage_location badge if it's still the
+  // one currently shown.
+  lock_state();
+  bool showing = display_state_.spool_selected &&
+                 display_state_.current_filament.spool_id == spool_id;
+  unlock_state();
+  if (showing) api_get_spool(spool_id);
+}
+
 void BambuddyAPIComponent::record_scale_weight(int spool_id, float total_grams) {
   if (spool_id <= 0) {
     ESP_LOGW(TAG, "record_scale_weight: invalid spool_id %d", spool_id);
@@ -3950,6 +4174,43 @@ void BambuddyAPIComponent::request_recent_spools() {
   enqueue_job(job);
 }
 
+void BambuddyAPIComponent::request_storage_locations() {
+  if (spoolman_mode()) return;
+  lock_state();
+  display_state_.storage_locations_loading = true;
+  unlock_state();
+  HttpJob job;
+  job.kind = HttpJob::FETCH_LOCATIONS;
+  enqueue_job(job);
+}
+
+void BambuddyAPIComponent::begin_link_location_tag(int location_id) {
+  if (spoolman_mode() || location_id <= 0) return;
+  lock_state();
+  display_state_.location_link_pending_id = location_id;
+  display_state_.location_link_conflict_msg.clear();
+  display_state_.status_message = "Present the tag now...";
+  unlock_state();
+}
+
+void BambuddyAPIComponent::cancel_link_location_tag() {
+  lock_state();
+  if (display_state_.location_link_pending_id > 0) {
+    display_state_.location_link_pending_id = 0;
+    display_state_.status_message = "Link cancelled";
+  }
+  display_state_.location_link_conflict_msg.clear();
+  unlock_state();
+}
+
+void BambuddyAPIComponent::unlink_location_tag(int location_id) {
+  if (spoolman_mode() || location_id <= 0) return;
+  HttpJob job;
+  job.kind = HttpJob::UNLINK_LOCATION_TAG;
+  job.i1   = location_id;
+  enqueue_job(job);
+}
+
 void BambuddyAPIComponent::link_tag_to_spool(int spool_id) {
   std::string uid, tray_uuid, tag_type;
   lock_state();
@@ -3957,6 +4218,21 @@ void BambuddyAPIComponent::link_tag_to_spool(int spool_id) {
   tray_uuid  = display_state_.current_filament.tray_uuid;
   tag_type   = display_state_.current_filament.tag_type;
   unlock_state();
+  // Defensive backstop: on_tag_scanned() already routes a tag matching a
+  // known storage-location identifier away from the unlinked-tag panel
+  // entirely (this button wouldn't normally be reachable for one), but the
+  // local storage_locations cache can be briefly stale (refreshed on a
+  // poll cadence, not pushed) — e.g. right after the tag was linked to a
+  // location from Bambuddy's own UI. Re-check here rather than trust that.
+  if (!spoolman_mode()) {
+    std::string conflict_name = find_conflicting_location(uid);
+    if (!conflict_name.empty()) {
+      ESP_LOGW(TAG, "link_tag_to_spool: uid already linked to location \"%s\" — refusing",
+               conflict_name.c_str());
+      set_status("Tag already linked to location \"" + conflict_name + "\"");
+      return;
+    }
+  }
   HttpJob job;
   job.kind = HttpJob::LINK_TAG_TO_SPOOL;
   job.i1   = spool_id;
@@ -3980,6 +4256,24 @@ void BambuddyAPIComponent::unlink_current_tag() {
 }
 
 void BambuddyAPIComponent::create_spool_from_tag() {
+  // Defensive backstop, same reasoning as link_tag_to_spool(): a tag
+  // matching a known storage-location identifier shouldn't normally reach
+  // this button at all (on_tag_scanned() routes it away entirely), but the
+  // local cache can be briefly stale. Checked ahead of the one-shot
+  // create-issued bookkeeping below so a refusal doesn't consume it.
+  if (!spoolman_mode()) {
+    std::string uid_check;
+    lock_state();
+    uid_check = display_state_.last_tag_uid;
+    unlock_state();
+    std::string conflict_name = find_conflicting_location(uid_check);
+    if (!conflict_name.empty()) {
+      ESP_LOGW(TAG, "create_spool_from_tag: uid already linked to location \"%s\" — refusing",
+               conflict_name.c_str());
+      set_status("Tag already linked to location \"" + conflict_name + "\"");
+      return;
+    }
+  }
   std::string uid, tray_uuid;
   BambuTagInfo bambu;
   lock_state();

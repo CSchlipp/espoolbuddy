@@ -52,19 +52,64 @@ obj:
                 flex_align_cross: center
                 pad_row: 4
               widgets:
-                # ---- Spool icon — 3 recolourable layers ----
+                # ---- Spool icon + storage-location badge ----
+                # Free-positioned (no flex) so the icon can stay pinned dead
+                # center via align:CENTER regardless of whether the badge is
+                # showing — a flex row would recenter the *pair* as a block,
+                # shifting the icon sideways whenever the badge appears. The
+                # badge instead hangs off an x-offset from that same center,
+                # so it never moves the icon and reserves no layout space of
+                # its own (this obj is width:100%, matching the other rows,
+                # so it adds no height to the hero group either).
                 - obj:
-                    id: nfc_swatch
-                    width: 80
+                    id: nfc_icon_row
+                    width: 100%
                     height: 80
                     bg_opa: TRANSP
                     border_width: 0
                     pad_all: 0
                     scrollbar_mode: "OFF"
                     widgets:
-                      - image: {id: nfc_spool_fill, src: img_spool_fill_lg, align: CENTER, image_recolor: 0x6666AA, image_recolor_opa: COVER}
-                      - obj: {id: nfc_spool_hub, align: CENTER, width: 30, height: 30, radius: 15, bg_color: 0x12121A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF"}
-                      - image: {id: nfc_spool_shine, src: img_spool_shine_lg, align: CENTER}
+                      # ---- Spool icon — 3 recolourable layers ----
+                      - obj:
+                          id: nfc_swatch
+                          width: 80
+                          height: 80
+                          align: CENTER
+                          bg_opa: TRANSP
+                          border_width: 0
+                          pad_all: 0
+                          scrollbar_mode: "OFF"
+                          widgets:
+                            - image: {id: nfc_spool_fill, src: img_spool_fill_lg, align: CENTER, image_recolor: 0x6666AA, image_recolor_opa: COVER}
+                            - obj: {id: nfc_spool_hub, align: CENTER, width: 30, height: 30, radius: 15, bg_color: 0x12121A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF"}
+                            - image: {id: nfc_spool_shine, src: img_spool_shine_lg, align: CENTER}
+                      # ---- Storage location badge — shown only when the spool
+                      # has one assigned (fi.storage_location non-empty); hidden
+                      # entirely in spoolman mode, where the field is never
+                      # populated. Uses sty_location_badge (lvgl.yaml) — see
+                      # that style's comment. Anchored off the icon's own
+                      # center point (x: 56 = half the icon's 80px width plus
+                      # an 16px gap) rather than the icon's edge, so it stays
+                      # put even if the icon's own width ever changes. ----
+                      - obj:
+                          id: nfc_location_badge
+                          styles: sty_location_badge
+                          width: SIZE_CONTENT
+                          height: 22
+                          align: CENTER
+                          x: 56
+                          pad_left: 8
+                          pad_right: 8
+                          scrollbar_mode: "OFF"
+                          hidden: true
+                          widgets:
+                            - label:
+                                id: nfc_location_text
+                                text: ""
+                                text_font: roboto_12
+                                text_color: 0x5B2C87
+                                align: CENTER
                 # ---- Material name — large ----
                 - label:
                     id: nfc_material

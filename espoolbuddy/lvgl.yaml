@@ -69,6 +69,18 @@ lvgl:
       border_width: 1
       text_color: 0x7BB4FF
       radius: 6
+    # Storage-location badge — dark purple bg/border/text, matching Bambuddy's
+    # own UI convention for a linked location. First purple accent in the app.
+    # Used both by the static badge on the NFC spool-detail view (tab_nfc.yaml)
+    # and by the dynamically-built rows on the Storage Locations settings
+    # screen (render_storage_locations script, app.yaml), so both draw from
+    # one definition.
+    - id: sty_location_badge
+      bg_color: 0xE4D4F7
+      border_color: 0x5B2C87
+      border_width: 1
+      text_color: 0x5B2C87
+      radius: 6
 
   pages:
     - id: main_page
@@ -482,6 +494,30 @@ lvgl:
                                                     - lambda: 'lv_obj_clear_flag(id(content_features), LV_OBJ_FLAG_HIDDEN);'
                                                 widgets:
                                                   - label: {flex_grow: 1, text: "Features", text_font: roboto_16, pad_top: 4, text_color: 0xDDDDEE}
+                                                  - label: {text: "\U000F0142", text_font: mdi_24, pad_top: 6, text_color: 0x7B9EFF}
+                                            # Storage Locations — deleted at boot in spoolman mode
+                                            # (see the on_boot lambda in app.yaml), since Bambuddy
+                                            # has no Spoolman-backed locations endpoint.
+                                            - button:
+                                                id: btn_storage_page
+                                                grid_cell_row_pos: 2
+                                                grid_cell_column_pos: 0
+                                                styles: sty_card
+                                                scrollbar_mode: "OFF"
+                                                layout:
+                                                  type: flex
+                                                  flex_flow: row
+                                                  flex_align_cross: center
+                                                  flex_align_track: center
+                                                pad_left: 16
+                                                pad_right: 16
+                                                on_click:
+                                                  then:
+                                                    - lambda: |-
+                                                        lv_obj_clear_flag(id(content_storage), LV_OBJ_FLAG_HIDDEN);
+                                                        bambuddy->request_storage_locations();
+                                                widgets:
+                                                  - label: {flex_grow: 1, text: "Storage Locations", text_font: roboto_16, pad_top: 4, text_color: 0xDDDDEE}
                                                   - label: {text: "\U000F0142", text_font: mdi_24, pad_top: 6, text_color: 0x7B9EFF}
 
                                 # ---- App version (bottom-left; text set in apply_tab from
@@ -930,6 +966,63 @@ lvgl:
                                                       widgets:
                                                         - label: {id: lbl_plateclear_on, text: "On", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
 
+                                            # ---- Row: Clear Location on AMS Load (Off | On segments) ----
+                                            # Deleted at boot in spoolman mode (see app.yaml on_boot) —
+                                            # storage locations don't exist there.
+                                            - obj:
+                                                id: row_clearloc_toggle
+                                                grid_cell_row_pos: 3
+                                                grid_cell_column_pos: 0
+                                                bg_opa: TRANSP
+                                                border_width: 0
+                                                pad_left: 14
+                                                pad_top: 0
+                                                pad_bottom: 0
+                                                pad_right: 10
+                                                scrollbar_mode: "OFF"
+                                                layout:
+                                                  type: flex
+                                                  flex_flow: row
+                                                  flex_align_cross: center
+                                                  flex_align_track: center
+                                                  pad_column: 8
+                                                widgets:
+                                                  - label:
+                                                      width: 130
+                                                      text: "Clear Location on AMS Load"
+                                                      text_font: roboto_16
+                                                      long_mode: DOT
+                                                      pad_top: 4
+                                                      text_color: 0xAAAAAA
+                                                  - button:
+                                                      id: btn_clearloc_off
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - lambda: |-
+                                                              id(clear_location_on_ams_load) = 0;
+                                                              bambuddy->set_clear_location_on_ams_load(false);
+                                                          - script.execute: update_clearloc_btn
+                                                      widgets:
+                                                        - label: {id: lbl_clearloc_off, text: "Off", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+                                                  - button:
+                                                      id: btn_clearloc_on
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - lambda: |-
+                                                              id(clear_location_on_ams_load) = 1;
+                                                              bambuddy->set_clear_location_on_ams_load(true);
+                                                          - script.execute: update_clearloc_btn
+                                                      widgets:
+                                                        - label: {id: lbl_clearloc_on, text: "On", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+
                                             # ---- Row: AMS rows per screen (1 | 2 | 3 | 5 segments;
                                             #      "5" hidden on Console, screen_height < 400) ----
                                             - obj:
@@ -1257,6 +1350,87 @@ lvgl:
                                                           - script.execute: update_wifi_sleep_btn
                                                       widgets:
                                                         - label: {id: lbl_wifi_off, text: "Off", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+
+                                # ---- Storage Locations subpage (overlays full content_cfg
+                                #      area, same pattern as content_system/content_features/
+                                #      content_sleep). Local-DB mode only — the whole subpage
+                                #      is unreachable when spoolman_mode() (its opening button
+                                #      on the Settings menu is deleted at boot). Rows are built
+                                #      dynamically in C++ (render_storage_locations script)
+                                #      rather than hand-unrolled here, since the location count
+                                #      isn't knowable at YAML-authoring time — see that script
+                                #      for the rendering code. ----
+                                - obj:
+                                    id: content_storage
+                                    width: 100%
+                                    height: 100%
+                                    bg_color: 0x12121A
+                                    bg_opa: COVER
+                                    border_width: 0
+                                    radius: 0
+                                    pad_all: 0
+                                    scrollbar_mode: "OFF"
+                                    hidden: true
+                                    layout:
+                                      type: flex
+                                      flex_flow: column
+                                      pad_row: 6
+                                    widgets:
+                                      # Header with back button
+                                      - obj:
+                                          width: 100%
+                                          height: 28
+                                          styles: sty_bar
+                                          scrollbar_mode: "OFF"
+                                          widgets:
+                                            - button:
+                                                width: 40
+                                                height: 28
+                                                bg_opa: TRANSP
+                                                border_width: 0
+                                                radius: 0
+                                                pad_all: 0
+                                                scrollbar_mode: "OFF"
+                                                on_click:
+                                                  then:
+                                                    - lambda: 'lv_obj_add_flag(id(content_storage), LV_OBJ_FLAG_HIDDEN);'
+                                                widgets:
+                                                  - label: {text: "\U000F0141", text_font: mdi_24, text_color: 0x7B9EFF, align: CENTER}
+                                            - label:
+                                                width: 100%
+                                                text: "Storage Locations"
+                                                text_font: roboto_20
+                                                pad_top: 5
+                                                text_color: 0x7B9EFF
+                                                text_align: CENTER
+                                                align: CENTER
+                                      # Separator
+                                      - obj:
+                                          width: 100%
+                                          height: 1
+                                          bg_color: 0x454572
+                                          bg_opa: COVER
+                                          border_width: 0
+                                          radius: 0
+                                          scrollbar_mode: "OFF"
+
+                                      # Rows built/torn down at runtime by render_storage_locations
+                                      # (app.yaml) — see that script. Empty here by design.
+                                      - obj:
+                                          id: content_storage_rows
+                                          width: 100%
+                                          flex_grow: 1
+                                          bg_opa: TRANSP
+                                          border_width: 0
+                                          pad_all: 0
+                                          pad_left: 8
+                                          pad_right: 8
+                                          scrollbar_mode: "AUTO"
+                                          layout:
+                                            type: flex
+                                            flex_flow: column
+                                            pad_row: 6
+                                          widgets: []
 
                     # ---------------- BOTTOM NAV ----------------
                     - obj:
@@ -2342,8 +2516,10 @@ lvgl:
               # ================ CONFIRM MODAL ================================
               # Reusable confirmation for destructive actions. confirm_action
               # (global) selects what runs on confirm: 1=unlink tag, 2=clear
-              # assignment. Declared before the wake guard so it overlays the AMS
-              # detail modal (clear assignment is triggered from inside it).
+              # assignment, 3=reboot, 4=unlink storage location (target id in
+              # confirm_location_id). Declared before the wake guard so it
+              # overlays the AMS detail modal (clear assignment is triggered
+              # from inside it).
               - obj:
                   id: confirm_modal
                   width: 85%
@@ -2434,6 +2610,8 @@ lvgl:
                                         lv_obj_add_flag(id(ams_modal_card), LV_OBJ_FLAG_HIDDEN);
                                       } else if (a == 3) {
                                         id(restart_button).press();  // reboot the console
+                                      } else if (a == 4) {
+                                        bambuddy->unlink_location_tag(id(confirm_location_id));
                                       }
                               widgets:
                                 - label: {id: confirm_ok_lbl, text: "Confirm", text_font: roboto_16, text_color: 0xFF8888, align: CENTER}
@@ -2609,6 +2787,77 @@ lvgl:
                                   - lambda: "lv_obj_add_flag(id(assign_id_modal), LV_OBJ_FLAG_HIDDEN);"
                               widgets:
                                 - label: {text: "Cancel", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
+
+              # ================ LOCATION LINK MODAL ===========================
+              # Shown while "link mode" is armed (Storage Locations screen's
+              # "Scan to Link" button — bambuddy->begin_link_location_tag()).
+              # Visibility just mirrors display_state_.location_link_pending_id
+              # > 0 every tick (interval lambda, app.yaml) rather than being
+              # driven by a click, since the thing that closes it — a tag
+              # actually being scanned — happens on the NFC task, not here.
+              # A status-bar message alone was too easy to miss (hence this
+              # modal instead); Cancel calls cancel_link_location_tag() so
+              # the console stops waiting for a scan.
+              - obj:
+                  id: location_link_modal
+                  width: 85%
+                  height: SIZE_CONTENT
+                  align: CENTER
+                  bg_color: 0x1A1A2C
+                  bg_opa: COVER
+                  border_color: 0x8585B8
+                  border_width: 2
+                  border_opa: COVER
+                  radius: 12
+                  pad_left: 16
+                  pad_right: 16
+                  pad_top: 16
+                  pad_bottom: 16
+                  scrollbar_mode: "OFF"
+                  scrollable: false
+                  shadow_width: 16
+                  shadow_offset_x: 0
+                  shadow_offset_y: 6
+                  shadow_spread: 2
+                  shadow_color: 0x000000
+                  shadow_opa: COVER
+                  hidden: true
+                  layout:
+                    type: flex
+                    flex_flow: column
+                    pad_row: 12
+                  widgets:
+                    - label:
+                        id: location_link_title
+                        text: "Waiting for tag..."
+                        text_font: roboto_20
+                        text_color: 0x7BB4FF
+                    - label:
+                        id: location_link_msg
+                        width: 100%
+                        text: ""
+                        text_font: roboto_16
+                        text_color: 0xDDDDEE
+                        long_mode: WRAP
+                    - button:
+                        id: location_link_cancel_btn
+                        width: 100%
+                        height: 40
+                        bg_color: 0x1E2040
+                        border_color: 0x8585B8
+                        border_width: 2
+                        radius: 6
+                        scrollbar_mode: "OFF"
+                        on_click:
+                          then:
+                            - lambda: |-
+                                bambuddy->cancel_link_location_tag();
+                                lv_obj_add_flag(id(location_link_modal), LV_OBJ_FLAG_HIDDEN);
+                        widgets:
+                          # "Dismiss" rather than "Cancel" — this button also
+                          # doubles as the acknowledge button for the "tag
+                          # already linked elsewhere" conflict message above.
+                          - label: {text: "Dismiss", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
 
               # ================ PLATE CLEAR POPUP =============================
               # Almost-full-screen confirmation shown when the backend reports

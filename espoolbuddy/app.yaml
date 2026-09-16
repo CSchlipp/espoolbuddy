@@ -28,6 +28,19 @@ esphome:
               if (id(ams_rows_per_page) > ams_rows_max) id(ams_rows_per_page) = ams_rows_max;
               if (id(ams_rows_per_page) < 1) id(ams_rows_per_page) = 1;
             }
+            // Storage locations are a Bambuddy-local-DB-only concept — hide
+            // every piece of that UI when configured for Spoolman inventory.
+            // The clear-location toggle is the grid's last row, so removing
+            // it needs no re-stretch of anything below it.
+            if (bambuddy->spoolman_mode()) {
+              lv_obj_del(id(row_clearloc_toggle));
+              lv_obj_del(id(btn_storage_page));
+            } else {
+              // Push the value restored from flash into the C++ component —
+              // it can't read ESPHome globals itself (id() is lambda-only),
+              // so this is the only place that mirrors it at startup.
+              bambuddy->set_clear_location_on_ams_load(id(clear_location_on_ams_load));
+            }
   # Weight-tab display + stable chime, run every main-loop iteration instead
   # of the 400 ms interval below. console_http_scale_weight() (bambuddy_api)
   # writes a landed scale push into display_state_ immediately from the HTTP
@@ -93,7 +106,11 @@ globals:
     type: int
     restore_value: no
     initial_value: '-1'
-  - id: confirm_action       # pending action for confirm_modal: 0=none 1=unlink tag 2=clear assignment
+  - id: confirm_action       # pending action for confirm_modal: 0=none 1=unlink tag
+    type: int                # 2=clear assignment 3=reboot 4=unlink storage location
+    restore_value: no
+    initial_value: '0'
+  - id: confirm_location_id  # storage location id targeted by confirm_action=4
     type: int
     restore_value: no
     initial_value: '0'
@@ -165,6 +182,10 @@ globals:
     type: int                # Console: 1/2/3. Panda Touch (screen_height>=400): 1/2/3/5.
     restore_value: yes
     initial_value: '${screen_height} >= 400 ? 5 : 3'   # defaults to today's visual density
+  - id: clear_location_on_ams_load  # 1 = clear a spool's storage location when it's
+    type: int                       # loaded into an AMS slot, 0 = leave it as-is
+    restore_value: yes              # (Bambuddy itself does not clear it automatically)
+    initial_value: '1'
 
 
 # ============================================================================
@@ -211,6 +232,8 @@ script:
           lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(assign_id_modal), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(location_link_modal), LV_OBJ_FLAG_HIDDEN);
+          if (!bambuddy->spoolman_mode()) bambuddy->cancel_link_location_tag();
           id(qs_close).execute();
           id(confirm_action) = 0;
           // Sync the calibration reference weight label with the restored global
@@ -230,10 +253,15 @@ script:
           id(update_sleep_timeout_lbl).execute();
           id(update_backlight_brightness).execute();
           id(update_ams_rows_btn).execute();
+          id(update_clearloc_btn).execute();
           // Close the Settings subpages when switching away from settings
           lv_obj_add_flag(id(content_sleep), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(content_system), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(content_features), LV_OBJ_FLAG_HIDDEN);
+          // content_storage (and btn_storage_page) was deleted on boot in
+          // spoolman mode — see the on_boot lambda.
+          if (!bambuddy->spoolman_mode())
+            lv_obj_add_flag(id(content_storage), LV_OBJ_FLAG_HIDDEN);
 
   # Quick Settings drawer. Its position is translate_y: 0 fully open, -qs_height
   # fully hidden, animated between the two by the scripts below.
@@ -411,6 +439,130 @@ script:
               on ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
           lv_obj_set_style_text_color(id(lbl_plateclear_on),
               on ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
+
+  # Refresh the Settings "Clear Location on AMS Load: Off/On" toggle from the
+  # restored global. Called on boot/tab-switch (apply_tab) and on tap.
+  - id: update_clearloc_btn
+    then:
+      - lambda: |-
+          if (bambuddy->spoolman_mode()) return;  // row_clearloc_toggle (and its buttons) was deleted on boot
+          bool on = id(clear_location_on_ams_load);
+          lv_obj_set_style_bg_color(id(btn_clearloc_off),
+              !on ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
+          lv_obj_set_style_text_color(id(lbl_clearloc_off),
+              !on ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
+          lv_obj_set_style_bg_color(id(btn_clearloc_on),
+              on ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
+          lv_obj_set_style_text_color(id(lbl_clearloc_on),
+              on ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
+
+  # Build the Storage Locations settings list from scratch every time
+  # storage_locations changes (see the generation-diff check in the interval
+  # lambda below). Unlike every other list in this app (spool picker, AMS
+  # grid), row widgets are created/destroyed here in C++ rather than
+  # hand-unrolled in YAML with a fixed cap — the location count isn't
+  # knowable at YAML-authoring time. This is the only screen that does this;
+  # it is not meant to become a general pattern.
+  - id: render_storage_locations
+    then:
+      - lambda: |-
+          if (bambuddy->spoolman_mode()) return;  // content_storage was deleted on boot
+          lv_obj_t *parent = id(content_storage_rows);
+          lv_obj_clean(parent);  // drop everything built on the previous call
+          auto snap = bambuddy->snapshot();
+          if (snap.storage_locations.empty()) {
+            lv_obj_t *empty_lbl = lv_label_create(parent);
+            lv_label_set_text(empty_lbl,
+                snap.storage_locations_loading ? "Loading..." : "No storage locations found.");
+            lv_obj_set_style_text_color(empty_lbl, lv_color_hex(0x8888AA), LV_PART_MAIN);
+            return;
+          }
+          for (const auto &loc : snap.storage_locations) {
+            bool linked = !loc.identifier.empty();
+
+            lv_obj_t *row = lv_obj_create(parent);
+            lv_obj_add_style(row, id(sty_card), 0);
+            lv_obj_set_width(row, lv_pct(100));
+            lv_obj_set_height(row, 44);
+            lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+            lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+            lv_obj_set_style_pad_left(row, 12, 0);
+            lv_obj_set_style_pad_right(row, 8, 0);
+            lv_obj_set_style_pad_column(row, 8, 0);
+            lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+            // Name + spool count, stacked, sharing the remaining width.
+            lv_obj_t *info = lv_obj_create(row);
+            lv_obj_set_style_bg_opa(info, LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(info, 0, 0);
+            lv_obj_set_style_pad_all(info, 0, 0);
+            lv_obj_set_flex_grow(info, 1);
+            lv_obj_set_height(info, LV_SIZE_CONTENT);
+            lv_obj_set_flex_flow(info, LV_FLEX_FLOW_COLUMN);
+            lv_obj_clear_flag(info, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_t *name_lbl = lv_label_create(info);
+            lv_label_set_text(name_lbl, loc.name.c_str());
+            lv_obj_set_style_text_color(name_lbl, lv_color_hex(0xDDDDEE), 0);
+            char sub[24];
+            snprintf(sub, sizeof(sub), "%d spool%s", loc.spool_count, loc.spool_count == 1 ? "" : "s");
+            lv_obj_t *count_lbl = lv_label_create(info);
+            lv_label_set_text(count_lbl, sub);
+            lv_obj_set_style_text_color(count_lbl, lv_color_hex(0x8888AA), 0);
+
+            // "Linked" badge — same style as the NFC spool-detail badge.
+            if (linked) {
+              lv_obj_t *badge = lv_obj_create(row);
+              lv_obj_add_style(badge, id(sty_location_badge), 0);
+              lv_obj_set_width(badge, LV_SIZE_CONTENT);
+              lv_obj_set_height(badge, 22);
+              lv_obj_set_style_pad_left(badge, 8, 0);
+              lv_obj_set_style_pad_right(badge, 8, 0);
+              lv_obj_clear_flag(badge, LV_OBJ_FLAG_SCROLLABLE);
+              lv_obj_t *badge_lbl = lv_label_create(badge);
+              lv_label_set_text(badge_lbl, "Linked");
+              lv_obj_set_style_text_color(badge_lbl, lv_color_hex(0x5B2C87), 0);
+              lv_obj_center(badge_lbl);
+            }
+
+            // Action button — Scan to Link / Unlink. The location id travels
+            // as the event's user_data so the (stateless, non-capturing)
+            // callback below can look the location back up by id.
+            lv_obj_t *btn = lv_button_create(row);
+            lv_obj_set_width(btn, 96);
+            lv_obj_set_height(btn, 32);
+            lv_obj_add_style(btn, id(sty_card), 0);
+            lv_obj_t *btn_lbl = lv_label_create(btn);
+            lv_label_set_text(btn_lbl, linked ? "Unlink" : "Scan to Link");
+            lv_obj_set_style_text_color(btn_lbl, linked ? lv_color_hex(0xFF8888) : lv_color_hex(0x4ECDC4), 0);
+            lv_obj_center(btn_lbl);
+            lv_obj_add_event_cb(btn, [](lv_event_t *e) {
+              int loc_id = (int)(intptr_t) lv_event_get_user_data(e);
+              auto s = bambuddy->snapshot();
+              bool is_linked = false;
+              std::string loc_name;
+              for (const auto &l : s.storage_locations) {
+                if (l.id == loc_id) { is_linked = !l.identifier.empty(); loc_name = l.name; break; }
+              }
+              if (is_linked) {
+                id(confirm_location_id) = loc_id;
+                id(confirm_action) = 4;
+                lv_label_set_text(id(confirm_msg), "Unlink this tag from its storage location?");
+                lv_label_set_text(id(confirm_ok_lbl), "Unlink");
+                lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+              } else {
+                bambuddy->begin_link_location_tag(loc_id);
+                // Shown immediately rather than waiting for the next interval
+                // tick to pick up location_link_pending_id — that tick still
+                // runs (see below) and keeps this in sync afterward (e.g. it
+                // hides the modal again once a tag is actually scanned, or
+                // switches it into the "Already Linked" conflict message).
+                std::string msg = "Present the tag to link it to \"" + loc_name + "\".";
+                lv_label_set_text(id(location_link_title), "Waiting for tag...");
+                lv_label_set_text(id(location_link_msg), msg.c_str());
+                lv_obj_clear_flag(id(location_link_modal), LV_OBJ_FLAG_HIDDEN);
+              }
+            }, LV_EVENT_CLICKED, (void*)(intptr_t) loc.id);
+          }
 
   # Highlight the active segment of the Settings "Rows/Page" row from the
   # ams_rows_per_page global. Called on boot/tab-switch (apply_tab) and on tap.
@@ -637,8 +789,9 @@ interval:
           // edge-detecting the resolved spool/unlinked state, which a fast re-scan
           // of the same tag can skip.  The episode-end block further down hops back
           // to the pre-scan tab once the NFC tab has nothing left to show.
-          static bool     prev_spool_sel       = false;
-          static uint32_t prev_switch_scan_gen = 0;
+          static bool        prev_spool_sel       = false;
+          static std::string prev_scan_uid;  // last_tag_uid as of the previous tick
+          static uint32_t    prev_switch_scan_gen = 0;
           // UID that was on the reader when the user tapped "Discard" on a linked
           // spool.  dismiss_spool() clears spool_selected but the tag stays present,
           // so without this guard the unlinked panel would flash up immediately.
@@ -664,12 +817,23 @@ interval:
             nfc_episode_active = true;
           }
           // Detect a "Discard on known tag": spool_selected just fell to false while
-          // the same tag is still present → record the UID so the unlinked panel
-          // is not shown while the physical tag remains on the reader.
-          // MUST be evaluated BEFORE prev_spool_sel is updated below.
+          // the *same physical tag* is still present → record the UID so the
+          // unlinked panel is not shown while that tag remains on the reader.
+          // The last_tag_uid == prev_scan_uid check is what distinguishes this
+          // from a fresh scan of a *different* tag replacing the spool: scanning
+          // tag B while tag A's spool is showing also flips spool_selected to
+          // false (on_tag_scanned() resets it immediately, before tag B even
+          // resolves), and does so in the very same state-lock critical section
+          // that sets last_tag_uid to B — so a snapshot can catch both changes
+          // on one tick. Without this check, that tick would be misread as "the
+          // user discarded spool A while it's still on the reader", capturing
+          // tag B's own (brand new) UID into dismissed_known_uid and silently
+          // suppressing its unlinked-tag panel for as long as it stays present.
+          // MUST be evaluated BEFORE prev_spool_sel/prev_scan_uid are updated below.
           if (prev_spool_sel && !s.spool_selected
               && s.nfc_state == bambuddy_api::NFCTagState::PRESENT
-              && !s.last_tag_uid.empty()) {
+              && !s.last_tag_uid.empty()
+              && s.last_tag_uid == prev_scan_uid) {
             dismissed_known_uid = s.last_tag_uid;
           }
           // Once the tag leaves the reader, forget the dismissed UID so a fresh
@@ -678,6 +842,7 @@ interval:
             dismissed_known_uid.clear();
           }
           prev_spool_sel = s.spool_selected;
+          prev_scan_uid  = s.last_tag_uid;
 
           // Wake the backlight to full brightness whenever a tag appears on the
           // reader (mirrors the touch wake), so a scan lights the screen even if
@@ -732,16 +897,18 @@ interval:
 
           // ---- Audio cues (onboard I2S amp — see espoolbuddy_console.yaml) ----
           // Tag-scan chime, edge-detected so each scan plays once:
-          // nfc_scan_generation bumps on every physical scan, including
-          // scale-pushed ones (they route through on_tag_scanned), so this
-          // one trigger covers both the console and the scale.
+          // scan_chime_generation bumps on every physical scan — spool tags,
+          // storage-location tags, and scale-pushed ones (they route through
+          // on_tag_scanned too) all covered by this one trigger. Deliberately
+          // NOT nfc_scan_generation, which a location-tag scan skips so it
+          // doesn't also yank the user onto the NFC tab.
           // (The stable-weight chime moved to the on_loop trigger above, so
           // it fires the instant a stable push lands instead of on the next
           // 400 ms tick.)
           {
             static uint32_t prev_audio_scan_gen = 0;
-            if (s.nfc_scan_generation != prev_audio_scan_gen) {
-              prev_audio_scan_gen = s.nfc_scan_generation;
+            if (s.scan_chime_generation != prev_audio_scan_gen) {
+              prev_audio_scan_gen = s.scan_chime_generation;
               if (id(sound_enabled) && !bambuddy->chime_playing())
                 bambuddy->play_chime("tag:d=16,o=6,b=180:e,b");
             }
@@ -942,6 +1109,14 @@ interval:
             // Colour name (fall back to spool name if none)
             lv_label_set_text(id(nfc_colorname),
                 !fi.color_name.empty() ? fi.color_name.c_str() : fi.spool_name.c_str());
+
+            // Storage location badge — empty/never-populated in spoolman mode.
+            if (!fi.storage_location.empty()) {
+              lv_label_set_text(id(nfc_location_text), fi.storage_location.c_str());
+              lv_obj_clear_flag(id(nfc_location_badge), LV_OBJ_FLAG_HIDDEN);
+            } else {
+              lv_obj_add_flag(id(nfc_location_badge), LV_OBJ_FLAG_HIDDEN);
+            }
 
             // Weight: "Xg (Y%)" — remaining grams + percentage, Bambuddy style
             if (fi.label_weight_g > 0) {
@@ -1249,6 +1424,33 @@ interval:
                   lv_obj_add_flag(pb[si], LV_OBJ_FLAG_HIDDEN);
                 }
               }
+            }
+          }
+
+          // ---- Storage Locations: rebuild rows when the list changes ----
+          if (!bambuddy->spoolman_mode()) {
+            static uint32_t prev_loc_gen = 0;
+            uint32_t loc_gen = s.storage_locations_generation;
+            if (loc_gen != prev_loc_gen) {
+              prev_loc_gen = loc_gen;
+              id(render_storage_locations).execute();
+            }
+
+            // "Link mode" popup. A conflict (this tag already linked
+            // elsewhere — on_tag_scanned refused to link it) takes over the
+            // same modal with a different message and stays open until the
+            // user dismisses it via Cancel, which also clears the conflict
+            // message (see cancel_link_location_tag()). Otherwise it just
+            // hides once location_link_pending_id clears — whether that's
+            // because a tag was actually scanned and linked, or Cancel was
+            // tapped (which also hides it directly, so this is mainly the
+            // scan-completed path).
+            if (!s.location_link_conflict_msg.empty()) {
+              lv_label_set_text(id(location_link_title), "Already Linked");
+              lv_label_set_text(id(location_link_msg), s.location_link_conflict_msg.c_str());
+              lv_obj_clear_flag(id(location_link_modal), LV_OBJ_FLAG_HIDDEN);
+            } else if (s.location_link_pending_id == 0) {
+              lv_obj_add_flag(id(location_link_modal), LV_OBJ_FLAG_HIDDEN);
             }
           }
 
