@@ -3718,9 +3718,14 @@ void BambuddyAPIComponent::api_get_recent_spools() {
               [](const SpoolSummary &a, const SpoolSummary &b) { return a.id > b.id; });
     ESP_LOGI(TAG, "api_get_recent_spools: %d spool(s) (streamed)", (int)result.size());
     lock_state();
-    display_state_.recent_spools         = std::move(result);
     display_state_.recent_spools_loading = false;
-    display_state_.recent_spools_generation++;
+    // Only bump the generation (and so only trigger the picker grid's
+    // rebuild) when the fetch actually changed something — a poll landing
+    // on an unchanged list is the common case, not the exception.
+    if (display_state_.recent_spools != result) {
+      display_state_.recent_spools = std::move(result);
+      display_state_.recent_spools_generation++;
+    }
     unlock_state();
   };
 
@@ -3844,9 +3849,15 @@ void BambuddyAPIComponent::api_get_locations() {
   }
   ESP_LOGI(TAG, "api_get_locations: %d location(s)", (int)locations.size());
   lock_state();
-  display_state_.storage_locations = std::move(locations);
   display_state_.storage_locations_loading = false;
-  display_state_.storage_locations_generation++;
+  // Only bump the generation when the fetch actually changed something —
+  // render_storage_locations() tears down and rebuilds every row on a
+  // bump, which is wasted heap churn on a periodic poll (printer/AMS poll
+  // cadence) that lands on an unchanged list far more often than not.
+  if (display_state_.storage_locations != locations) {
+    display_state_.storage_locations = std::move(locations);
+    display_state_.storage_locations_generation++;
+  }
   unlock_state();
 }
 

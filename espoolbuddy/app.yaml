@@ -499,6 +499,7 @@ script:
             lv_obj_set_flex_grow(info, 1);
             lv_obj_set_height(info, LV_SIZE_CONTENT);
             lv_obj_set_flex_flow(info, LV_FLEX_FLOW_COLUMN);
+            lv_obj_set_style_pad_row(info, 1, 0);
             lv_obj_clear_flag(info, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_t *name_lbl = lv_label_create(info);
             lv_label_set_text(name_lbl, loc.name.c_str());

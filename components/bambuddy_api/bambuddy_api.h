@@ -230,6 +230,12 @@ struct SpoolSummary {
   std::string material;    // "PLA"
   std::string brand;       // "eSUN"
   std::string color_hex;   // 6-char RGB
+  // Used to skip a *_generation bump (and the UI rebuild/redraw it triggers)
+  // when a re-fetch comes back byte-for-byte identical to what's cached.
+  bool operator==(const SpoolSummary &o) const {
+    return id == o.id && material == o.material && brand == o.brand && color_hex == o.color_hex;
+  }
+  bool operator!=(const SpoolSummary &o) const { return !(*this == o); }
 };
 
 /** A Bambuddy storage location (shelf/bin), optionally linked to an NFC tag */
@@ -238,6 +244,13 @@ struct StorageLocation {
   std::string name;
   std::string identifier;  // linked tag UID, "" if unlinked
   int spool_count{0};
+  // Same purpose as SpoolSummary's — lets api_get_locations() skip
+  // storage_locations_generation (and the row rebuild it triggers) when a
+  // re-fetch is unchanged from what's cached.
+  bool operator==(const StorageLocation &o) const {
+    return id == o.id && name == o.name && identifier == o.identifier && spool_count == o.spool_count;
+  }
+  bool operator!=(const StorageLocation &o) const { return !(*this == o); }
 };
 
 /** Display state shared between the component and LVGL callbacks */

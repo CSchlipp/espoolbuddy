@@ -90,7 +90,7 @@ obj:
                       # populated. Uses sty_location_badge (lvgl.yaml) — see
                       # that style's comment. Anchored off the icon's own
                       # center point (x: 56 = half the icon's 80px width plus
-                      # an 16px gap) rather than the icon's edge, so it stays
+                      # a 16px gap) rather than the icon's edge, so it stays
                       # put even if the icon's own width ever changes. ----
                       - obj:
                           id: nfc_location_badge
