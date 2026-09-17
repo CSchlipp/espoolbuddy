@@ -59,7 +59,10 @@ CONFIG_SCHEMA = cv.All(
             cv.GenerateID(): cv.declare_id(BambuddyAPIComponent),
             # backend_url / api_key are not needed on scale devices (scale_mode: true)
             cv.Optional(CONF_BACKEND_URL, default=""): cv.string,
-            cv.Optional(CONF_API_KEY, default=""): cv.string,
+            # cv.sensitive so config dumps redact it deterministically — the
+            # legacy "looks like a key" substring heuristic that used to cover
+            # this goes away in ESPHome 2026.12.0.
+            cv.Optional(CONF_API_KEY, default=""): cv.sensitive(cv.string),
             # Which Bambuddy inventory backend to talk to. Bambuddy can be configured
             # to track spools in its own local DB ("internal") or delegate to a
             # Spoolman instance ("spoolman") — the two expose different endpoint

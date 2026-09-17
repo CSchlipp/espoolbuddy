@@ -74,6 +74,12 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   power_save_mode: none
+  # Fallback hotspot: if the configured SSID can't be joined, the scale comes
+  # up as its own AP so captive_portal below can serve the WiFi setup page —
+  # without this the portal is compiled in but unreachable.
+  ap:
+    ssid: "ESPoolBuddy Scale"
+    password: !secret ap_fallback_password
   on_connect:
     - logger.log: "WiFi connected"
     - lambda: bambuddy->restart_scale_server();
@@ -84,7 +90,10 @@ captive_portal:
 
 ota:
   - platform: esphome
-    password: !secret ota_password
+    # No password: a bare encryption block inherits the api encryption key
+    # below, which both authenticates the uploader and encrypts the upload.
+    # Cheaper than the password handshake (~3.5 KB flash, 60 B RAM).
+    encryption:
 
 # Optional: Home Assistant native API (exposes the sensor entity)
 api:
