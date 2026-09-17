@@ -27,6 +27,9 @@ substitutions:
   screen_width: "800"
   screen_height: "480"
   screen_rotation: "0"
+  # Header clock format: "true" = 24-hour (14:05), "false" = 12-hour (2:05 PM).
+  # The timezone is not set here — see the time: block below.
+  clock_24h: "true"
 
 esphome:
   name: espoolbuddy-console-pandatouch
@@ -292,4 +295,4 @@ bambuddy_api:
   # heartbeat_fail_threshold: 3   # consecutive failed heartbeats before cloud/WiFi icons go red (default: 3)
   printer_poll_interval: 15     # seconds between AMS/printer status polls to Bambuddy
   sleep_factor: 12               # heartbeat/poll multiplier while asleep (×12: 10s→120s, 15s→180s); sleep_timeout set at runtime in app.yaml
-  clock_24h: true                # 24h format (false = 12h AM/PM)
+  clock_24h: ${clock_24h}        # see the clock_24h substitution at the top
