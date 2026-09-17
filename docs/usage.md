@@ -14,6 +14,23 @@
   exactly like the tag being scanned again (same chime, same jump to the NFC
   tab). You can immediately load it into the same or a different slot and
   that slot gets assigned/configured automatically, same as a fresh scan.
+- **Storage locations** (local Bambuddy database only — not available when
+  configured for Spoolman inventory): from Settings → **Storage Locations**
+  you can link an NFC tag to any storage location already created in
+  Bambuddy — tap **Scan to Link** on a location, a popup confirms it's
+  waiting (tap **Dismiss** in it to back out), then present the tag. Tap
+  **Unlink** to clear a location's tag. A tag already linked to another
+  location — or already linked to a spool — is refused, with that same
+  popup instead naming what it's linked to, rather than silently ending up
+  claimed by two things at once; unlink it there first if you want to move
+  it. Once linked, scanning that tag while a spool is staged (freshly
+  scanned, or just removed from an AMS slot) assigns the spool to that
+  location in Bambuddy; scanning it with nothing staged just shows a brief
+  confirmation. A spool's current storage location, if any, shows as a
+  purple badge next to its icon on the NFC detail view. By default, loading
+  a spool into an AMS slot also clears its storage location automatically
+  (Bambuddy itself does not do this) — turn this off in Settings → Features
+  → **Clear Location on AMS Load** if you'd rather it was left as-is.
 - **Unknown tag → create a spool entry**: scanning a tag with no matching
   spool in Bambuddy opens the unlinked-tag panel with an **Add to
   Inventory** button. For a Bambu Lab tag the new spool is populated from

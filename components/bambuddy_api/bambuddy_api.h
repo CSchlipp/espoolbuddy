@@ -185,6 +185,7 @@ struct FilamentInfo {
   float label_weight_g = 0; // full spool filament weight (g)
   float weight_used_g = 0;  // filament consumed (g)
   float core_weight_g = 0;  // empty spool body weight (g)
+  std::string storage_location;  // location name, "" if unassigned (local-DB mode only)
 };
 
 /** One spool slot inside an AMS unit */
@@ -229,6 +230,27 @@ struct SpoolSummary {
   std::string material;    // "PLA"
   std::string brand;       // "eSUN"
   std::string color_hex;   // 6-char RGB
+  // Used to skip a *_generation bump (and the UI rebuild/redraw it triggers)
+  // when a re-fetch comes back byte-for-byte identical to what's cached.
+  bool operator==(const SpoolSummary &o) const {
+    return id == o.id && material == o.material && brand == o.brand && color_hex == o.color_hex;
+  }
+  bool operator!=(const SpoolSummary &o) const { return !(*this == o); }
+};
+
+/** A Bambuddy storage location (shelf/bin), optionally linked to an NFC tag */
+struct StorageLocation {
+  int id{0};
+  std::string name;
+  std::string identifier;  // linked tag UID, "" if unlinked
+  int spool_count{0};
+  // Same purpose as SpoolSummary's — lets api_get_locations() skip
+  // storage_locations_generation (and the row rebuild it triggers) when a
+  // re-fetch is unchanged from what's cached.
+  bool operator==(const StorageLocation &o) const {
+    return id == o.id && name == o.name && identifier == o.identifier && spool_count == o.spool_count;
+  }
+  bool operator!=(const StorageLocation &o) const { return !(*this == o); }
 };
 
 /** Display state shared between the component and LVGL callbacks */
@@ -296,12 +318,23 @@ struct DisplayState {
   // and failure, and by on_tag_removed() in case the tag leaves mid-flight.
   bool tag_resolving{false};
 
-  // Incremented every time on_tag_scanned() fires.  The UI lambda tracks
-  // this to detect a new physical scan even when nfc_state stays PRESENT
-  // (e.g. during the unlinked-tag sticky TTL).  Use case: if the user
-  // discards an unlinked tag, removes it, then taps it again, the
-  // generation change clears nfc_unlinked_dismissed so the panel re-appears.
+  // Incremented every time on_tag_scanned() fires for a tag that resolves
+  // (or may resolve) to a spool.  The UI lambda tracks this to detect a new
+  // physical scan even when nfc_state stays PRESENT (e.g. during the
+  // unlinked-tag sticky TTL), and to auto-switch to the NFC tab.  Use case:
+  // if the user discards an unlinked tag, removes it, then taps it again,
+  // the generation change clears nfc_unlinked_dismissed so the panel
+  // re-appears. NOT bumped for a storage-location tag scan — that must not
+  // yank the user onto the NFC tab (e.g. mid "Scan to Link" on the Settings
+  // screen) — see scan_chime_generation for the cue that does cover those.
   uint32_t nfc_scan_generation{0};
+
+  // Incremented on every physical tag scan, spool or storage-location alike
+  // (on_tag_scanned() bumps it unconditionally, before either path runs).
+  // Only drives the audio "tag scanned" chime — kept separate from
+  // nfc_scan_generation so a location-tag scan still gets a chime without
+  // also triggering that generation's tab-switch/panel side effects.
+  uint32_t scan_chime_generation{0};
 
   // Set after linking a writable (non-Bambu) tag to a spool — prompts the UI
   // to offer writing spool data back to the physical tag.
@@ -311,6 +344,22 @@ struct DisplayState {
   // AMS removal toast — shown on the AMS tab for 5 s after a spool is ejected
   uint32_t ams_removed_toast_expiry_ms{0};
   std::string ams_removed_spool_desc;
+
+  // Storage locations (local-DB mode only — always empty/unused in Spoolman
+  // mode). Refreshed periodically and on Storage Locations screen entry.
+  std::vector<StorageLocation> storage_locations;
+  bool storage_locations_loading{false};
+  uint32_t storage_locations_generation{0};
+  // Set by the Storage Locations screen's "Scan to Link" button; the next
+  // NFC scan links that tag's UID to this location instead of resolving it
+  // as a spool tag. 0 = not in link mode.
+  int location_link_pending_id{0};
+  // Set instead of proceeding when a link-mode scan's UID is already linked
+  // to a *different* location (guards against one tag silently ending up
+  // linked to two locations, which would make scanning it ambiguous).
+  // Holds a ready-to-show message naming the other location; "" = no
+  // conflict. Cleared by begin_link_location_tag()/cancel_link_location_tag().
+  std::string location_link_conflict_msg;
 };
 
 /**
@@ -388,9 +437,17 @@ class BambuddyAPIComponent : public Component {
   // (/inventory/... vs /spoolman/inventory/...) and some different request/
   // response field names, so every inventory call branches on this flag.
   void set_spoolman_inventory(bool v) { spoolman_inventory_ = v; }
+  // True when configured for Spoolman inventory. Storage locations are a
+  // Bambuddy-local-DB-only concept (no Spoolman endpoint exists for them),
+  // so every piece of that feature checks this and disables/hides itself.
+  bool spoolman_mode() const { return spoolman_inventory_; }
   // Console only: header clock format. true = 24-hour (14:05), false = 12-hour (2:05 PM).
   void set_clock_24h(bool v) { clock_24h_ = v; }
   bool clock_24h() const { return clock_24h_; }
+  // Whether an AMS-loaded spool's storage location should be cleared
+  // automatically (Bambuddy itself does not do this). Mirrored at boot and
+  // on every toggle from the persisted `clear_location_on_ams_load` global.
+  void set_clear_location_on_ams_load(bool v) { clear_location_on_ams_load_ = v; }
 
   // Called by UI to persist printer selection across reboots
   void set_selected_printer(int idx);
@@ -407,6 +464,19 @@ class BambuddyAPIComponent : public Component {
 
   // NFC picker — fetch up to 9 most-recently-created spools for the picker UI.
   void request_recent_spools();
+
+  // ---- Storage locations (local-DB mode only — no-ops when spoolman_mode()) ----
+  // Fetch the full list of storage locations for the Settings screen and for
+  // the tag-scan-time identifier cache. Enqueues FETCH_LOCATIONS.
+  void request_storage_locations();
+  // Arm "link mode": the next NFC scan links that tag's UID to this location
+  // instead of resolving it as a spool tag. No HTTP call happens here.
+  void begin_link_location_tag(int location_id);
+  // Cancel a pending "link mode" (the modal's Cancel button) without linking
+  // anything. No-op if link mode isn't currently armed.
+  void cancel_link_location_tag();
+  // Clear a location's linked tag (PATCH identifier:"").
+  void unlink_location_tag(int location_id);
 
   // Link the current NFC tag (last_tag_uid) to an existing inventory spool.
   // Enqueues LINK_TAG_TO_SPOOL; on success fetches the spool and sets
@@ -635,6 +705,11 @@ class BambuddyAPIComponent : public Component {
       UPDATE_SPOOL_WEIGHT,     // PATCH /inventory/spools/{id} {"weight_used": X}
       ARCHIVE_SPOOL,           // POST /inventory/spools/{id}/archive
       CLEAR_PLATE,             // POST /api/v1/printers/{id}/clear-plate
+      FETCH_LOCATIONS,         // GET /inventory/locations → fill storage_locations
+      LINK_LOCATION_TAG,       // PATCH /inventory/locations/{id} {"identifier": uid}
+      LINK_LOCATION_TAG_CHECKED, // GET spools/by-tag first; only links if no spool owns the uid
+      UNLINK_LOCATION_TAG,     // PATCH /inventory/locations/{id} {"identifier": ""}
+      SET_SPOOL_LOCATION,      // PATCH /inventory/spools/{id} {"location_id": id|null}
       // Scale push mode: scale → console (only processed when scale_mode_)
       // (weight is NOT a job kind — see weight_push_dirty_ — because pushing
       // it as a queued one-shot job could silently drop readings that arrive
@@ -832,6 +907,31 @@ class BambuddyAPIComponent : public Component {
                                   const std::string &tray_uuid,
                                   const BambuTagInfo &bambu);
 
+  // Storage locations (local-DB mode only).
+  // Fetch GET /api/v1/inventory/locations, fill display_state_.storage_locations.
+  void api_get_locations();
+  // PATCH /api/v1/inventory/locations/{id} {"identifier": uid or ""}.
+  void api_link_location_tag(int location_id, const std::string &uid);
+  // GET /api/v1/inventory/spools/by-tag?tag_uid=<uid> first (a plain,
+  // side-effect-free inventory lookup — unlike POST /nfc/tag-scanned, which
+  // reports a real scan event to the backend) to guard against linking a
+  // tag that's already assigned to a spool. Only calls api_link_location_tag()
+  // when that lookup comes back empty; otherwise sets
+  // display_state_.location_link_conflict_msg naming the spool instead.
+  void api_link_location_tag_checked(int location_id, const std::string &uid);
+  // PATCH /api/v1/inventory/spools/{id} {"location_id": id, or null when
+  // location_id == 0}. Used both for scan-time assignment and the AMS-load
+  // auto-clear.
+  void api_set_spool_location(int spool_id, int location_id);
+  // Returns the name of the cached storage location whose identifier equals
+  // uid, or "" if none (excluding exclude_location_id, so re-linking a tag
+  // to the same location it's already linked to isn't reported as a
+  // conflict with itself). Used both directions: before linking a tag to a
+  // location (on_tag_scanned) and before linking a tag to a spool
+  // (link_tag_to_spool()/create_spool_from_tag()) — a tag must not end up
+  // claimed by both a location and a spool.
+  std::string find_conflicting_location(const std::string &uid, int exclude_location_id = 0);
+
   // JSON array / nested-object parsers
   static std::vector<std::string> json_array_objects(const std::string &json);
   static void parse_printer_list(const std::string &json,
@@ -875,6 +975,11 @@ class BambuddyAPIComponent : public Component {
   uint32_t scale_report_interval_ms_{1000};
   bool spoolman_inventory_{false};  // false = Bambuddy local DB, true = Spoolman
   bool clock_24h_{true};  // console only: header clock format
+  // Whether an AMS-loaded spool's storage location is cleared automatically.
+  // Mirrored from the persisted `clear_location_on_ams_load` global — see
+  // set_clear_location_on_ams_load(). Defaults true (clear), matching the
+  // toggle's own default.
+  bool clear_location_on_ams_load_{true};
   // Persistent HTTPS connection to the backend. Reused across requests so the
   // TLS handshake (full mbedTLS cert chain verification) happens once on first
   // connect and again only after a dropped connection — not on every HTTP call.
