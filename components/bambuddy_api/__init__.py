@@ -143,8 +143,17 @@ async def to_code(config):
         backlight = await cg.get_variable(config[CONF_BACKLIGHT_ID])
         cg.add(var.set_backlight_component(backlight))
     if CORE.is_esp32:
-        from esphome.components.esp32 import include_builtin_idf_component
+        from esphome.components.esp32 import (
+            add_idf_sdkconfig_option,
+            include_builtin_idf_component,
+        )
         include_builtin_idf_component("esp_http_client")
+        # Every esp_http_client config here sets crt_bundle_attach, so the
+        # component needs esp_crt_bundle.h — mbedtls only puts that header on
+        # the include path when the Mozilla CA bundle is enabled. Scale devices
+        # never speak TLS, but they compile the same code, so require it here
+        # rather than leaving every device YAML to remember the option.
+        add_idf_sdkconfig_option("CONFIG_MBEDTLS_CERTIFICATE_BUNDLE", True)
         # Both scale (receive tare/cal) and console (receive push data) use httpd.
         include_builtin_idf_component("esp_http_server")
         if config[CONF_SCALE_MODE]:
