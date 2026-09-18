@@ -163,10 +163,20 @@ api:
     key: !secret api_encryption_key
   reboot_timeout: 0s
 
+# ============================================================================
+# Time — SNTP (NTP) clock shown in the header. Non-Home-Assistant source; kept
+# on the ESP32-S3 internal RTC between syncs (not battery-backed, so the header
+# shows --:-- until the first sync after boot). Default servers: pool.ntp.org.
+# The timezone is detected from the build host — see below.
+# ============================================================================
 time:
   - platform: sntp
     id: sntp_time
-    timezone: Europe/Berlin
+    # timezone is deliberately omitted: ESPHome bakes in the zone of the machine
+    # running the compile (tzlocal, e.g. /etc/localtime). Set it explicitly here
+    # — timezone: Europe/Berlin — when the build host is in a different zone
+    # than the console, or when building somewhere with no host zone to detect
+    # (a bare container will silently give you UTC).
 
 # ============================================================================
 # I2C0 — GT911 touch controller (Panda Touch pinout)
