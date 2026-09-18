@@ -152,6 +152,12 @@ api:
     key: !secret api_encryption_key
   reboot_timeout: 0s
 
+# ============================================================================
+# Time — SNTP (NTP) clock shown in the header. Non-Home-Assistant source; kept
+# on the ESP32-S3 internal RTC between syncs (not battery-backed, so the header
+# shows --:-- until the first sync after boot). Default servers: pool.ntp.org.
+# The timezone is detected from the build host — see below.
+# ============================================================================
 time:
   - platform: sntp
     id: sntp_time
