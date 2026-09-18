@@ -45,6 +45,22 @@ INVENTORY_BACKEND_INTERNAL = "internal"
 INVENTORY_BACKEND_SPOOLMAN = "spoolman"
 
 
+def _require_certificate_bundle():
+    # ESPHome 2026.9.0 turned the CA bundle into an opt-in that components
+    # request, so that builds with no TLS user skip gen_crt_bundle entirely;
+    # asking through the helper also pins the smaller common-CA bundle
+    # (~51 KB less flash than the full one). Older ESPHome has no such
+    # bookkeeping — there the sdkconfig option is the whole mechanism.
+    try:
+        from esphome.components.esp32 import require_certificate_bundle
+    except ImportError:
+        from esphome.components.esp32 import add_idf_sdkconfig_option
+
+        add_idf_sdkconfig_option("CONFIG_MBEDTLS_CERTIFICATE_BUNDLE", True)
+    else:
+        require_certificate_bundle()
+
+
 def _validate_backlight_required(config):
     # Every non-scale device has a physical display + backlight; scale_mode
     # devices are headless and have neither, so only require it there.
@@ -144,7 +160,14 @@ async def to_code(config):
         cg.add(var.set_backlight_component(backlight))
     if CORE.is_esp32:
         from esphome.components.esp32 import include_builtin_idf_component
+
         include_builtin_idf_component("esp_http_client")
+        # Every esp_http_client config here sets crt_bundle_attach, so the
+        # component needs esp_crt_bundle.h — mbedtls only puts that header on
+        # the include path when the Mozilla CA bundle is enabled. Scale devices
+        # never speak TLS, but they compile the same code, so require it here
+        # rather than leaving every device YAML to remember the option.
+        _require_certificate_bundle()
         # Both scale (receive tare/cal) and console (receive push data) use httpd.
         include_builtin_idf_component("esp_http_server")
         if config[CONF_SCALE_MODE]:

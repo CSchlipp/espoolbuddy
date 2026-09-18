@@ -45,8 +45,6 @@ esp32:
     sdkconfig_options:
       # Extend the task watchdog — HTTP server callbacks can take a few hundred ms.
       CONFIG_ESP_TASK_WDT_TIMEOUT_S: "30"
-      # Ships the Mozilla CA bundle for HTTPS certificate verification.
-      CONFIG_MBEDTLS_CERTIFICATE_BUNDLE: "y"
 
 external_components:
   - source:
