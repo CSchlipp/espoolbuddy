@@ -233,6 +233,7 @@ script:
           lv_obj_add_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(assign_id_modal), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(location_link_modal), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(plug_list_modal), LV_OBJ_FLAG_HIDDEN);
           if (!bambuddy->spoolman_mode()) bambuddy->cancel_link_location_tag();
           id(qs_close).execute();
           id(confirm_action) = 0;
@@ -563,6 +564,82 @@ script:
                 lv_obj_clear_flag(id(location_link_modal), LV_OBJ_FLAG_HIDDEN);
               }
             }, LV_EVENT_CLICKED, (void*)(intptr_t) loc.id);
+          }
+
+  # Build the "all smart plugs" popup list from scratch every time the plug
+  # list changes (see the generation-diff check in the interval lambda) —
+  # same dynamic-rows-in-C++ pattern as render_storage_locations above, for
+  # the same reason: an unbounded, externally-managed list with no
+  # reasonable static cap. Not spoolman-gated; plugs are independent of
+  # inventory mode.
+  - id: render_plug_list
+    then:
+      - lambda: |-
+          lv_obj_t *parent = id(plug_list_rows);
+          lv_obj_clean(parent);
+          auto snap = bambuddy->snapshot();
+          if (snap.plugs.empty()) {
+            lv_obj_t *empty_lbl = lv_label_create(parent);
+            lv_label_set_text(empty_lbl, "No smart plugs found.");
+            lv_obj_set_style_text_color(empty_lbl, lv_color_hex(0x8888AA), LV_PART_MAIN);
+            return;
+          }
+          for (const auto &plug : snap.plugs) {
+            lv_obj_t *row = lv_obj_create(parent);
+            lv_obj_add_style(row, id(sty_card), 0);
+            lv_obj_set_width(row, lv_pct(100));
+            lv_obj_set_height(row, 44);
+            lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+            lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+            lv_obj_set_style_pad_left(row, 12, 0);
+            lv_obj_set_style_pad_right(row, 8, 0);
+            lv_obj_set_style_pad_column(row, 8, 0);
+            lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+            lv_obj_t *name_lbl = lv_label_create(row);
+            lv_label_set_text(name_lbl, plug.name.c_str());
+            lv_obj_set_style_text_color(name_lbl, lv_color_hex(0xDDDDEE), 0);
+            lv_obj_set_flex_grow(name_lbl, 1);
+            lv_label_set_long_mode(name_lbl, LV_LABEL_LONG_DOT);
+
+            // Single button doubling as the on/off indicator (green when
+            // on), same convention as the storage-location row's action
+            // button — no separate lv_switch widget, this app doesn't use
+            // that idiom anywhere else.
+            lv_obj_t *btn = lv_button_create(row);
+            lv_obj_set_width(btn, 72);
+            lv_obj_set_height(btn, 32);
+            lv_obj_add_style(btn, id(sty_card), 0);
+            lv_obj_set_style_border_width(btn, 1, 0);
+            lv_obj_set_style_border_color(btn,
+                plug.on ? lv_color_hex(0x4CAF50) : lv_color_hex(0x454572), 0);
+            lv_obj_t *btn_lbl = lv_label_create(btn);
+            lv_label_set_text(btn_lbl, plug.on ? "On" : "Off");
+            lv_obj_set_style_text_color(btn_lbl,
+                plug.on ? lv_color_hex(0x4CAF50) : lv_color_hex(0x8888AA), 0);
+            lv_obj_center(btn_lbl);
+            lv_obj_add_event_cb(btn, [](lv_event_t *e) {
+              int plug_id = (int)(intptr_t) lv_event_get_user_data(e);
+              bambuddy->toggle_plug(plug_id);
+              // Update this row's own button immediately rather than
+              // waiting for a generation-triggered rebuild — toggle_plug()
+              // deliberately does not bump plugs_generation itself, so a
+              // tap here doesn't tear down and rebuild every other row in
+              // the list too (the periodic poll's own generation check
+              // still catches any correction/external change).
+              lv_obj_t *tap_btn = (lv_obj_t *) lv_event_get_target(e);
+              lv_obj_t *tap_lbl = lv_obj_get_child(tap_btn, 0);
+              auto s2 = bambuddy->snapshot();
+              bool now_on = false;
+              for (const auto &p : s2.plugs) {
+                if (p.id == plug_id) { now_on = p.on; break; }
+              }
+              lv_label_set_text(tap_lbl, now_on ? "On" : "Off");
+              lv_obj_set_style_text_color(tap_lbl,
+                  now_on ? lv_color_hex(0x4CAF50) : lv_color_hex(0x8888AA), 0);
+              lv_obj_set_style_border_color(tap_btn,
+                  now_on ? lv_color_hex(0x4CAF50) : lv_color_hex(0x454572), 0);
+            }, LV_EVENT_CLICKED, (void*)(intptr_t) plug.id);
           }
 
   # Highlight the active segment of the Settings "Rows/Page" row from the
@@ -1455,6 +1532,18 @@ interval:
             }
           }
 
+          // ---- Smart plugs popup: rebuild rows when the list changes ----
+          // Unlike storage locations this isn't spoolman-gated — plugs are
+          // a Bambuddy/Home-Assistant concept independent of inventory mode.
+          {
+            static uint32_t prev_plug_gen = 0;
+            uint32_t plug_gen = s.plugs_generation;
+            if (plug_gen != prev_plug_gen) {
+              prev_plug_gen = plug_gen;
+              id(render_plug_list).execute();
+            }
+          }
+
           // ---- AMS tab — dirty-check: skip all widget ops when data is unchanged ----
           // lv_obj_set_y / hide / show / img_recolor all mark objects dirty and fight
           // LVGL's scroll animation. Only execute when AMS data or active tab changes.
@@ -2296,6 +2385,36 @@ interval:
             } else {
               lv_label_set_text(id(qs_printer_sub), "No printers");
               lv_obj_set_style_text_color(id(qs_printer_icon), lv_color_hex(0x666688), LV_PART_MAIN);
+            }
+
+            // Quick-settings Power-plug tile — shown whenever there is any
+            // plug to act on (s.plugs non-empty: this printer's plugs plus
+            // unassigned ones). With a designated power plug
+            // (power_plug_id > 0) it's the on/off toggle, and the icon
+            // colour doubles as the state indicator, same convention as the
+            // Printer tile's green/red connectivity colour. Without one it
+            // just opens the plug list (see the tile's short-click in
+            // lvgl.yaml) and stays grey with a "Plugs" subtitle. `on` lives
+            // on the matching entry in s.plugs, not a separate scalar — same
+            // list the popup renders from, so the two can never disagree
+            // about a plug's state.
+            if (s.power_plug_id > 0) {
+              lv_obj_clear_flag(id(qs_tile_plug), LV_OBJ_FLAG_HIDDEN);
+              bool plug_on = false;
+              for (const auto &p : s.plugs) {
+                if (p.id == s.power_plug_id) { plug_on = p.on; break; }
+              }
+              lv_label_set_text(id(qs_plug_sub), plug_on ? "On" : "Off");
+              lv_obj_set_style_text_color(id(qs_plug_icon),
+                  plug_on ? lv_color_hex(0x4CAF50) : lv_color_hex(0x666688),
+                  LV_PART_MAIN);
+            } else if (!s.plugs.empty()) {
+              lv_obj_clear_flag(id(qs_tile_plug), LV_OBJ_FLAG_HIDDEN);
+              lv_label_set_text(id(qs_plug_sub), "Plugs");
+              lv_obj_set_style_text_color(id(qs_plug_icon),
+                  lv_color_hex(0x666688), LV_PART_MAIN);
+            } else {
+              lv_obj_add_flag(id(qs_tile_plug), LV_OBJ_FLAG_HIDDEN);
             }
           }
 

@@ -198,6 +198,7 @@ font:
       - "\U000F042B"   # printer-3d (quick-settings Printer tile)
       - "\U000F057E"   # volume-high (quick-settings Sound tile, on)
       - "\U000F0581"   # volume-off  (quick-settings Sound tile, off)
+      - "\U000F06A5"   # power-plug (quick-settings Power tile)
   - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
     id: mdi_48
     size: 48
