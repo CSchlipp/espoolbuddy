@@ -131,6 +131,12 @@ wifi:
   # `none` for snappiest awake (scale pushes / API) at higher awake current.
   # (The old sleep crashes were an unfed task watchdog, since fixed — not WiFi.)
   power_save_mode: light
+  # Fallback hotspot: if the configured SSID can't be joined, the console comes
+  # up as its own AP so captive_portal below can serve the WiFi setup page —
+  # without this the portal is compiled in but unreachable.
+  ap:
+    ssid: "ESPoolBuddy Console"
+    password: !secret ap_fallback_password
   on_connect:
     - logger.log: "WiFi connected"
   on_disconnect:
@@ -140,7 +146,10 @@ captive_portal:
 
 ota:
   - platform: esphome
-    password: !secret ota_password
+    # No password: a bare encryption block inherits the api encryption key
+    # below, which both authenticates the uploader and encrypts the upload.
+    # Cheaper than the password handshake (~3.5 KB flash, 60 B RAM).
+    encryption:
 
 # reboot_timeout: 0s — device runs standalone; we must not reboot just because
 # Home Assistant isn't reachable.
@@ -248,7 +257,12 @@ button:
 # ============================================================================
 output:
   - platform: ledc
-    pin: GPIO45
+    pin:
+      number: GPIO45
+      # GPIO45 is the VDD_SPI voltage strapping pin, but on the WT32-SC01-PLUS
+      # it is hardwired to the backlight driver and only read at reset — LEDC
+      # drives it long after that, so the strapping warning does not apply.
+      ignore_strapping_warning: true
     id: backlight_pwm
     frequency: 1000Hz
 

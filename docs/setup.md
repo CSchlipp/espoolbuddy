@@ -50,11 +50,11 @@ Then create `secrets.yaml` next to it:
 ```yaml
 wifi_ssid: "YourWiFiSSID"
 wifi_password: "YourWiFiPassword"
+ap_fallback_password: "your-fallback-ap-password"   # fallback hotspot, 8+ characters
 
 bambuddy_backend_url: "http://192.168.1.100:5000"   # your Bambuddy server
 bambuddy_api_key: "your-api-key-from-bambuddy-settings"
 
-ota_password: "your-ota-password"
 api_encryption_key: "REPLACE_WITH_YOUR_OWN_KEY"      # generate: openssl rand -base64 32
 ```
 
@@ -101,3 +101,12 @@ the same command auto-detects it on the network:
 ```bash
 esphome run <console file>
 ```
+
+Uploads are authenticated and encrypted with your `api_encryption_key` — the
+same key the Home Assistant API uses — so there is no separate OTA password to
+keep in `secrets.yaml`.
+
+> **Updating a device that was flashed before this repo dropped the OTA
+> password?** That firmware still asks for a password the uploader no longer
+> sends, so its next upload has to go over USB. Every OTA after that one works
+> as above.

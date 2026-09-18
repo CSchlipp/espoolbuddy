@@ -122,6 +122,12 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   power_save_mode: light
+  # Fallback hotspot: if the configured SSID can't be joined, the console comes
+  # up as its own AP so captive_portal below can serve the WiFi setup page —
+  # without this the portal is compiled in but unreachable.
+  ap:
+    ssid: "ESPoolBuddy Panda"
+    password: !secret ap_fallback_password
   on_connect:
     - logger.log: "WiFi connected"
   on_disconnect:
@@ -131,7 +137,10 @@ captive_portal:
 
 ota:
   - platform: esphome
-    password: !secret ota_password
+    # No password: a bare encryption block inherits the api encryption key
+    # below, which both authenticates the uploader and encrypts the upload.
+    # Cheaper than the password handshake (~3.5 KB flash, 60 B RAM).
+    encryption:
     # This board drives its RGB panel directly from a continuously-scanned
     # PSRAM framebuffer; a stalled main loop during the flash write shows up
     # as visible glitching. Blank the backlight for the duration so nothing
@@ -236,7 +245,12 @@ display:
     vsync_pulse_width: 4
     vsync_back_porch: 8
     vsync_front_porch: 8
-    reset_pin: GPIO46
+    reset_pin:
+      number: GPIO46
+      # GPIO46 is a boot-mode strapping pin, but the Panda Touch wires it to the
+      # panel's reset line. It is only sampled at reset, well before the display
+      # driver ever drives it, so the strapping warning does not apply.
+      ignore_strapping_warning: true
     color_order: RGB
     auto_clear_enabled: false
     data_pins:
