@@ -165,6 +165,10 @@ async def to_code(config):
         from esphome.components.esp32 import include_builtin_idf_component
 
         include_builtin_idf_component("esp_http_client")
+        # bambuddy_api.cpp includes esp_tls.h directly; esp_http_client doesn't
+        # reliably re-export it, so list the component rather than depend on
+        # another component happening to pull it in.
+        include_builtin_idf_component("esp-tls")
         # Every esp_http_client config here sets crt_bundle_attach, so the
         # component needs esp_crt_bundle.h — mbedtls only puts that header on
         # the include path when the Mozilla CA bundle is enabled. Scale devices
