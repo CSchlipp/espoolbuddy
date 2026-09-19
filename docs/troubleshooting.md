@@ -86,11 +86,7 @@
   a true dynamic list — ESPHome's declarative LVGL *YAML* can't create
   widgets at runtime, so the console pre-declares a ceiling and
   hides/populates however many are actually needed. Printers beyond the
-  25th in Bambuddy's list won't appear. (Raw LVGL C++ inside a `lambda:`
-  *can* build/tear down widgets at runtime, sidestepping this — the Storage
-  Locations screen under Settings does exactly that for an unbounded list
-  of locations. The printer picker hasn't been converted to that pattern
-  yet, but could be.)
+  25th in Bambuddy's list won't appear.
 - **Panda Touch console shows visual glitches**: a known, not-yet-solved
   issue with this build — see its
   [known limitations](console-pandatouch.md#known-limitations).

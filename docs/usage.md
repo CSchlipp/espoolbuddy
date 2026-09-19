@@ -70,12 +70,21 @@
   same as before this setting existed.
 - **Quick settings**: swipe down from anywhere on the console to pull open a
   quick-settings drawer, and swipe up, tap its chevron handle, or tap the
-  dimmed area behind it to close it again. It holds two tiles for now:
-  **Printer** — tap to switch to the next printer, hold to open the full
-  printer picker; the icon is green while that printer is reachable — and
-  **Sound**, which mutes/unmutes the chimes and stays in sync with
-  Settings → Features → Sound. The drawer stays out of the way while a
-  dialog is open or the screen is asleep.
+  dimmed area behind it to close it again. It holds up to three tiles:
+  **Power** — only shown when there is a smart plug to act on: one assigned
+  to the selected printer, or one not assigned to any printer. If the
+  selected printer has a plug with "Controls printer power" enabled in
+  Bambuddy, tap to toggle it on/off (icon lights up green while on) and hold
+  to open a popup listing every relevant plug (the printer's own, plus any
+  not assigned to a printer) so you can flip each individually. If there is
+  no such power plug, tapping opens that popup directly. The popup stays
+  open after a toggle so you can switch several in a row, and only closes
+  via its **Close** button — **Printer** — tap to
+  switch to the next printer, hold to open the full printer picker; the icon
+  is green while that printer is reachable — and **Sound**, which
+  mutes/unmutes the chimes and stays in sync with Settings → Features →
+  Sound. The drawer stays out of the way while a dialog is open or the
+  screen is asleep.
 - **Sleep**: the console dims its backlight after 60 s idle and can go into
   a deep-idle "sleep" tier (backlight off, reduced network cadence) after a
   configurable timeout — any touch, new tag, or weight change wakes it.

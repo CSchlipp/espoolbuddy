@@ -47,10 +47,11 @@ a test suite is a full firmware compile of all three configs, both locally
 **LVGL lists are static YAML by default.** Every list/grid in the UI (the
 NFC spool picker, the printer picker, the AMS grid) is hand-unrolled in YAML
 with a fixed cap and per-slot hide/show, since ESPHome's declarative LVGL
-config has no "repeat N times" construct. The one exception is the Storage
-Locations screen (Settings), whose rows are built and torn down at runtime
+config has no "repeat N times" construct. The exceptions are the Storage
+Locations screen (Settings) and the smart-plug popup (long-press or tap on
+the quick-settings Power tile), whose rows are built and torn down at runtime
 with raw LVGL C++ calls inside a `script:` lambda (`render_storage_locations`
-in `app.yaml`) — there's no reasonable static cap for an externally-managed,
-unbounded list of locations. That pattern is deliberately scoped to that one
-screen rather than adopted everywhere; see the comment above
-`render_storage_locations` before reusing it elsewhere.
+and `render_plug_list` in `app.yaml`) — there's no reasonable static cap for
+an externally-managed, unbounded list of locations or plugs. That pattern is
+deliberately scoped to those two screens rather than adopted everywhere; see
+the comment above `render_storage_locations` before reusing it elsewhere.
