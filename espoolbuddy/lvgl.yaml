@@ -2947,7 +2947,7 @@ lvgl:
                               id: plug_list_rows
                               width: 100%
                               height: SIZE_CONTENT
-                              max_height: 220
+                              max_height: 150
                               bg_opa: TRANSP
                               border_width: 0
                               pad_all: 0

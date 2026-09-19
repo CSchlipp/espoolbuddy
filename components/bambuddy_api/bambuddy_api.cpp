@@ -1963,10 +1963,24 @@ void BambuddyAPIComponent::set_selected_printer(int idx) {
     // stale units until the forced re-poll below completes.
     display_state_.ams_units.clear();
     display_state_.dual_nozzle = false;
+    // Same for the plug cache: it was filtered for the previous printer, so
+    // until it's re-fetched the Power tile would show — and toggle — that
+    // printer's plug. Cleared (and the generation bumped so an open popup
+    // drops its rows too) rather than re-filtered, since plugs don't carry
+    // their printer id here.
+    if (!display_state_.plugs.empty()) {
+      display_state_.plugs.clear();
+      display_state_.plugs_generation++;
+    }
+    display_state_.power_plug_id = 0;
   }
   unlock_state();
-  if (changed)
+  if (changed) {
     last_printer_poll_ms_ = 0;  // force a printer/AMS refresh on next task tick
+    // Queued right away instead of waiting for that poll, which runs the
+    // AMS fetch first.
+    request_power_plug();
+  }
 }
 
 void BambuddyAPIComponent::api_get_printers() {
@@ -3956,11 +3970,12 @@ void BambuddyAPIComponent::api_set_spool_location(int spool_id, int location_id)
 void BambuddyAPIComponent::api_get_power_plug() {
   std::string resp;
   if (!http_get_api("/smart-plugs/", resp)) {
+    // Keep the last known list on a failed poll: it's a transient error far
+    // more often than not, and dropping the cache would make the Power tile
+    // vanish and empty an open popup on every WiFi hiccup. A printer switch
+    // clears the cache itself (set_selected_printer), so what's kept here is
+    // never another printer's.
     ESP_LOGW(TAG, "api_get_power_plug: GET failed");
-    lock_state();
-    display_state_.plugs.clear();
-    display_state_.power_plug_id = 0;
-    unlock_state();
     return;
   }
   lock_state();
@@ -4007,7 +4022,14 @@ void BambuddyAPIComponent::api_control_power_plug(int plug_id, bool turn_on) {
     // has since re-fetched the list out from under this entry.
     lock_state();
     for (auto &p : display_state_.plugs) {
-      if (p.id == plug_id && p.on == turn_on) { p.on = !turn_on; break; }
+      if (p.id == plug_id && p.on == turn_on) {
+        p.on = !turn_on;
+        // The popup only repaints on a generation change (its own row was
+        // updated optimistically on tap), so bump it or the row would keep
+        // showing the state that never happened.
+        display_state_.plugs_generation++;
+        break;
+      }
     }
     unlock_state();
   }

@@ -283,6 +283,7 @@ script:
           // with the blocker list in ams_page_step below.
           lv_obj_t *blockers[] = {id(ams_modal_card), id(printer_modal), id(cal_modal),
                                   id(confirm_modal), id(assign_id_modal), id(plate_clear_popup),
+                                  id(location_link_modal), id(plug_list_modal),
                                   id(wake_guard), id(nfc_weight_popup),
                                   id(nfc_archive_proposal_popup), id(nfc_picker_panel)};
           for (auto *b : blockers)
@@ -376,6 +377,7 @@ script:
           // blocker list in qs_open above.
           lv_obj_t *blockers[] = {id(quick_settings), id(ams_modal_card), id(printer_modal),
                                   id(cal_modal), id(confirm_modal), id(assign_id_modal),
+                                  id(location_link_modal), id(plug_list_modal),
                                   id(plate_clear_popup), id(wake_guard)};
           for (auto *b : blockers)
             if (!lv_obj_has_flag(b, LV_OBJ_FLAG_HIDDEN)) return;
