@@ -441,9 +441,6 @@ class BambuddyAPIComponent : public Component {
   // Bambuddy-local-DB-only concept (no Spoolman endpoint exists for them),
   // so every piece of that feature checks this and disables/hides itself.
   bool spoolman_mode() const { return spoolman_inventory_; }
-  // Console only: header clock format. true = 24-hour (14:05), false = 12-hour (2:05 PM).
-  void set_clock_24h(bool v) { clock_24h_ = v; }
-  bool clock_24h() const { return clock_24h_; }
   // Whether an AMS-loaded spool's storage location should be cleared
   // automatically (Bambuddy itself does not do this). Mirrored at boot and
   // on every toggle from the persisted `clear_location_on_ams_load` global.
@@ -974,7 +971,6 @@ class BambuddyAPIComponent : public Component {
   uint32_t heartbeat_interval_ms_{10000};
   uint32_t scale_report_interval_ms_{1000};
   bool spoolman_inventory_{false};  // false = Bambuddy local DB, true = Spoolman
-  bool clock_24h_{true};  // console only: header clock format
   // Whether an AMS-loaded spool's storage location is cleared automatically.
   // Mirrored from the persisted `clear_location_on_ams_load` global — see
   // set_clear_location_on_ams_load(). Defaults true (clear), matching the

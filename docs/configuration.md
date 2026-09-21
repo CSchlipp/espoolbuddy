@@ -23,12 +23,17 @@ same `bambuddy_api` component; several options only apply to one mode.
 | `bambuddy_api.scale_report_interval` | Scale | `100` ms | Weight push cadence to the console |
 | `bambuddy_nfc.poll_interval` | Both | `300` ms | Fallback polling rate (only used if IRQ isn't wired) |
 | `bambuddy_nfc.miss_threshold` | Both | `3` | Missed reads before a "tag removed" event fires |
-| `bambuddy_api.clock_24h` | Console | `true` | Header clock format |
 
 The `espoolbuddy_ref` substitution at the very top of each file is a
 different kind of knob: it decides which version of this repo the build
 pulls its components, UI packages and images from — see
 [tracking `main` vs. pinning a release](setup.md#tracking-main-vs-pinning-a-release).
+
+The console's `clock_24h` substitution (`"true"` = 24-hour, `"false"` =
+12-hour) only sets the header clock's format on first boot. After that it is
+the **24-Hour Clock** switch on the device's Home Assistant page (under
+Configuration) that decides, and the device remembers the setting across
+reboots and reflashes.
 
 The Panda Touch console omits `nfc_id` / `speaker_id` entirely rather than
 setting them — see its [known limitations](console-pandatouch.md#known-limitations)

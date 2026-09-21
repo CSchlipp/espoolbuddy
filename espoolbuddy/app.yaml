@@ -186,6 +186,31 @@ globals:
     type: int                       # loaded into an AMS slot, 0 = leave it as-is
     restore_value: yes              # (Bambuddy itself does not clear it automatically)
     initial_value: '1'
+  - id: clock_24h            # header clock: true = 24-hour (14:05), false = 12-hour (2:05 PM).
+    type: bool               # Defaults to the clock_24h substitution; the "24-Hour Clock"
+    restore_value: yes       # switch below changes it at runtime.
+    initial_value: '${clock_24h}'
+
+
+# ============================================================================
+# Header clock format, switchable from Home Assistant. Reads and writes the
+# NVS-backed clock_24h global, so the choice survives reboots and a fresh
+# flash only falls back to the substitution default until it's first changed.
+# ============================================================================
+switch:
+  - platform: template
+    name: "24-Hour Clock"
+    id: clock_24h_switch
+    entity_category: config
+    icon: "mdi:clock-digital"
+    lambda: 'return id(clock_24h);'
+    # Not ALWAYS_OFF (the template default): that fires turn_off_action at
+    # boot and clobbers the restored global. The global does the restoring.
+    restore_mode: DISABLED
+    turn_on_action:
+      - lambda: 'id(clock_24h) = true;'
+    turn_off_action:
+      - lambda: 'id(clock_24h) = false;'
 
 
 # ============================================================================
@@ -1038,18 +1063,22 @@ interval:
           // 400 ms tick doesn't repaint the header every cycle.
           {
             static int prev_clock_min = -2;
+            static bool prev_clock_24h = id(clock_24h);
             static std::string prev_header_printer;
             auto now_t = id(sntp_time).now();
             int cur_min = now_t.is_valid() ? (now_t.hour * 60 + now_t.minute) : -1;
             int sel = s.selected_printer_idx;
             std::string cur_printer = (!s.printers.empty() && sel >= 0 && sel < (int)s.printers.size())
                                        ? s.printers[sel].name : std::string();
-            if (cur_min != prev_clock_min || cur_printer != prev_header_printer) {
+            bool cur_24h = id(clock_24h);
+            if (cur_min != prev_clock_min || cur_printer != prev_header_printer
+                || cur_24h != prev_clock_24h) {
               prev_clock_min = cur_min;
               prev_header_printer = cur_printer;
+              prev_clock_24h = cur_24h;
               char cb[12];
               if (now_t.is_valid()) {
-                if (bambuddy->clock_24h()) {
+                if (cur_24h) {
                   snprintf(cb, sizeof(cb), "%02d:%02d", now_t.hour, now_t.minute);
                 } else {
                   int h12 = now_t.hour % 12;
