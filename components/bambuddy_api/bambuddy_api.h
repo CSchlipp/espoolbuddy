@@ -303,7 +303,9 @@ struct DisplayState {
   bool printer_connected{false};
   // True when the backend reports the printer is waiting for the user to
   // physically clear the build plate (awaiting_plate_clear on GET
-  // /api/v1/printers/{id}/status). Drives the almost-full-screen confirm popup.
+  // /api/v1/printers/{id}/status) AND BamBuddy's require_plate_clear setting is
+  // on (otherwise nothing waits on the confirmation). Drives the
+  // almost-full-screen confirm popup.
   bool awaiting_plate_clear{false};
 
 
@@ -418,7 +420,7 @@ class BambuddyAPIComponent : public Component {
   void set_scale_report_interval(uint32_t ms) { scale_report_interval_ms_ = ms; }
   void set_printer_poll_interval(uint32_t s) { printer_poll_interval_ms_ = s * 1000; }
   // Scale server mode: this device IS the scale — serves weight/tare/calibrate
-  // over HTTP and does not connect to BamBuddy at all.
+  // over HTTP and does not connect to Bambuddy at all.
   void set_scale_mode(bool v) { scale_mode_ = v; }
   // Scale device only: base URL of a console to push data to — no port suffix
   // (e.g. "http://espoolbuddy-console.local").  CONSOLE_PUSH_PORT is appended
@@ -468,8 +470,8 @@ class BambuddyAPIComponent : public Component {
   // Bambuddy-local-DB-only concept (no Spoolman endpoint exists for them),
   // so every piece of that feature checks this and disables/hides itself.
   bool spoolman_mode() const { return spoolman_inventory_; }
-  // Console only: header clock format. true = 24-hour (14:05), false = 12-hour (2:05 PM).
-  void set_clock_24h(bool v) { clock_24h_ = v; }
+  // Console only: header clock format. true = 24-hour (14:05), false = 12-hour
+  // (2:05 PM). Follows Bambuddy's time_format setting — see api_get_settings().
   bool clock_24h() const { return clock_24h_; }
   // Whether an AMS-loaded spool's storage location should be cleared
   // automatically (Bambuddy itself does not do this). Mirrored at boot and
@@ -541,7 +543,7 @@ class BambuddyAPIComponent : public Component {
 
   // Record the current scale reading (filament + spool body) as the new weight
   // for a spool. Enqueues UPDATE_SPOOL_WEIGHT; the HTTP task POSTs the raw
-  // total_grams to POST /scale/update-spool-weight and BamBuddy handles
+  // total_grams to POST /scale/update-spool-weight and Bambuddy handles
   // core_weight subtraction and Spoolman routing server-side. The local display
   // is updated optimistically using core_weight_g fetched from the spool detail.
   void record_scale_weight(int spool_id, float total_grams);
@@ -557,6 +559,9 @@ class BambuddyAPIComponent : public Component {
   // true until it's actually cleared some other way. The YAML-side
   // plate_clear_dismissed global (not this flag) is what suppresses the
   // popup from reappearing on the next poll while it's still true.
+  // display_state_.awaiting_plate_clear is already gated on Bambuddy's
+  // "Require plate-clear confirmation" setting, which is the popup's only
+  // on/off switch.
   void confirm_plate_cleared();
   void dismiss_plate_clear_popup() { set_status("Plate clear dismissed"); }
   void dismiss_archive_proposal() {
@@ -851,6 +856,7 @@ class BambuddyAPIComponent : public Component {
   bool api_system_command_result(const std::string &command, bool success,
                                  const std::string &message);
   void api_get_printers();
+  void api_get_settings();
   void api_get_ams();
   void api_get_printer_status(const std::string &printer_id);
 
@@ -1037,7 +1043,6 @@ class BambuddyAPIComponent : public Component {
   uint32_t heartbeat_interval_ms_{10000};
   uint32_t scale_report_interval_ms_{1000};
   bool spoolman_inventory_{false};  // false = Bambuddy local DB, true = Spoolman
-  bool clock_24h_{true};  // console only: header clock format
   // Whether an AMS-loaded spool's storage location is cleared automatically.
   // Mirrored from the persisted `clear_location_on_ams_load` global — see
   // set_clear_location_on_ams_load(). Defaults true (clear), matching the
@@ -1080,6 +1085,18 @@ class BambuddyAPIComponent : public Component {
   // immediately — recovery is not debounced, only the transition to "down".
   uint8_t heartbeat_fail_count_{0};
   uint8_t heartbeat_fail_threshold_{3};
+
+  // Bambuddy's "Require plate-clear confirmation" setting
+  // (GET /api/v1/settings/ui-preferences).
+  // Atomic: written by the poll task, read by the LVGL task.
+  // Defaults to false like Bambuddy's own setting, so the popup never shows
+  // before Bambuddy has confirmed the setting is on. Fetched before the printer
+  // status in each full poll, so it's known by the time awaiting_plate_clear is.
+  std::atomic<bool> require_plate_clear_{false};
+  // Bambuddy's time_format setting (same endpoint): "12h" -> false, "24h" and
+  // "system" -> true (the console has no system locale to follow).
+  // Atomic for the same reason; defaults to 24-hour until the first fetch.
+  std::atomic<bool> clock_24h_{true};
 
   // Printer / AMS polling
   uint32_t printer_poll_interval_ms_{30000};

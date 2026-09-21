@@ -915,63 +915,12 @@ lvgl:
                                                       widgets:
                                                         - label: {id: lbl_sound_on, text: "On", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
 
-                                            # ---- Row: Confirm Plate Clear on/off (Off | On segments) ----
-                                            - obj:
-                                                id: row_plateclear_toggle
-                                                grid_cell_row_pos: 1
-                                                grid_cell_column_pos: 0
-                                                bg_opa: TRANSP
-                                                border_width: 0
-                                                pad_left: 14
-                                                pad_top: 0
-                                                pad_bottom: 0
-                                                pad_right: 10
-                                                scrollbar_mode: "OFF"
-                                                layout:
-                                                  type: flex
-                                                  flex_flow: row
-                                                  flex_align_cross: center
-                                                  flex_align_track: center
-                                                  pad_column: 8
-                                                widgets:
-                                                  - label:
-                                                      width: 130
-                                                      text: "Plate Clear Popup"
-                                                      text_font: roboto_16
-                                                      long_mode: DOT
-                                                      pad_top: 4
-                                                      text_color: 0xAAAAAA
-                                                  - button:
-                                                      id: btn_plateclear_off
-                                                      flex_grow: 1
-                                                      height: 32
-                                                      styles: sty_card
-                                                      scrollbar_mode: "OFF"
-                                                      on_click:
-                                                        then:
-                                                          - lambda: 'id(plate_clear_confirm_enabled) = 0;'
-                                                          - script.execute: update_plateclear_btn
-                                                      widgets:
-                                                        - label: {id: lbl_plateclear_off, text: "Off", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
-                                                  - button:
-                                                      id: btn_plateclear_on
-                                                      flex_grow: 1
-                                                      height: 32
-                                                      styles: sty_card
-                                                      scrollbar_mode: "OFF"
-                                                      on_click:
-                                                        then:
-                                                          - lambda: 'id(plate_clear_confirm_enabled) = 1;'
-                                                          - script.execute: update_plateclear_btn
-                                                      widgets:
-                                                        - label: {id: lbl_plateclear_on, text: "On", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
-
                                             # ---- Row: Clear Location on AMS Load (Off | On segments) ----
                                             # Deleted at boot in spoolman mode (see app.yaml on_boot) —
                                             # storage locations don't exist there.
                                             - obj:
                                                 id: row_clearloc_toggle
-                                                grid_cell_row_pos: 3
+                                                grid_cell_row_pos: 2
                                                 grid_cell_column_pos: 0
                                                 bg_opa: TRANSP
                                                 border_width: 0
@@ -1027,7 +976,7 @@ lvgl:
                                             #      "5" hidden on Console, screen_height < 400) ----
                                             - obj:
                                                 id: row_ams_rows_toggle
-                                                grid_cell_row_pos: 2
+                                                grid_cell_row_pos: 1
                                                 grid_cell_column_pos: 0
                                                 bg_opa: TRANSP
                                                 border_width: 0
@@ -2974,8 +2923,8 @@ lvgl:
 
               # ================ PLATE CLEAR POPUP =============================
               # Almost-full-screen confirmation shown when the backend reports
-              # awaiting_plate_clear (gated by the "Plate Clear" settings toggle;
-              # see plate_clear_confirm_enabled / update_plateclear_btn and the
+              # awaiting_plate_clear, which is only ever true while Bambuddy's
+              # "Require plate-clear confirmation" setting is on (see the
               # show/hide logic in the interval lambda). Confirm notifies the
               # backend via bambuddy->confirm_plate_cleared(); Discard just
               # closes the popup locally without notifying the backend.

@@ -19,6 +19,9 @@ actually goes over the wire. The console consumes the Bambuddy API
 | POST | `/api/v1/spoolbuddy/devices/{id}/calibration/set-tare` | Update tare offset |
 | POST | `/api/v1/spoolbuddy/diagnostics/{id}/result` | Diagnostic run result |
 | POST | `/api/v1/spoolbuddy/devices/{id}/system/command-result` | System command acknowledgement |
+| GET | `/api/v1/printers/{id}/status` | Printer/AMS state; `awaiting_plate_clear` drives the plate-clear popup |
+| GET | `/api/v1/settings/ui-preferences` | Read `require_plate_clear` (the popup only shows when Bambuddy requires plate-clear confirmation) and `time_format` (header clock format) |
+| POST | `/api/v1/printers/{id}/clear-plate` | Confirm the build plate is clear (popup **Confirm**) |
 
 ## Backend commands handled
 

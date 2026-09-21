@@ -9,8 +9,11 @@ esphome:
         - lambda: |-
             if (!bambuddy->has_speaker()) {
               lv_obj_del(id(row_sound_toggle));
-              lv_obj_set_grid_cell(id(row_plateclear_toggle),
+              lv_obj_set_grid_cell(id(row_ams_rows_toggle),
                   LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 0, 1);
+              if (!bambuddy->spoolman_mode())
+                lv_obj_set_grid_cell(id(row_clearloc_toggle),
+                    LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 1, 1);
               // The quick-settings tiles row is a centred flex row, so removing
               // the Sound tile just re-centres the Printer tile — no re-flow.
               lv_obj_del(id(qs_tile_sound));
@@ -142,10 +145,6 @@ globals:
     type: int
     restore_value: yes
     initial_value: '1'
-  - id: plate_clear_confirm_enabled  # 1 = show the build-plate-clear confirm popup, 0 = disabled
-    type: int
-    restore_value: yes
-    initial_value: '0'
   - id: plate_clear_popup_open  # 1 while the plate-clear popup is on screen (guards re-showing it)
     type: int
     restore_value: no
@@ -249,7 +248,6 @@ script:
           // Sync settings toggles and sleep/brightness widgets with restored globals.
           id(update_nfc_sleep_btn).execute();
           id(update_sound_btn).execute();
-          id(update_plateclear_btn).execute();
           id(update_wifi_sleep_btn).execute();
           id(update_sleep_timeout_lbl).execute();
           id(update_backlight_brightness).execute();
@@ -426,22 +424,6 @@ script:
           lv_obj_set_style_text_color(id(qs_sound_icon),
               on ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
           lv_label_set_text(id(qs_sound_sub), on ? "On" : "Off");
-
-  # Refresh the Settings "Confirm Plate Clear: Off/On" toggle from the
-  # plate_clear_confirm_enabled global. Called on boot/tab-switch (apply_tab)
-  # and on tap.
-  - id: update_plateclear_btn
-    then:
-      - lambda: |-
-          bool on = id(plate_clear_confirm_enabled);
-          lv_obj_set_style_bg_color(id(btn_plateclear_off),
-              !on ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
-          lv_obj_set_style_text_color(id(lbl_plateclear_off),
-              !on ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
-          lv_obj_set_style_bg_color(id(btn_plateclear_on),
-              on ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
-          lv_obj_set_style_text_color(id(lbl_plateclear_on),
-              on ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
 
   # Refresh the Settings "Clear Location on AMS Load: Off/On" toggle from the
   # restored global. Called on boot/tab-switch (apply_tab) and on tap.
@@ -968,7 +950,7 @@ interval:
           // like the weight-wake above (not the NFC-wake, which is
           // touch-adjacent) since this is a backend-driven wake, not a
           // touch — no accidental-tap risk to guard against.
-          if (s.awaiting_plate_clear && id(plate_clear_confirm_enabled)
+          if (s.awaiting_plate_clear
               && !id(plate_clear_popup_open) && !id(plate_clear_dismissed)) {
             id(display_backlight).turn_on().set_brightness(id(backlight_brightness_pct) / 100.0f).set_transition_length(0).perform();
             lv_disp_trig_activity(NULL);
@@ -1060,7 +1042,9 @@ interval:
           }
 
           // ---- Build-plate-clear confirmation popup ----
-          // Gated by the "Confirm Plate Clear" settings toggle. Shown on top of
+          // Gated solely by Bambuddy's "Require plate-clear confirmation" setting
+          // (s.awaiting_plate_clear is already masked with it on the C++ side,
+          // see api_get_printer_status()). Shown on top of
           // whatever tab is active (like the wake guard) so it isn't tied to the
           // NFC/AMS/Scale content switching. plate_clear_popup_open guards
           // against re-showing every tick while it's already up.
@@ -1072,7 +1056,7 @@ interval:
           // is actually observed false (the plate-clear was resolved some other
           // way, e.g. from the backend UI) — that re-arms the popup for the next
           // time the flag transitions to true.
-          if (s.awaiting_plate_clear && id(plate_clear_confirm_enabled)
+          if (s.awaiting_plate_clear
               && !id(plate_clear_popup_open) && !id(plate_clear_dismissed)) {
             id(plate_clear_popup_open) = 1;
             lv_obj_clear_flag(id(plate_clear_popup), LV_OBJ_FLAG_HIDDEN);
@@ -1113,22 +1097,27 @@ interval:
               LV_PART_MAIN);
 
           // ---- Header clock (SNTP, on the internal RTC) ----
-          // Only rewrite the label when the displayed minute changes, so this
-          // 400 ms tick doesn't repaint the header every cycle.
+          // Only rewrite the label when the displayed minute, printer or clock
+          // format (Bambuddy's time_format) changes, so this 400 ms tick doesn't
+          // repaint the header every cycle.
           {
             static int prev_clock_min = -2;
             static std::string prev_header_printer;
+            static bool prev_clock_24h = true;
             auto now_t = id(sntp_time).now();
             int cur_min = now_t.is_valid() ? (now_t.hour * 60 + now_t.minute) : -1;
             int sel = s.selected_printer_idx;
             std::string cur_printer = (!s.printers.empty() && sel >= 0 && sel < (int)s.printers.size())
                                        ? s.printers[sel].name : std::string();
-            if (cur_min != prev_clock_min || cur_printer != prev_header_printer) {
+            bool cur_24h = bambuddy->clock_24h();
+            if (cur_min != prev_clock_min || cur_printer != prev_header_printer ||
+                cur_24h != prev_clock_24h) {
               prev_clock_min = cur_min;
               prev_header_printer = cur_printer;
+              prev_clock_24h = cur_24h;
               char cb[12];
               if (now_t.is_valid()) {
-                if (bambuddy->clock_24h()) {
+                if (cur_24h) {
                   snprintf(cb, sizeof(cb), "%02d:%02d", now_t.hour, now_t.minute);
                 } else {
                   int h12 = now_t.hour % 12;
