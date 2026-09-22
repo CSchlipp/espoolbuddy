@@ -13,7 +13,6 @@ same `bambuddy_api` component; several options only apply to one mode.
 | `bambuddy_api.backend_url` | Console | *(secrets)* | Bambuddy server URL |
 | `bambuddy_api.api_key` | Console | *(secrets)* | Bambuddy API key |
 | `bambuddy_api.hostname` | Both | `SpoolBuddy-ESP` | Display name in the Bambuddy UI |
-| `bambuddy_api.inventory_backend` | Console | `internal` | `internal` or `spoolman` — must match Bambuddy's Settings → Spoolman toggle |
 | `bambuddy_api.heartbeat_interval` | Console | `10` s | Heartbeat / command-poll frequency |
 | `bambuddy_api.printer_poll_interval` | Console | `30` s | AMS/printer state poll frequency |
 | `bambuddy_api.sleep_timeout` | Console | `600` s | Idle time before deep sleep (`0` = disabled); also adjustable live from the Settings tab |
