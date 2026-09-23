@@ -471,6 +471,12 @@ void BambuddyAPIComponent::http_task_loop() {
         case HttpJob::SET_SPOOL_LOCATION:
           api_set_spool_location(job.i1, job.i2);
           break;
+        case HttpJob::FETCH_POWER_PLUG:
+          api_get_power_plug();
+          break;
+        case HttpJob::CONTROL_POWER_PLUG:
+          api_control_power_plug(job.i1, job.i2 != 0);
+          break;
         case HttpJob::SCALE_PUSH_NFC_SCANNED:
         case HttpJob::SCALE_PUSH_NFC_REMOVED:
           // Scale-mode-only job kinds — never enqueued here since the
@@ -548,6 +554,7 @@ void BambuddyAPIComponent::http_task_loop() {
       api_get_printers();
       api_get_ams();
       if (!spoolman_mode()) request_storage_locations();
+      request_power_plug();
       {
         lock_state();
         std::string pid = display_state_.selected_printer_id;
@@ -1956,10 +1963,24 @@ void BambuddyAPIComponent::set_selected_printer(int idx) {
     // stale units until the forced re-poll below completes.
     display_state_.ams_units.clear();
     display_state_.dual_nozzle = false;
+    // Same for the plug cache: it was filtered for the previous printer, so
+    // until it's re-fetched the Power tile would show — and toggle — that
+    // printer's plug. Cleared (and the generation bumped so an open popup
+    // drops its rows too) rather than re-filtered, since plugs don't carry
+    // their printer id here.
+    if (!display_state_.plugs.empty()) {
+      display_state_.plugs.clear();
+      display_state_.plugs_generation++;
+    }
+    display_state_.power_plug_id = 0;
   }
   unlock_state();
-  if (changed)
+  if (changed) {
     last_printer_poll_ms_ = 0;  // force a printer/AMS refresh on next task tick
+    // Queued right away instead of waiting for that poll, which runs the
+    // AMS fetch first.
+    request_power_plug();
+  }
 }
 
 void BambuddyAPIComponent::api_get_printers() {
@@ -3946,6 +3967,77 @@ void BambuddyAPIComponent::api_set_spool_location(int spool_id, int location_id)
   if (showing) api_get_spool(spool_id);
 }
 
+void BambuddyAPIComponent::api_get_power_plug() {
+  std::string resp;
+  if (!http_get_api("/smart-plugs/", resp)) {
+    // Keep the last known list on a failed poll: it's a transient error far
+    // more often than not, and dropping the cache would make the Power tile
+    // vanish and empty an open popup on every WiFi hiccup. A printer switch
+    // clears the cache itself (set_selected_printer), so what's kept here is
+    // never another printer's.
+    ESP_LOGW(TAG, "api_get_power_plug: GET failed");
+    return;
+  }
+  lock_state();
+  std::string sel_pid = display_state_.selected_printer_id;
+  unlock_state();
+
+  std::vector<SmartPlug> found;
+  int main_id = 0;
+  for (const auto &obj : json_array_objects(resp)) {
+    std::string pid = parse_json_string(obj, "printer_id");  // "" when null
+    if (!pid.empty() && pid != sel_pid) continue;  // assigned to some other printer
+    SmartPlug plug;
+    plug.id   = parse_json_int(obj, "id", 0);
+    plug.name = parse_json_string(obj, "name");
+    std::string st = parse_json_string(obj, "last_state");
+    plug.on = (st == "ON" || st == "on" || st == "1" || st == "true");
+    if (main_id == 0 && !pid.empty() && pid == sel_pid &&
+        parse_json_bool(obj, "controls_printer_power", false))
+      main_id = plug.id;  // first match, in backend list order, wins
+    found.push_back(std::move(plug));
+  }
+  lock_state();
+  // Same "only bump on real change" guard as the storage-locations list —
+  // this runs on every printer/AMS poll, and the plug list rarely changes.
+  if (display_state_.plugs != found) {
+    display_state_.plugs = std::move(found);
+    display_state_.plugs_generation++;
+  }
+  display_state_.power_plug_id = main_id;
+  unlock_state();
+}
+
+void BambuddyAPIComponent::api_control_power_plug(int plug_id, bool turn_on) {
+  char path[48];
+  snprintf(path, sizeof(path), "/smart-plugs/%d/control", plug_id);
+  std::string body = turn_on ? "{\"action\":\"on\"}" : "{\"action\":\"off\"}";
+  std::string resp;
+  if (!http_post_api(path, body, resp)) {
+    ESP_LOGW(TAG, "api_control_power_plug %d %s: failed", plug_id, turn_on ? "on" : "off");
+    set_status("Plug toggle failed");
+    // toggle_plug() already flipped this plug's cached `on` optimistically —
+    // undo that since the backend never actually applied it. Only revert if
+    // nothing else (a printer switch, a periodic poll landing mid-flight)
+    // has since re-fetched the list out from under this entry.
+    lock_state();
+    for (auto &p : display_state_.plugs) {
+      if (p.id == plug_id && p.on == turn_on) {
+        p.on = !turn_on;
+        // The popup only repaints on a generation change (its own row was
+        // updated optimistically on tap), so bump it or the row would keep
+        // showing the state that never happened.
+        display_state_.plugs_generation++;
+        break;
+      }
+    }
+    unlock_state();
+  }
+  // No re-fetch on success — the cached entry already holds the state we
+  // just asked for; the next periodic request_power_plug() poll reconciles
+  // it against the backend's own last_state regardless.
+}
+
 void BambuddyAPIComponent::record_scale_weight(int spool_id, float total_grams) {
   if (spool_id <= 0) {
     ESP_LOGW(TAG, "record_scale_weight: invalid spool_id %d", spool_id);
@@ -4220,6 +4312,42 @@ void BambuddyAPIComponent::unlink_location_tag(int location_id) {
   job.kind = HttpJob::UNLINK_LOCATION_TAG;
   job.i1   = location_id;
   enqueue_job(job);
+}
+
+void BambuddyAPIComponent::request_power_plug() {
+  HttpJob job;
+  job.kind = HttpJob::FETCH_POWER_PLUG;
+  enqueue_job(job);
+}
+
+void BambuddyAPIComponent::toggle_plug(int plug_id) {
+  if (plug_id <= 0) return;
+  bool turn_on = false;
+  bool found = false;
+  lock_state();
+  for (auto &p : display_state_.plugs) {
+    if (p.id == plug_id) {
+      turn_on = !p.on;
+      p.on = turn_on;  // optimistic — see header comment
+      found = true;
+      break;
+    }
+  }
+  unlock_state();
+  if (!found) return;
+  HttpJob job;
+  job.kind = HttpJob::CONTROL_POWER_PLUG;
+  job.i1   = plug_id;
+  job.i2   = turn_on ? 1 : 0;
+  enqueue_job(job);
+}
+
+void BambuddyAPIComponent::toggle_power_plug() {
+  int plug_id;
+  lock_state();
+  plug_id = display_state_.power_plug_id;
+  unlock_state();
+  toggle_plug(plug_id);
 }
 
 void BambuddyAPIComponent::link_tag_to_spool(int spool_id) {

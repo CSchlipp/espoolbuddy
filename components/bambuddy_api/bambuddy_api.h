@@ -253,6 +253,19 @@ struct StorageLocation {
   bool operator!=(const StorageLocation &o) const { return !(*this == o); }
 };
 
+/** A Bambuddy smart plug relevant to the current context (see
+ *  DisplayState::plugs) — either assigned to the selected printer, or not
+ *  assigned to any printer at all. */
+struct SmartPlug {
+  int id{0};
+  std::string name;
+  bool on{false};
+  bool operator==(const SmartPlug &o) const {
+    return id == o.id && name == o.name && on == o.on;
+  }
+  bool operator!=(const SmartPlug &o) const { return !(*this == o); }
+};
+
 /** Display state shared between the component and LVGL callbacks */
 struct DisplayState {
   BackendState backend_state = BackendState::DISCONNECTED;
@@ -360,6 +373,20 @@ struct DisplayState {
   // Holds a ready-to-show message naming the other location; "" = no
   // conflict. Cleared by begin_link_location_tag()/cancel_link_location_tag().
   std::string location_link_conflict_msg;
+
+  // Smart plugs relevant to the current context — every plug assigned to
+  // the selected printer, plus every plug with no printer assigned at all
+  // (printer_id == null). Backs both the quick-settings Power tile and the
+  // long-press "all plugs" popup. Refreshed on the same poll cadence as the
+  // printer/AMS fetch, and again whenever the popup is opened.
+  std::vector<SmartPlug> plugs;
+  uint32_t plugs_generation{0};
+  // Which entry in `plugs` (by id), if any, is the selected printer's
+  // designated power-control plug — the first one (in backend list order)
+  // assigned to this printer with controls_printer_power=true. 0 = none
+  // (quick-settings tile stays hidden; the popup still lists every plug
+  // above regardless).
+  int power_plug_id{0};
 };
 
 /**
@@ -477,6 +504,27 @@ class BambuddyAPIComponent : public Component {
   void cancel_link_location_tag();
   // Clear a location's linked tag (PATCH identifier:"").
   void unlink_location_tag(int location_id);
+
+  // ---- Smart plugs ----
+  // Fetch the plug list, filter it down to `plugs` (every plug assigned to
+  // the selected printer, plus every plug assigned to none), and pick
+  // power_plug_id — the first entry (in backend list order) assigned to
+  // this printer with controls_printer_power=true. Enqueues FETCH_POWER_PLUG.
+  // Called on the same poll cadence as the printer/AMS fetch, and again
+  // when the "all plugs" popup opens (its list wants to be fresh).
+  void request_power_plug();
+  // Flip a plug's state: reads its last-known `on` from the cached `plugs`
+  // list and sends the opposite state explicitly ("on"/"off", not
+  // "toggle" — so a second tap before the first completes converges on the
+  // button's own last requested state instead of an unknown server-side
+  // toggle race). Updates that entry's `on` optimistically, under lock,
+  // before the HTTP call even starts, so anything reading `plugs` picks up
+  // the change on the next ~400ms interval tick instead of waiting on a
+  // full network round trip. No-op if plug_id isn't in `plugs`.
+  void toggle_plug(int plug_id);
+  // Convenience wrapper for the quick-settings tile's short-press, which
+  // only ever acts on power_plug_id.
+  void toggle_power_plug();
 
   // Link the current NFC tag (last_tag_uid) to an existing inventory spool.
   // Enqueues LINK_TAG_TO_SPOOL; on success fetches the spool and sets
@@ -710,6 +758,8 @@ class BambuddyAPIComponent : public Component {
       LINK_LOCATION_TAG_CHECKED, // GET spools/by-tag first; only links if no spool owns the uid
       UNLINK_LOCATION_TAG,     // PATCH /inventory/locations/{id} {"identifier": ""}
       SET_SPOOL_LOCATION,      // PATCH /inventory/spools/{id} {"location_id": id|null}
+      FETCH_POWER_PLUG,        // GET /smart-plugs/ → find the selected printer's power plug
+      CONTROL_POWER_PLUG,      // POST /smart-plugs/{id}/control {"action": "on"|"off"}
       // Scale push mode: scale → console (only processed when scale_mode_)
       // (weight is NOT a job kind — see weight_push_dirty_ — because pushing
       // it as a queued one-shot job could silently drop readings that arrive
@@ -931,6 +981,19 @@ class BambuddyAPIComponent : public Component {
   // (link_tag_to_spool()/create_spool_from_tag()) — a tag must not end up
   // claimed by both a location and a spool.
   std::string find_conflicting_location(const std::string &uid, int exclude_location_id = 0);
+
+  // Smart plugs. GET /smart-plugs/, keep entries whose printer_id matches
+  // selected_printer_id or is null, populate `plugs`, and separately note
+  // the first matching entry with controls_printer_power=true as
+  // power_plug_id.
+  void api_get_power_plug();
+  // POST /smart-plugs/{id}/control {"action": "on"|"off"} — the explicit
+  // state toggle_plug()/toggle_power_plug() already decided and applied
+  // optimistically. On failure, reverts that plug's `on` back (the
+  // optimistic flip was wrong). No re-fetch on success: the next periodic
+  // request_power_plug() poll reconciles `plugs` with the backend's own
+  // last_state anyway.
+  void api_control_power_plug(int plug_id, bool turn_on);
 
   // JSON array / nested-object parsers
   static std::vector<std::string> json_array_objects(const std::string &json);

@@ -1652,631 +1652,651 @@ lvgl:
                                 - label: {text: "Close", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
 
               # ================ PRINTER PICKER MODAL =========================
+              # printer_modal is now the full-screen click-blocking backdrop
+              # (obj widgets are clickable by default in this config — see
+              # the qs tile row's clickable:false comment for confirmation),
+              # so a tap anywhere behind the card can't reach whatever's
+              # underneath it (e.g. a Settings toggle) instead of just being
+              # absorbed here. The visible card is the nested
+              # printer_modal_card child. Every existing open/close call
+              # still targets printer_modal by id, so nothing else needed to
+              # change.
               - obj:
                   id: printer_modal
-                  width: 85%
-                  height: SIZE_CONTENT
-                  max_height: 90%
-                  align: CENTER
-                  bg_color: 0x1A1A2C
-                  bg_opa: COVER
-                  border_color: 0x8585B8
-                  border_width: 2
-                  border_opa: COVER
-                  radius: 12
-                  pad_left: 12
-                  pad_right: 12
-                  pad_top: 12
-                  pad_bottom: 12
+                  width: 100%
+                  height: 100%
+                  bg_opa: TRANSP
+                  border_width: 0
+                  radius: 0
+                  pad_all: 0
                   scrollbar_mode: "OFF"
                   scrollable: false
-                  shadow_width: 16
-                  shadow_offset_x: 0
-                  shadow_offset_y: 6
-                  shadow_spread: 2
-                  shadow_color: 0x000000
-                  shadow_opa: COVER
                   hidden: true
-                  layout:
-                    type: flex
-                    flex_flow: column
-                    pad_row: 8
                   widgets:
-                    - label:
-                        text: "Select Printer"
-                        text_font: roboto_20
-                        text_color: 0x7BB4FF
-                    - label:
-                        id: cfg_empty
-                        width: 100%
-                        text: "No printers found"
-                        text_font: roboto_16
-                        text_color: 0x8888AA
-                        text_align: CENTER
-                    # Scrollable list -- up to 25 printers. See the README's
-                    # Troubleshooting section for why this is a static ceiling, not a
-                    # true dynamic list -- ESPHome's LVGL YAML can't create widgets at
-                    # runtime. This caps the whole modal's height instead, and lets
-                    # this inner container scroll so entries beyond what fits are
-                    # still reachable rather than being silently dropped.
                     - obj:
-                        id: printer_list_scroll
-                        width: 100%
+                        id: printer_modal_card
+                        width: 85%
                         height: SIZE_CONTENT
-                        max_height: 190
-                        bg_opa: TRANSP
-                        border_width: 0
-                        pad_all: 0
-                        scrollbar_mode: "AUTO"
+                        max_height: 90%
+                        align: CENTER
+                        bg_color: 0x1A1A2C
+                        bg_opa: COVER
+                        border_color: 0x8585B8
+                        border_width: 2
+                        border_opa: COVER
+                        radius: 12
+                        pad_left: 12
+                        pad_right: 12
+                        pad_top: 12
+                        pad_bottom: 12
+                        scrollbar_mode: "OFF"
+                        scrollable: false
+                        shadow_width: 16
+                        shadow_offset_x: 0
+                        shadow_offset_y: 6
+                        shadow_spread: 2
+                        shadow_color: 0x000000
+                        shadow_opa: COVER
                         layout:
                           type: flex
                           flex_flow: column
-                          pad_row: 6
+                          pad_row: 8
                         widgets:
-                        - button:
-                            id: cfg_p0
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 0;
-                                    bambuddy->set_selected_printer(0);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p0_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p0_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p1
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 1;
-                                    bambuddy->set_selected_printer(1);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p1_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p1_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p2
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 2;
-                                    bambuddy->set_selected_printer(2);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p2_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p2_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p3
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 3;
-                                    bambuddy->set_selected_printer(3);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p3_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p3_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p4
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 4;
-                                    bambuddy->set_selected_printer(4);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p4_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p4_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p5
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 5;
-                                    bambuddy->set_selected_printer(5);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p5_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p5_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p6
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 6;
-                                    bambuddy->set_selected_printer(6);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p6_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p6_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p7
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 7;
-                                    bambuddy->set_selected_printer(7);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p7_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p7_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p8
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 8;
-                                    bambuddy->set_selected_printer(8);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p8_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p8_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p9
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 9;
-                                    bambuddy->set_selected_printer(9);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p9_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p9_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p10
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 10;
-                                    bambuddy->set_selected_printer(10);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p10_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p10_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p11
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 11;
-                                    bambuddy->set_selected_printer(11);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p11_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p11_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p12
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 12;
-                                    bambuddy->set_selected_printer(12);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p12_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p12_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p13
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 13;
-                                    bambuddy->set_selected_printer(13);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p13_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p13_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p14
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 14;
-                                    bambuddy->set_selected_printer(14);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p14_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p14_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p15
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 15;
-                                    bambuddy->set_selected_printer(15);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p15_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p15_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p16
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 16;
-                                    bambuddy->set_selected_printer(16);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p16_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p16_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p17
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 17;
-                                    bambuddy->set_selected_printer(17);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p17_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p17_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p18
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 18;
-                                    bambuddy->set_selected_printer(18);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p18_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p18_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p19
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 19;
-                                    bambuddy->set_selected_printer(19);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p19_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p19_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p20
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 20;
-                                    bambuddy->set_selected_printer(20);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p20_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p20_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p21
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 21;
-                                    bambuddy->set_selected_printer(21);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p21_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p21_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p22
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 22;
-                                    bambuddy->set_selected_printer(22);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p22_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p22_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p23
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 23;
-                                    bambuddy->set_selected_printer(23);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p23_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p23_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                        - button:
-                            id: cfg_p24
-                            width: 100%
-                            height: 34
-                            styles: sty_card
-                            scrollbar_mode: "OFF"
-                            layout:
-                              type: flex
-                              flex_flow: row
-                              flex_align_cross: center
-                              pad_column: 6
-                            pad_left: 8
-                            hidden: true
-                            on_click:
-                              then:
-                                - lambda: |-
-                                    id(selected_printer_idx) = 24;
-                                    bambuddy->set_selected_printer(24);
-                                    lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
-                            widgets:
-                              - label: {id: cfg_p24_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
-                              - label: {id: cfg_p24_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
-                    - button:
-                        id: btn_printer_close
-                        width: 100%
-                        height: 32
-                        bg_color: 0x252540
-                        border_color: 0x8585B8
-                        border_width: 1
-                        radius: 6
-                        scrollbar_mode: "OFF"
-                        on_click:
-                          then:
-                            - lambda: 'lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);'
-                        widgets:
-                          - label: {text: "Close", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
+                          - label:
+                              text: "Select Printer"
+                              text_font: roboto_20
+                              text_color: 0x7BB4FF
+                          - label:
+                              id: cfg_empty
+                              width: 100%
+                              text: "No printers found"
+                              text_font: roboto_16
+                              text_color: 0x8888AA
+                              text_align: CENTER
+                          # Scrollable list -- up to 25 printers. See the README's
+                          # Troubleshooting section for why this is a static ceiling, not a
+                          # true dynamic list -- ESPHome's LVGL YAML can't create widgets at
+                          # runtime. This caps the whole modal's height instead, and lets
+                          # this inner container scroll so entries beyond what fits are
+                          # still reachable rather than being silently dropped.
+                          - obj:
+                              id: printer_list_scroll
+                              width: 100%
+                              height: SIZE_CONTENT
+                              max_height: 190
+                              bg_opa: TRANSP
+                              border_width: 0
+                              pad_all: 0
+                              scrollbar_mode: "AUTO"
+                              layout:
+                                type: flex
+                                flex_flow: column
+                                pad_row: 6
+                              widgets:
+                              - button:
+                                  id: cfg_p0
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 0;
+                                          bambuddy->set_selected_printer(0);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p0_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p0_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p1
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 1;
+                                          bambuddy->set_selected_printer(1);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p1_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p1_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p2
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 2;
+                                          bambuddy->set_selected_printer(2);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p2_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p2_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p3
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 3;
+                                          bambuddy->set_selected_printer(3);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p3_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p3_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p4
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 4;
+                                          bambuddy->set_selected_printer(4);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p4_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p4_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p5
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 5;
+                                          bambuddy->set_selected_printer(5);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p5_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p5_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p6
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 6;
+                                          bambuddy->set_selected_printer(6);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p6_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p6_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p7
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 7;
+                                          bambuddy->set_selected_printer(7);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p7_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p7_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p8
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 8;
+                                          bambuddy->set_selected_printer(8);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p8_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p8_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p9
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 9;
+                                          bambuddy->set_selected_printer(9);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p9_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p9_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p10
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 10;
+                                          bambuddy->set_selected_printer(10);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p10_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p10_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p11
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 11;
+                                          bambuddy->set_selected_printer(11);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p11_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p11_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p12
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 12;
+                                          bambuddy->set_selected_printer(12);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p12_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p12_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p13
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 13;
+                                          bambuddy->set_selected_printer(13);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p13_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p13_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p14
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 14;
+                                          bambuddy->set_selected_printer(14);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p14_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p14_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p15
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 15;
+                                          bambuddy->set_selected_printer(15);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p15_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p15_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p16
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 16;
+                                          bambuddy->set_selected_printer(16);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p16_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p16_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p17
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 17;
+                                          bambuddy->set_selected_printer(17);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p17_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p17_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p18
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 18;
+                                          bambuddy->set_selected_printer(18);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p18_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p18_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p19
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 19;
+                                          bambuddy->set_selected_printer(19);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p19_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p19_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p20
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 20;
+                                          bambuddy->set_selected_printer(20);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p20_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p20_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p21
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 21;
+                                          bambuddy->set_selected_printer(21);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p21_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p21_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p22
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 22;
+                                          bambuddy->set_selected_printer(22);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p22_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p22_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p23
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 23;
+                                          bambuddy->set_selected_printer(23);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p23_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p23_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                              - button:
+                                  id: cfg_p24
+                                  width: 100%
+                                  height: 34
+                                  styles: sty_card
+                                  scrollbar_mode: "OFF"
+                                  layout:
+                                    type: flex
+                                    flex_flow: row
+                                    flex_align_cross: center
+                                    pad_column: 6
+                                  pad_left: 8
+                                  hidden: true
+                                  on_click:
+                                    then:
+                                      - lambda: |-
+                                          id(selected_printer_idx) = 24;
+                                          bambuddy->set_selected_printer(24);
+                                          lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
+                                  widgets:
+                                    - label: {id: cfg_p24_d, width: 26, text: "", text_font: mdi_24, text_color: 0x8888AA}
+                                    - label: {id: cfg_p24_n, flex_grow: 1, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                          - button:
+                              id: btn_printer_close
+                              width: 100%
+                              height: 32
+                              bg_color: 0x252540
+                              border_color: 0x8585B8
+                              border_width: 1
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: 'lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);'
+                              widgets:
+                                - label: {text: "Close", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
 
               # ================ CALIBRATION MODAL ============================
               - obj:
@@ -2859,6 +2879,99 @@ lvgl:
                           # already linked elsewhere" conflict message above.
                           - label: {text: "Dismiss", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
 
+              # ================ SMART PLUG LIST POPUP =========================
+              # Opened by a long-press on the Power quick-settings tile. Lists
+              # every plug relevant to the current context (assigned to this
+              # printer, or unassigned to any printer) — the same
+              # bambuddy->snapshot().plugs the tile itself reads its single
+              # plug's state from. Rows are built/torn down at runtime by
+              # render_plug_list (app.yaml), same dynamic-rows idiom as
+              # content_storage_rows above; empty here by design. Deliberately
+              # has no auto-close on toggle — Close is the only way out, so
+              # multiple plugs can be flipped one after another.
+              #
+              # plug_list_modal is now the full-screen click-blocking backdrop
+              # (obj widgets are clickable by default in this config — see
+              # the "clickable is default true" comment on the quick-settings
+              # tile row above), so a tap anywhere behind the card can't reach
+              # whatever's underneath it (e.g. a Settings toggle) instead of
+              # just being absorbed here. The visible card is the nested
+              # plug_list_card child. Every open/close call still targets
+              # plug_list_modal by id, so nothing else needed to change.
+              - obj:
+                  id: plug_list_modal
+                  width: 100%
+                  height: 100%
+                  bg_opa: TRANSP
+                  border_width: 0
+                  radius: 0
+                  pad_all: 0
+                  scrollbar_mode: "OFF"
+                  scrollable: false
+                  hidden: true
+                  widgets:
+                    - obj:
+                        id: plug_list_card
+                        width: 85%
+                        height: SIZE_CONTENT
+                        max_height: 90%
+                        align: CENTER
+                        bg_color: 0x1A1A2C
+                        bg_opa: COVER
+                        border_color: 0x8585B8
+                        border_width: 2
+                        border_opa: COVER
+                        radius: 12
+                        pad_left: 16
+                        pad_right: 16
+                        pad_top: 16
+                        pad_bottom: 16
+                        scrollbar_mode: "OFF"
+                        scrollable: false
+                        shadow_width: 16
+                        shadow_offset_x: 0
+                        shadow_offset_y: 6
+                        shadow_spread: 2
+                        shadow_color: 0x000000
+                        shadow_opa: COVER
+                        layout:
+                          type: flex
+                          flex_flow: column
+                          pad_row: 12
+                        widgets:
+                          - label:
+                              text: "Smart Plugs"
+                              text_font: roboto_20
+                              text_color: 0x7BB4FF
+                          - obj:
+                              id: plug_list_rows
+                              width: 100%
+                              height: SIZE_CONTENT
+                              max_height: 150
+                              bg_opa: TRANSP
+                              border_width: 0
+                              pad_all: 0
+                              scrollbar_mode: "AUTO"
+                              layout:
+                                type: flex
+                                flex_flow: column
+                                pad_row: 6
+                              widgets: []
+                          - button:
+                              id: plug_list_close_btn
+                              width: 100%
+                              height: 40
+                              bg_color: 0x1E2040
+                              border_color: 0x8585B8
+                              border_width: 2
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: 'lv_obj_add_flag(id(plug_list_modal), LV_OBJ_FLAG_HIDDEN);'
+                              widgets:
+                                - label: {text: "Close", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
+
               # ================ PLATE CLEAR POPUP =============================
               # Almost-full-screen confirmation shown when the backend reports
               # awaiting_plate_clear (gated by the "Plate Clear" settings toggle;
@@ -3067,10 +3180,72 @@ lvgl:
                           # an intermediate obj is clickable by default and would
                           # swallow the press instead of letting the button see
                           # it (same trap as the NFC picker tiles).
+                          #
+                          # Leftmost tile: the printer's power plug
+                          # (controls_printer_power=true on Bambuddy) — tap
+                          # toggles it. If there's no such plug but other plugs
+                          # exist (unassigned ones), it still shows and a tap
+                          # opens the plug list instead. Hidden by default and
+                          # only revealed by the interval lambda once
+                          # bambuddy->snapshot().plugs is non-empty — most
+                          # setups have no plugs at all, and there's nothing
+                          # useful to show then (unlike Printer/Sound, which
+                          # always apply).
+                          - button:
+                              id: qs_tile_plug
+                              width: 30%
+                              max_width: 150
+                              height: 96
+                              styles: sty_card
+                              border_color: 0x454572
+                              border_width: 1
+                              pad_all: 6
+                              shadow_width: 0
+                              shadow_opa: TRANSP
+                              scrollbar_mode: "OFF"
+                              hidden: true
+                              layout:
+                                type: flex
+                                flex_flow: column
+                                flex_align_main: center
+                                flex_align_cross: center
+                                pad_row: 2
+                              # on_short_click, not on_click: LV_EVENT_CLICKED
+                              # also fires after a long press, which would
+                              # toggle the plug *and* open the popup below.
+                              # With no designated power plug (only unassigned /
+                              # other plugs exist) there's nothing to toggle, so
+                              # a short tap opens the list instead — same
+                              # sequence as on_long_press below.
+                              on_short_click:
+                                then:
+                                  - lambda: |-
+                                      if (bambuddy->snapshot().power_plug_id > 0) {
+                                        bambuddy->toggle_power_plug();
+                                      } else {
+                                        bambuddy->request_power_plug();
+                                        id(qs_close).execute();
+                                        lv_obj_clear_flag(id(plug_list_modal), LV_OBJ_FLAG_HIDDEN);
+                                      }
+                              # plug_list_modal is declared later, so re-fetch
+                              # first, then close the drawer the same
+                              # immediate way qs_tile_printer does (see its
+                              # own comment) so the modal isn't left behind a
+                              # still-animating drawer.
+                              on_long_press:
+                                then:
+                                  - lambda: 'bambuddy->request_power_plug();'
+                                  - script.execute: qs_close
+                                  - lambda: 'lv_obj_clear_flag(id(plug_list_modal), LV_OBJ_FLAG_HIDDEN);'
+                              widgets:
+                                - label: {id: qs_plug_icon, text: "\U000F06A5", text_font: mdi_30, text_color: 0x666688}
+                                - label: {text: "Power", text_font: roboto_16, text_color: 0xDDDDEE}
+                                - label: {id: qs_plug_sub, width: 100%, text: "-", text_font: roboto_12,
+                                          text_color: 0xBBBBCC, text_align: CENTER, long_mode: DOT}
                           - button:
                               id: qs_tile_printer
-                              width: 40%
-                              max_width: 190
+                              width: 30%
+                              max_width: 150
                               height: 96
                               styles: sty_card
                               border_color: 0x454572
@@ -3112,8 +3287,8 @@ lvgl:
                                           text_color: 0xBBBBCC, text_align: CENTER, long_mode: DOT}
                           - button:
                               id: qs_tile_sound
-                              width: 40%
-                              max_width: 190
+                              width: 30%
+                              max_width: 150
                               height: 96
                               styles: sty_card
                               border_color: 0x454572
