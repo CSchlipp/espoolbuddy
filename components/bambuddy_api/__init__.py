@@ -36,7 +36,6 @@ CONF_CONSOLE_URL = "console_url"
 CONF_SLEEP_TIMEOUT = "sleep_timeout"
 CONF_SLEEP_FACTOR = "sleep_factor"
 CONF_INVENTORY_BACKEND = "inventory_backend"
-CONF_CLOCK_24H = "clock_24h"
 CONF_NFC_ID = "nfc_id"
 CONF_SPEAKER_ID = "speaker_id"
 CONF_BACKLIGHT_ID = "backlight_id"
@@ -117,8 +116,6 @@ CONFIG_SCHEMA = cv.All(
             # Multiplier applied to the heartbeat and printer-poll intervals while
             # asleep (e.g. 6 turns a 10 s heartbeat into 60 s).
             cv.Optional(CONF_SLEEP_FACTOR, default=6): cv.int_range(min=1),
-            # Console only: header clock format. true = 24-hour (14:05), false = 12-hour (2:05 PM).
-            cv.Optional(CONF_CLOCK_24H, default=True): cv.boolean,
             # Optional hardware this device may not have — when omitted, the
             # component gracefully no-ops calls that would otherwise target it
             # and reports its absence honestly to the backend.
@@ -151,7 +148,6 @@ async def to_code(config):
     cg.add(var.set_sleep_timeout(config[CONF_SLEEP_TIMEOUT]))
     cg.add(var.set_sleep_factor(config[CONF_SLEEP_FACTOR]))
     cg.add(var.set_spoolman_inventory(config[CONF_INVENTORY_BACKEND] == INVENTORY_BACKEND_SPOOLMAN))
-    cg.add(var.set_clock_24h(config[CONF_CLOCK_24H]))
     if CONF_NFC_ID in config:
         nfc = await cg.get_variable(config[CONF_NFC_ID])
         cg.add(var.set_nfc_component(nfc))

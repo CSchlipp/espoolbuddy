@@ -23,7 +23,6 @@ same `bambuddy_api` component; several options only apply to one mode.
 | `bambuddy_api.scale_report_interval` | Scale | `100` ms | Weight push cadence to the console |
 | `bambuddy_nfc.poll_interval` | Both | `300` ms | Fallback polling rate (only used if IRQ isn't wired) |
 | `bambuddy_nfc.miss_threshold` | Both | `3` | Missed reads before a "tag removed" event fires |
-| `bambuddy_api.clock_24h` | Console | `true` | Header clock format |
 
 The `espoolbuddy_ref` substitution at the very top of each file is a
 different kind of knob: it decides which version of this repo the build

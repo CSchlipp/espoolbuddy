@@ -552,6 +552,7 @@ void BambuddyAPIComponent::http_task_loop() {
       last_printer_poll_ms_ = now;
       last_ams_fast_poll_ms_ = now;  // full poll resets the fast-poll clock too
       api_get_printers();
+      api_get_settings();
       api_get_ams();
       if (!spoolman_mode()) request_storage_locations();
       request_power_plug();
@@ -2026,6 +2027,30 @@ void BambuddyAPIComponent::api_get_printers() {
   }
 }
 
+void BambuddyAPIComponent::api_get_settings() {
+  std::string resp;
+  if (!http_get_api("/settings/ui-preferences", resp)) {
+    // Keep the last known values rather than flapping the popup / clock on a
+    // transient failure.
+    ESP_LOGW(TAG, "GET /api/v1/settings/ui-preferences failed");
+    return;
+  }
+  // Missing key -> false, matching Bambuddy's default for the setting.
+  bool required = parse_json_bool(resp, "require_plate_clear", false);
+  if (required != require_plate_clear_) {
+    ESP_LOGI(TAG, "Bambuddy require_plate_clear=%s", required ? "true" : "false");
+  }
+  require_plate_clear_ = required;
+
+  // "system" means the browser's locale in Bambuddy's UI; the console has no
+  // locale to follow, so only an explicit "12h" switches away from 24-hour.
+  bool use_24h = parse_json_string(resp, "time_format") != "12h";
+  if (use_24h != clock_24h_) {
+    ESP_LOGI(TAG, "Bambuddy time_format -> %s clock", use_24h ? "24h" : "12h");
+  }
+  clock_24h_ = use_24h;
+}
+
 void BambuddyAPIComponent::api_get_printer_status(const std::string &printer_id) {
   std::string resp;
   std::string path = "/printers/" + printer_id + "/status";
@@ -2034,7 +2059,10 @@ void BambuddyAPIComponent::api_get_printer_status(const std::string &printer_id)
     return;
   }
   bool connected = parse_json_bool(resp, "connected", false);
-  bool awaiting_plate_clear = parse_json_bool(resp, "awaiting_plate_clear", false);
+  // BamBuddy raises awaiting_plate_clear after every finished print, but only
+  // waits on it when "Require plate-clear confirmation" is on, so mirror that.
+  bool awaiting_plate_clear = parse_json_bool(resp, "awaiting_plate_clear", false) &&
+                              require_plate_clear_;
   lock_state();
   display_state_.printer_connected = connected;
   display_state_.awaiting_plate_clear = awaiting_plate_clear;

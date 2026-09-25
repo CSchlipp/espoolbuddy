@@ -68,6 +68,20 @@
   blank; more AMS units than fit on one page are reached via the existing
   prev/next buttons. Defaults to the max for your console, which looks the
   same as before this setting existed.
+- **Plate-clear popup**: when Bambuddy's queue is waiting for you to confirm
+  the build plate is empty after a print, the console shows a full-screen
+  **Build Plate Clear** popup (and wakes the screen) with **Confirm** and
+  **Discard** buttons — Confirm does the same as Bambuddy's "Clear Plate"
+  button. It follows Bambuddy's **Require plate-clear confirmation** setting
+  (Settings → Workflow → Queue & Dispatch, off by default): on in Bambuddy 
+  shows the popup after every print, off never shows it. The setting is 
+  unrelated to Bambuddy's camera-based plate detection. The console re-reads
+  it every poll interval, so a change in Bambuddy takes effect within one 
+  poll interval (30 s by default).
+- **Header clock format**: follows Bambuddy's **Time format** setting.
+  **12h** shows `2:05 PM`; **24h** and **System** both show `14:05`, since
+  the console has no system locale to follow. Like the plate-clear setting,
+  it's re-read every poll interval.
 - **Quick settings**: swipe down from anywhere on the console to pull open a
   quick-settings drawer, and swipe up, tap its chevron handle, or tap the
   dimmed area behind it to close it again. It holds up to three tiles:
@@ -92,4 +106,4 @@
   unreachable, green = fully connected.
 
 See the [configuration reference](configuration.md) for the settings behind
-several of these (poll intervals, sleep timeout, clock format, and more).
+several of these (poll intervals, sleep timeout, and more).
