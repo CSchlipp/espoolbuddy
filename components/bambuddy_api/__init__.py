@@ -35,13 +35,9 @@ CONF_SCALE_MODE = "scale_mode"
 CONF_CONSOLE_URL = "console_url"
 CONF_SLEEP_TIMEOUT = "sleep_timeout"
 CONF_SLEEP_FACTOR = "sleep_factor"
-CONF_INVENTORY_BACKEND = "inventory_backend"
 CONF_NFC_ID = "nfc_id"
 CONF_SPEAKER_ID = "speaker_id"
 CONF_BACKLIGHT_ID = "backlight_id"
-
-INVENTORY_BACKEND_INTERNAL = "internal"
-INVENTORY_BACKEND_SPOOLMAN = "spoolman"
 
 
 def _require_certificate_bundle():
@@ -78,15 +74,6 @@ CONFIG_SCHEMA = cv.All(
             # legacy "looks like a key" substring heuristic that used to cover
             # this goes away in ESPHome 2026.12.0.
             cv.Optional(CONF_API_KEY, default=""): cv.sensitive(cv.string),
-            # Which Bambuddy inventory backend to talk to. Bambuddy can be configured
-            # to track spools in its own local DB ("internal") or delegate to a
-            # Spoolman instance ("spoolman") — the two expose different endpoint
-            # shapes (e.g. /inventory/... vs /spoolman/inventory/...), so this is a
-            # compile-time choice matching whatever Bambuddy itself is set to use
-            # (Settings → Spoolman in the Bambuddy UI).
-            cv.Optional(CONF_INVENTORY_BACKEND, default=INVENTORY_BACKEND_INTERNAL): cv.one_of(
-                INVENTORY_BACKEND_INTERNAL, INVENTORY_BACKEND_SPOOLMAN, lower=True
-            ),
             cv.Optional(CONF_DEVICE_ID, default=""): cv.string,
             cv.Optional(CONF_HOSTNAME, default="SpoolBuddy-ESP"): cv.string,
             cv.Optional(CONF_HEARTBEAT_INTERVAL, default=10): cv.positive_int,
@@ -147,7 +134,6 @@ async def to_code(config):
         cg.add(var.add_console_url(url))
     cg.add(var.set_sleep_timeout(config[CONF_SLEEP_TIMEOUT]))
     cg.add(var.set_sleep_factor(config[CONF_SLEEP_FACTOR]))
-    cg.add(var.set_spoolman_inventory(config[CONF_INVENTORY_BACKEND] == INVENTORY_BACKEND_SPOOLMAN))
     if CONF_NFC_ID in config:
         nfc = await cg.get_variable(config[CONF_NFC_ID])
         cg.add(var.set_nfc_component(nfc))

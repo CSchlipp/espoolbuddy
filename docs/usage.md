@@ -14,8 +14,7 @@
   exactly like the tag being scanned again (same chime, same jump to the NFC
   tab). You can immediately load it into the same or a different slot and
   that slot gets assigned/configured automatically, same as a fresh scan.
-- **Storage locations** (local Bambuddy database only — not available when
-  configured for Spoolman inventory): from Settings → **Storage Locations**
+- **Storage locations**: from Settings → **Storage Locations**
   you can link an NFC tag to any storage location already created in
   Bambuddy — tap **Scan to Link** on a location, a popup confirms it's
   waiting (tap **Dismiss** in it to back out), then present the tag. Tap
@@ -31,6 +30,15 @@
   a spool into an AMS slot also clears its storage location automatically
   (Bambuddy itself does not do this) — turn this off in Settings → Features
   → **Clear Location on AMS Load** if you'd rather it was left as-is.
+  With Spoolman, the location list comes from Bambuddy's own catalog, which
+  it fills from the locations found on your Spoolman spools when it refreshes
+  its spool list (at most about once a minute), so a location you only just
+  typed into Spoolman can take a moment to show up here. A spool that was
+  loaded into an AMS under Bambuddy before 1.2.5.4 may still carry an old
+  location like `H2D-1 - AMS A1` in Spoolman, and the badge shows it as-is.
+  Linking a tag to a location is an ESPoolBuddy feature: the tag is kept in
+  the location's `identifier` field in Bambuddy, which Bambuddy itself does
+  not use yet.
 - **Unknown tag → create a spool entry**: scanning a tag with no matching
   spool in Bambuddy opens the unlinked-tag panel with an **Add to
   Inventory** button. For a Bambu Lab tag the new spool is populated from
@@ -39,7 +47,9 @@
   tag (NTAG, foreign spool, or a tag that could not be decoded) it falls
   back to a default entry (PLA, 1000 g). Either way the spool is linked to
   that tag and carries a `"Created by ESPoolBuddy"` note so it's easy to
-  identify later. This works the same whether the tag was scanned on the
+  identify later. With the Spoolman backend everything above is still filled
+  in except the hotend temperatures, which Bambuddy does not accept for
+  Spoolman spools. This works the same whether the tag was scanned on the
   console or on the scale — the scale decodes the tag itself and pushes the
   decoded values to the console along with the UID.
 - **Unknown tag → link to an existing spool**: from that same panel, use

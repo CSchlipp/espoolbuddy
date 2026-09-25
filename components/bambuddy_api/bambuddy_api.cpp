@@ -388,6 +388,22 @@ void BambuddyAPIComponent::http_task_loop() {
     // ---- Drain pending event jobs first (tag scans, scale, etc.) ----
     HttpJob job;
     bool did_work = false;
+
+    // ---- Inventory backend (Bambuddy's own DB vs Spoolman) ----
+    // Every inventory call below branches on which one Bambuddy uses, so learn it
+    // before draining any job: right after registration, retrying every 5 s until
+    // it works, then re-checking now and then in case it is switched in Bambuddy.
+    {
+      const bool mode_due = inventory_mode_known_
+          ? (now - last_inventory_mode_ms_ >= INVENTORY_MODE_RECHECK_MS)
+          : (last_inventory_mode_ms_ == 0 || now - last_inventory_mode_ms_ >= 5000);
+      if (mode_due) {
+        last_inventory_mode_ms_ = now;
+        if (api_get_inventory_mode()) inventory_mode_known_ = true;
+        did_work = true;
+      }
+    }
+
     while (dequeue_job(job)) {
       did_work = true;
       switch (job.kind) {
@@ -463,7 +479,7 @@ void BambuddyAPIComponent::http_task_loop() {
           api_link_location_tag(job.i1, job.s1);
           break;
         case HttpJob::LINK_LOCATION_TAG_CHECKED:
-          api_link_location_tag_checked(job.i1, job.s1);
+          api_link_location_tag_checked(job.i1, job.s1, job.s2);
           break;
         case HttpJob::UNLINK_LOCATION_TAG:
           api_link_location_tag(job.i1, "");
@@ -554,7 +570,7 @@ void BambuddyAPIComponent::http_task_loop() {
       api_get_printers();
       api_get_settings();
       api_get_ams();
-      if (!spoolman_mode()) request_storage_locations();
+      request_storage_locations();
       request_power_plug();
       {
         lock_state();
@@ -663,77 +679,76 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
   display_state_.scan_chime_generation++;
   unlock_state();
 
-  // ---- Storage-location tag handling (local-DB mode only) ----
+  // ---- Storage-location tag handling ----
   // Checked first, before any of the spool-scan state below is touched, so a
   // location-tag scan never disturbs whatever spool/panel the NFC tab is
   // currently showing.
-  if (!spoolman_mode()) {
-    int link_pending_id = 0;
+  int link_pending_id = 0;
+  lock_state();
+  link_pending_id = display_state_.location_link_pending_id;
+  unlock_state();
+  if (link_pending_id > 0) {
+    // "Scan to Link" mode, armed from the Storage Locations screen: this
+    // scan claims the tag for that location instead of resolving a spool.
+    // Guard against the same tag ending up linked to two locations at
+    // once (which would make a later scan of it ambiguous) — refuse and
+    // tell the user which other location already owns it, rather than
+    // silently overwriting the link there client-side while the backend
+    // still has that location's identifier pointing at the same tag.
+    std::string conflict_name = find_conflicting_location(uid, link_pending_id);
     lock_state();
-    link_pending_id = display_state_.location_link_pending_id;
-    unlock_state();
-    if (link_pending_id > 0) {
-      // "Scan to Link" mode, armed from the Storage Locations screen: this
-      // scan claims the tag for that location instead of resolving a spool.
-      // Guard against the same tag ending up linked to two locations at
-      // once (which would make a later scan of it ambiguous) — refuse and
-      // tell the user which other location already owns it, rather than
-      // silently overwriting the link there client-side while the backend
-      // still has that location's identifier pointing at the same tag.
-      std::string conflict_name = find_conflicting_location(uid, link_pending_id);
-      lock_state();
-      display_state_.location_link_pending_id = 0;
-      if (!conflict_name.empty()) {
-        display_state_.location_link_conflict_msg =
-            "This tag is already linked to \"" + conflict_name +
-            "\". Unlink it there before linking it here.";
-      }
-      unlock_state();
-      if (!conflict_name.empty()) return;
-      // LINK_LOCATION_TAG_CHECKED (rather than a plain LINK_LOCATION_TAG)
-      // first looks the uid up in the spool inventory — it must not become
-      // a location's identifier while it's already a spool's tag, same
-      // symmetry as the reverse direction (link_tag_to_spool() below checks
-      // storage_locations before linking a tag to a spool).
-      HttpJob job;
-      job.kind = HttpJob::LINK_LOCATION_TAG_CHECKED;
-      job.i1   = link_pending_id;
-      job.s1   = uid;
-      enqueue_job(job);
-      return;
+    display_state_.location_link_pending_id = 0;
+    if (!conflict_name.empty()) {
+      display_state_.location_link_conflict_msg =
+          "This tag is already linked to \"" + conflict_name +
+          "\". Unlink it there before linking it here.";
     }
+    unlock_state();
+    if (!conflict_name.empty()) return;
+    // LINK_LOCATION_TAG_CHECKED (rather than a plain LINK_LOCATION_TAG)
+    // first looks the uid up in the spool inventory — it must not become
+    // a location's identifier while it's already a spool's tag, same
+    // symmetry as the reverse direction (link_tag_to_spool() below checks
+    // storage_locations before linking a tag to a spool).
+    HttpJob job;
+    job.kind = HttpJob::LINK_LOCATION_TAG_CHECKED;
+    job.i1   = link_pending_id;
+    job.s1   = uid;
+    job.s2   = tray_uuid;
+    enqueue_job(job);
+    return;
+  }
 
-    StorageLocation matched;
-    bool found = false;
+  StorageLocation matched;
+  bool found = false;
+  lock_state();
+  for (const auto &loc : display_state_.storage_locations) {
+    if (!loc.identifier.empty() && loc.identifier == uid) {
+      matched = loc;
+      found = true;
+      break;
+    }
+  }
+  unlock_state();
+  if (found) {
+    int staged_spool_id = 0;
     lock_state();
-    for (const auto &loc : display_state_.storage_locations) {
-      if (!loc.identifier.empty() && loc.identifier == uid) {
-        matched = loc;
-        found = true;
-        break;
-      }
-    }
+    if (display_state_.spool_selected && display_state_.current_filament.spool_id > 0)
+      staged_spool_id = display_state_.current_filament.spool_id;
     unlock_state();
-    if (found) {
-      int staged_spool_id = 0;
-      lock_state();
-      if (display_state_.spool_selected && display_state_.current_filament.spool_id > 0)
-        staged_spool_id = display_state_.current_filament.spool_id;
-      unlock_state();
-      if (staged_spool_id > 0) {
-        // A spool is staged (scanned, or ejected from an AMS slot) — assign
-        // it to this location without disturbing its staged/TTL state.
-        HttpJob job;
-        job.kind = HttpJob::SET_SPOOL_LOCATION;
-        job.i1   = staged_spool_id;
-        job.i2   = matched.id;
-        enqueue_job(job);
-        set_status("Assigned to " + matched.name);
-      } else {
-        set_status("Location tag: " + matched.name);
-      }
-      return;
+    if (staged_spool_id > 0) {
+      // A spool is staged (scanned, or ejected from an AMS slot) — assign
+      // it to this location without disturbing its staged/TTL state.
+      HttpJob job;
+      job.kind = HttpJob::SET_SPOOL_LOCATION;
+      job.i1   = staged_spool_id;
+      job.i2   = matched.id;
+      enqueue_job(job);
+      set_status("Assigned to " + matched.name);
+    } else {
+      set_status("Location tag: " + matched.name);
     }
+    return;
   }
 
   // Immediate (non-blocking) UI feedback under the state lock.
@@ -1311,88 +1326,41 @@ bool BambuddyAPIComponent::api_tag_scanned(const std::string &uid,
   return ok;
 }
 
+bool BambuddyAPIComponent::api_get_inventory_mode() {
+  std::string resp;
+  if (!http_get_api("/spoolman/status", resp)) {
+    ESP_LOGW(TAG, "GET /api/v1/spoolman/status failed");
+    return false;
+  }
+  // "connected" is deliberately ignored: with Spoolman down Bambuddy is still
+  // in Spoolman mode (its inventory routes just answer 503).
+  const bool spoolman = parse_json_bool(resp, "enabled", false) &&
+                        !parse_json_string(resp, "url").empty();
+  const bool changed = (spoolman_inventory_.exchange(spoolman) != spoolman);
+  if (changed || !inventory_mode_known_)
+    ESP_LOGI(TAG, "Inventory backend: %s", spoolman ? "Spoolman" : "Bambuddy internal");
+  if (!changed) return true;
+
+  // Anything cached so far belongs to the other backend.
+  std::string printer_id;
+  lock_state();
+  cached_assignments_.clear();
+  apply_cached_assignments_locked();
+  display_state_.recent_spools.clear();
+  display_state_.recent_spools_generation++;
+  printer_id = display_state_.selected_printer_id;
+  unlock_state();
+  if (!printer_id.empty()) api_get_assignments(printer_id);
+  return true;
+}
+
 void BambuddyAPIComponent::api_get_spool(int spool_id, bool check_empty) {
   std::string resp;
-
-  if (spoolman_inventory_) {
-    // Spoolman has no per-id GET, so stream the spool list (same brace-matcher
-    // as api_get_recent_spools) and stop as soon as the matching id is found.
-    bool found = false;
-    std::string url = backend_url_for("/api/v1", "/spoolman/inventory/spools");
-    esp_http_client_config_t cfg = {};
-    cfg.url = url.c_str();
-    cfg.method = HTTP_METHOD_GET;
-    cfg.timeout_ms = 8000;
-    cfg.crt_bundle_attach = esp_crt_bundle_attach;
-    cfg.transport_type = HTTP_TRANSPORT_UNKNOWN;
-    esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (!client) {
-      ESP_LOGW(TAG, "api_get_spool (spoolman): client init failed");
-      return;
-    }
-    if (!api_key_.empty())
-      esp_http_client_set_header(client, "X-API-Key", api_key_.c_str());
-    arch_feed_wdt();
-    esp_err_t err = esp_http_client_open(client, 0);
-    if (err != ESP_OK) {
-      ESP_LOGW(TAG, "api_get_spool (spoolman): open failed: %s", esp_err_to_name(err));
-      esp_http_client_cleanup(client);
-      return;
-    }
-    esp_http_client_fetch_headers(client);
-    int status = esp_http_client_get_status_code(client);
-    if (status < 200 || status >= 300) {
-      ESP_LOGW(TAG, "api_get_spool (spoolman): HTTP %d", status);
-      esp_http_client_close(client);
-      esp_http_client_cleanup(client);
-      return;
-    }
-
-    std::string obj;
-    int  depth = 0;
-    bool in_str = false, esc = false, capturing = false;
-    char buf[512];
-    int r;
-    while (!found && (r = esp_http_client_read(client, buf, sizeof(buf))) > 0) {
-      arch_feed_wdt();
-      for (int i = 0; i < r && !found; i++) {
-        char c = buf[i];
-        if (in_str) {
-          if (capturing) obj.push_back(c);
-          if (esc)            esc = false;
-          else if (c == '\\') esc = true;
-          else if (c == '"')  in_str = false;
-          continue;
-        }
-        if (c == '"') { in_str = true; if (capturing) obj.push_back(c); continue; }
-        if (c == '{') {
-          if (depth == 0) { capturing = true; obj.clear(); }
-          depth++; obj.push_back(c); continue;
-        }
-        if (c == '}') {
-          if (depth > 0) depth--;
-          obj.push_back(c);
-          if (depth == 0 && capturing) {
-            capturing = false;
-            if (parse_json_int(obj, "id", 0) == spool_id) { resp = obj; found = true; }
-            obj.clear();
-          }
-          continue;
-        }
-        if (capturing) obj.push_back(c);
-      }
-      if (capturing && obj.size() > 8192) {
-        capturing = false; obj.clear(); depth = 0; in_str = false; esc = false;
-      }
-    }
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
-    if (!found) {
-      ESP_LOGW(TAG, "api_get_spool (spoolman): spool %d not found in list", spool_id);
-      return;
-    }
-  } else if (!http_get_api("/inventory/spools/" + std::to_string(spool_id), resp)) {
-    ESP_LOGW(TAG, "GET /inventory/spools/%d failed", spool_id);
+  const std::string path =
+      std::string(spoolman_inventory_ ? "/spoolman/inventory/spools/" : "/inventory/spools/") +
+      std::to_string(spool_id);
+  if (!http_get_api(path, resp)) {
+    ESP_LOGW(TAG, "GET %s failed", path.c_str());
     return;
   }
 
@@ -1407,10 +1375,7 @@ void BambuddyAPIComponent::api_get_spool(int spool_id, bool check_empty) {
   float core_w    = parse_json_float(resp, "core_weight", 0.0f);
   float tmin      = parse_json_float(resp, "nozzle_temp_min", 0.0f);
   float tmax      = parse_json_float(resp, "nozzle_temp_max", 0.0f);
-  // Storage location is a local-DB-only concept (see spoolman_mode()) — skip
-  // parsing it at all on the spoolman branch, consistent with disabling the
-  // whole feature there.
-  std::string storage_loc = spoolman_inventory_ ? "" : parse_json_string(resp, "storage_location");
+  std::string storage_loc = parse_json_string(resp, "storage_location");
 
   lock_state();
   // Only merge into the still-selected spool (guard against a race where the
@@ -1422,7 +1387,7 @@ void BambuddyAPIComponent::api_get_spool(int spool_id, bool check_empty) {
     fi.subtype    = subtype;
     fi.color_name = color_name;
     fi.brand      = brand;
-    if (!spoolman_inventory_) fi.storage_location = storage_loc;
+    fi.storage_location = storage_loc;
     if (rgba.size() >= 6)    fi.color_hex = rgba.substr(0, 6);
     if (label_w > 0)         fi.label_weight_g = label_w;
     fi.weight_used_g = used_w;
@@ -2297,7 +2262,7 @@ void BambuddyAPIComponent::api_get_ams() {
               // Bambuddy does not clear a spool's storage location on its own
               // when it's loaded back into an AMS — do it here if the user
               // opted in via the "Clear Location on AMS Load" setting.
-              if (!spoolman_mode() && clear_location_on_ams_load_)
+              if (clear_location_on_ams_load_)
                 api_set_spool_location(pending_id, 0);
             }
           }
@@ -2465,16 +2430,25 @@ void BambuddyAPIComponent::api_get_assignments(const std::string &printer_id) {
     // than the internal-mode response; fall back if the primary key is absent.
     if (si <= 0 && spoolman_inventory_)
       si = parse_json_int(obj, "spoolman_spool_id", 0);
-    // Weight data is nested inside the "spool" sub-object as:
+    // Internal mode nests the spool in the assignment as a "spool" sub-object.
+    // Spoolman's slot-assignments response carries ids only, so fetch each
+    // assigned spool instead (a slot keeps no weight/brand/colour if that fails).
+    std::string spool_json;
+    if (spoolman_inventory_ && ai >= 0 && ti >= 0 && si > 0 &&
+        !http_get_api("/spoolman/inventory/spools/" + std::to_string(si), spool_json)) {
+      ESP_LOGW(TAG, "Assignments: GET spool %d failed", si);
+    }
+    const std::string &src = spool_json.empty() ? obj : spool_json;
+    // Weight data is read as:
     //   "label_weight": <int grams>   and   "weight_used": <float grams>
-    // Our flat extract_value() finds these by key name anywhere in obj.
-    float lw  = parse_json_float(obj,  "label_weight",  0.0f);
-    float wu  = parse_json_float(obj,  "weight_used",   0.0f);
-    std::string mat  = parse_json_string(obj, "material");
-    std::string rgba = parse_json_string(obj, "rgba");
-    std::string br   = parse_json_string(obj, "brand");
-    std::string st   = parse_json_string(obj, "subtype");
-    std::string cn   = parse_json_string(obj, "color_name");
+    // Our flat extract_value() finds these by key name anywhere in src.
+    float lw  = parse_json_float(src,  "label_weight",  0.0f);
+    float wu  = parse_json_float(src,  "weight_used",   0.0f);
+    std::string mat  = parse_json_string(src, "material");
+    std::string rgba = parse_json_string(src, "rgba");
+    std::string br   = parse_json_string(src, "brand");
+    std::string st   = parse_json_string(src, "subtype");
+    std::string cn   = parse_json_string(src, "color_name");
     if (ai >= 0 && ti >= 0 && si > 0) {
       SlotAssignment a;
       a.ams_id         = ai;
@@ -3758,9 +3732,84 @@ int BambuddyAPIComponent::parse_json_int(const std::string &json,
 // ---------------------------------------------------------------------------
 
 // The inventory list can be large, so stream the response instead of buffering
-// it whole: read the body in chunks, brace-match one top-level spool object at a
-// time, and keep only the 9 highest ids. Peak memory is one object plus the 9
-// kept summaries, regardless of how many spools the backend returns.
+// it whole: read the body in chunks and brace-match one top-level spool object at
+// a time. Peak memory is one object, regardless of how many spools the backend
+// returns. on_object returns true to stop reading early.
+bool BambuddyAPIComponent::stream_spool_objects(
+    const std::string &path,
+    const std::function<bool(const std::string &)> &on_object) {
+  std::string url = backend_url_for("/api/v1", path);
+  esp_http_client_config_t cfg = {};
+  cfg.url = url.c_str();
+  cfg.method = HTTP_METHOD_GET;
+  cfg.timeout_ms = 8000;
+  cfg.crt_bundle_attach = esp_crt_bundle_attach;
+  cfg.transport_type = HTTP_TRANSPORT_UNKNOWN;
+  esp_http_client_handle_t client = esp_http_client_init(&cfg);
+  if (!client) return false;
+  if (!api_key_.empty())
+    esp_http_client_set_header(client, "X-API-Key", api_key_.c_str());
+
+  arch_feed_wdt();
+  esp_err_t err = esp_http_client_open(client, 0);  // 0 = no request body
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "GET %s: open failed: %s", path.c_str(), esp_err_to_name(err));
+    esp_http_client_cleanup(client);
+    return false;
+  }
+  esp_http_client_fetch_headers(client);
+  int status = esp_http_client_get_status_code(client);
+  if (status < 200 || status >= 300) {
+    ESP_LOGW(TAG, "GET %s: HTTP %d", path.c_str(), status);
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+    return false;
+  }
+
+  // Streaming brace matcher: capture each top-level {...} object, ignoring the
+  // enclosing array and any braces inside JSON strings.
+  std::string obj;
+  int  depth = 0;
+  bool in_str = false, esc = false, capturing = false, stop = false;
+  char buf[512];
+  int r;
+  while (!stop && (r = esp_http_client_read(client, buf, sizeof(buf))) > 0) {
+    arch_feed_wdt();
+    for (int i = 0; i < r && !stop; i++) {
+      char c = buf[i];
+      if (in_str) {
+        if (capturing) obj.push_back(c);
+        if (esc)            esc = false;
+        else if (c == '\\') esc = true;
+        else if (c == '"')  in_str = false;
+        continue;
+      }
+      if (c == '"') { in_str = true; if (capturing) obj.push_back(c); continue; }
+      if (c == '{') {
+        if (depth == 0) { capturing = true; obj.clear(); }
+        depth++; obj.push_back(c); continue;
+      }
+      if (c == '}') {
+        if (depth > 0) depth--;
+        obj.push_back(c);
+        if (depth == 0 && capturing) { capturing = false; stop = on_object(obj); obj.clear(); }
+        continue;
+      }
+      if (capturing) obj.push_back(c);
+    }
+    // Guard against a malformed (never-closing) object growing without bound.
+    if (capturing && obj.size() > 8192) {
+      capturing = false; obj.clear(); depth = 0; in_str = false; esc = false;
+    }
+  }
+
+  esp_http_client_close(client);
+  esp_http_client_cleanup(client);
+  return true;
+}
+
+// Streams the list (see stream_spool_objects) and keeps only the 9 highest ids
+// that don't have a tag yet, so peak memory stays at the 9 kept summaries.
 void BambuddyAPIComponent::api_get_recent_spools() {
   auto finish = [&](std::vector<SpoolSummary> &&result) {
     std::sort(result.begin(), result.end(),
@@ -3778,43 +3827,17 @@ void BambuddyAPIComponent::api_get_recent_spools() {
     unlock_state();
   };
 
-  std::string url = backend_url_for("/api/v1",
-      spoolman_inventory_ ? "/spoolman/inventory/spools" : "/inventory/spools");
-  esp_http_client_config_t cfg = {};
-  cfg.url = url.c_str();
-  cfg.method = HTTP_METHOD_GET;
-  cfg.timeout_ms = 8000;
-  cfg.crt_bundle_attach = esp_crt_bundle_attach;
-  cfg.transport_type = HTTP_TRANSPORT_UNKNOWN;
-  esp_http_client_handle_t client = esp_http_client_init(&cfg);
-  if (!client) { finish({}); return; }
-  if (!api_key_.empty())
-    esp_http_client_set_header(client, "X-API-Key", api_key_.c_str());
-
-  arch_feed_wdt();
-  esp_err_t err = esp_http_client_open(client, 0);  // 0 = no request body
-  if (err != ESP_OK) {
-    ESP_LOGW(TAG, "api_get_recent_spools: open failed: %s", esp_err_to_name(err));
-    esp_http_client_cleanup(client);
-    finish({});
-    return;
-  }
-  esp_http_client_fetch_headers(client);
-  int status = esp_http_client_get_status_code(client);
-  if (status < 200 || status >= 300) {
-    ESP_LOGW(TAG, "api_get_recent_spools: HTTP %d", status);
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
-    finish({});
-    return;
-  }
-
   // Insert into the kept set, replacing the lowest id once we hold 9.
   std::vector<SpoolSummary> top;
   auto consider = [&](const std::string &obj) {
     int id = parse_json_int(obj, "id", 0);
     if (id <= 0) return;
     if (!parse_json_string(obj, "tag_uid").empty()) return;  // skip tagged spools
+    // Spoolman keeps a single tag value: a Bambu tag linked with both ids is
+    // stored (and read back) as tray_uuid only, leaving tag_uid empty. Locally a
+    // spool with only a tray_uuid (AMS RFID) can still take an NFC tag, so this
+    // check is Spoolman-only.
+    if (spoolman_inventory_ && !parse_json_string(obj, "tray_uuid").empty()) return;
     SpoolSummary ss;
     ss.id       = id;
     ss.material = parse_json_string(obj, "material");
@@ -3828,53 +3851,17 @@ void BambuddyAPIComponent::api_get_recent_spools() {
     if (ss.id > top[lo].id) top[lo] = std::move(ss);
   };
 
-  // Streaming brace matcher: capture each top-level {...} object, ignoring the
-  // enclosing array and any braces inside JSON strings.
-  std::string obj;
-  int  depth = 0;
-  bool in_str = false, esc = false, capturing = false;
-  char buf[512];
-  int r;
-  while ((r = esp_http_client_read(client, buf, sizeof(buf))) > 0) {
-    arch_feed_wdt();
-    for (int i = 0; i < r; i++) {
-      char c = buf[i];
-      if (in_str) {
-        if (capturing) obj.push_back(c);
-        if (esc)            esc = false;
-        else if (c == '\\') esc = true;
-        else if (c == '"')  in_str = false;
-        continue;
-      }
-      if (c == '"') { in_str = true; if (capturing) obj.push_back(c); continue; }
-      if (c == '{') {
-        if (depth == 0) { capturing = true; obj.clear(); }
-        depth++; obj.push_back(c); continue;
-      }
-      if (c == '}') {
-        if (depth > 0) depth--;
-        obj.push_back(c);
-        if (depth == 0 && capturing) { capturing = false; consider(obj); obj.clear(); }
-        continue;
-      }
-      if (capturing) obj.push_back(c);
-    }
-    // Guard against a malformed (never-closing) object growing without bound.
-    if (capturing && obj.size() > 8192) {
-      capturing = false; obj.clear(); depth = 0; in_str = false; esc = false;
-    }
-  }
-
-  esp_http_client_close(client);
-  esp_http_client_cleanup(client);
-  finish(std::move(top));
+  bool ok = stream_spool_objects(
+      spoolman_inventory_ ? "/spoolman/inventory/spools" : "/inventory/spools",
+      [&](const std::string &obj) { consider(obj); return false; });
+  finish(ok ? std::move(top) : std::vector<SpoolSummary>{});
 }
 
 // ---------------------------------------------------------------------------
-// Storage locations — local-DB mode only (no Spoolman endpoint exists for
-// these). Locations are few (one per shelf/bin), so unlike the spool list
-// above this fetches and parses the whole response in one shot via the same
-// json_array_objects() helper used for the (similarly small) printer list.
+// Storage locations. Locations are few (one per shelf/bin), so unlike the
+// spool list above this fetches and parses the whole response in one shot via
+// the same json_array_objects() helper used for the (similarly small) printer
+// list.
 // ---------------------------------------------------------------------------
 
 void BambuddyAPIComponent::api_get_locations() {
@@ -3941,13 +3928,32 @@ void BambuddyAPIComponent::api_link_location_tag(int location_id, const std::str
   api_get_locations();
 }
 
-void BambuddyAPIComponent::api_link_location_tag_checked(int location_id, const std::string &uid) {
-  // GET /inventory/spools/by-tag is a plain read-only inventory lookup — no
-  // scan-report side effect on the backend, unlike POST /nfc/tag-scanned —
-  // so it's safe to use purely as a "does a spool already own this tag?"
-  // check ahead of the location PATCH.
+void BambuddyAPIComponent::api_link_location_tag_checked(int location_id, const std::string &uid,
+                                                          const std::string &tray_uuid) {
   std::string resp;
-  bool found = http_get_api("/inventory/spools/by-tag?tag_uid=" + uid, resp);
+  bool found = false;
+  if (spoolman_inventory_) {
+    // Bambuddy's by-tag route only searches its local spool table, so with
+    // Spoolman it can never find a spool. Scan the Spoolman list instead. A
+    // Spoolman spool holds a single tag value that reads back as either tag_uid
+    // or tray_uuid (the latter wins when a Bambu tag was linked), so compare both.
+    stream_spool_objects("/spoolman/inventory/spools", [&](const std::string &obj) {
+      std::string spool_uid  = parse_json_string(obj, "tag_uid");
+      std::string spool_tray = parse_json_string(obj, "tray_uuid");
+      if ((!spool_uid.empty() && spool_uid == uid) ||
+          (!spool_tray.empty() && spool_tray == tray_uuid)) {
+        resp = obj;
+        found = true;
+      }
+      return found;
+    });
+  } else {
+    // GET /inventory/spools/by-tag is a plain read-only inventory lookup — no
+    // scan-report side effect on the backend, unlike POST /nfc/tag-scanned —
+    // so it's safe to use purely as a "does a spool already own this tag?"
+    // check ahead of the location PATCH.
+    found = http_get_api("/inventory/spools/by-tag?tag_uid=" + uid, resp);
+  }
   if (found) {
     std::string material   = parse_json_string(resp, "material");
     std::string color_name = parse_json_string(resp, "color_name");
@@ -3977,8 +3983,10 @@ void BambuddyAPIComponent::api_set_spool_location(int spool_id, int location_id)
   js << "{\"location_id\":";
   if (location_id > 0) js << location_id; else js << "null";
   js << "}";
-  char path[48];
-  snprintf(path, sizeof(path), "/inventory/spools/%d", spool_id);
+  char path[64];
+  snprintf(path, sizeof(path),
+           spoolman_inventory_ ? "/spoolman/inventory/spools/%d" : "/inventory/spools/%d",
+           spool_id);
   std::string resp;
   if (!http_patch_api(path, js.str(), resp)) {
     ESP_LOGW(TAG, "api_set_spool_location spool %d -> location %d: failed",
@@ -4132,8 +4140,11 @@ void BambuddyAPIComponent::api_link_tag(int spool_id, const std::string &uid,
       js << "{\"tag_uid\":null}";
       snprintf(path, sizeof(path), "/spoolman/inventory/spools/%d", spool_id);
     } else {
-      js << "{\"tag_uid\":"   << json_string(uid)
-         << ",\"tray_uuid\":" << json_string(tray_uuid) << "}";
+      // tray_uuid must be exactly 32 hex characters or absent — an empty string
+      // (NTAG tags, or a Bambu tag whose block read failed) is rejected with 422.
+      js << "{\"tag_uid\":" << json_string(uid);
+      if (!tray_uuid.empty()) js << ",\"tray_uuid\":" << json_string(tray_uuid);
+      js << "}";
       snprintf(path, sizeof(path), "/spoolman/inventory/spools/%d/tag", spool_id);
     }
   } else {
@@ -4189,41 +4200,38 @@ void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid,
                                                       const std::string &tray_uuid,
                                                       const BambuTagInfo &bt) {
   std::string resp;
-  bool ok;
-  if (spoolman_inventory_) {
-    // Spoolman's create-spool body has no tag field, so create first, then
-    // PATCH .../tag on the new spool to link it (two sequential blocking
-    // calls on the HTTP task — same pattern used elsewhere for chained jobs).
-    std::string create_js = "{\"material\":\"PLA\",\"label_weight\":1000,"
-                             "\"note\":\"Created by ESPoolBuddy\"}";
-    ok = http_post_api("/spoolman/inventory/spools", create_js, resp);
-  } else {
-    // bt and tray_uuid arrive snapshotted from create_spool_from_tag().
-    std::string js;
-    if (bt.valid && !bt.material.empty()) {
-      // Full spool from the tag.  Field names mirror the payload accepted by
-      // Bambuddy's POST /api/v1/inventory/spools.
-      uint16_t label_weight = (bt.spool_weight > 0 && bt.spool_weight <= 5000)
-                                  ? bt.spool_weight
-                                  : 1000;
-      std::string slicer_name = "Bambu " + bt.material;
-      if (!bt.subtype.empty()) slicer_name += " " + bt.subtype;
+  // Spoolman's create body has no tag, temperature, tag type or data origin
+  // field, so those are only sent to the local inventory; the Spoolman tag is
+  // linked by a follow-up PATCH .../tag below (two sequential blocking calls on
+  // the HTTP task — same pattern used elsewhere for chained jobs).
+  const bool local = !spoolman_inventory_;
+  // bt and tray_uuid arrive snapshotted from create_spool_from_tag().
+  std::string js;
+  if (bt.valid && !bt.material.empty()) {
+    // Full spool from the tag.  Field names mirror the payload accepted by
+    // Bambuddy's POST /api/v1/inventory/spools (spoolman: POST /api/v1/spoolman/inventory/spools).
+    uint16_t label_weight = (bt.spool_weight > 0 && bt.spool_weight <= 5000)
+                                ? bt.spool_weight
+                                : 1000;
+    std::string slicer_name = "Bambu " + bt.material;
+    if (!bt.subtype.empty()) slicer_name += " " + bt.subtype;
 
-      js  = "{";
-      js += "\"material\":" + json_string(bt.material) + ",";
-      if (!bt.subtype.empty())
-        js += "\"subtype\":" + json_string(bt.subtype) + ",";
-      if (!bt.color_name.empty())
-        js += "\"color_name\":" + json_string(bt.color_name) + ",";
-      if (!bt.color_hex.empty())
-        js += "\"rgba\":" + json_string(bt.color_hex + "FF") + ",";
-      js += "\"brand\":\"Bambu Lab\",";
-      js += "\"label_weight\":" + std::to_string(label_weight) + ",";
-      js += "\"core_weight\":216,";
-      if (!bt.material_id.empty()) {
-        js += "\"slicer_filament\":" + json_string(bt.material_id) + ",";
-        js += "\"slicer_filament_name\":" + json_string(slicer_name) + ",";
-      }
+    js  = "{";
+    js += "\"material\":" + json_string(bt.material) + ",";
+    if (!bt.subtype.empty())
+      js += "\"subtype\":" + json_string(bt.subtype) + ",";
+    if (!bt.color_name.empty())
+      js += "\"color_name\":" + json_string(bt.color_name) + ",";
+    if (!bt.color_hex.empty())
+      js += "\"rgba\":" + json_string(bt.color_hex + "FF") + ",";
+    js += "\"brand\":\"Bambu Lab\",";
+    js += "\"label_weight\":" + std::to_string(label_weight) + ",";
+    if (local) js += "\"core_weight\":216,";
+    if (!bt.material_id.empty()) {
+      js += "\"slicer_filament\":" + json_string(bt.material_id) + ",";
+      js += "\"slicer_filament_name\":" + json_string(slicer_name) + ",";
+    }
+    if (local) {
       if (bt.nozzle_temp_min > 0)
         js += "\"nozzle_temp_min\":" + std::to_string(bt.nozzle_temp_min) + ",";
       if (bt.nozzle_temp_max > 0)
@@ -4232,21 +4240,26 @@ void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid,
       if (!tray_uuid.empty())
         js += "\"tray_uuid\":" + json_string(tray_uuid) + ",";
       js += "\"tag_type\":\"bambulab\",";
-      js += "\"note\":\"Created by ESPoolBuddy\",";
-      js += "\"data_origin\":\"spoolbuddy\"}";
-      ESP_LOGI(TAG, "Creating spool from Bambu tag: %s %s / %s (%d g)",
-               bt.material.c_str(), bt.subtype.c_str(), bt.color_name.c_str(),
-               (int) label_weight);
-    } else {
-      // No Bambu payload (NTAG, foreign spool, or decode failed) — keep the
-      // original generic placeholder so behaviour is unchanged for those tags.
-      js = "{\"material\":\"PLA\",\"label_weight\":1000,"
-           "\"tag_uid\":" + json_string(uid) + ","
-           "\"note\":\"Created by ESPoolBuddy\","
-           "\"data_origin\":\"spoolbuddy\"}";
     }
-    ok = http_post_api("/inventory/spools", js, resp);
+    js += "\"note\":\"Created by ESPoolBuddy\"";
+    if (local) js += ",\"data_origin\":\"spoolbuddy\"";
+    js += "}";
+    ESP_LOGI(TAG, "Creating spool from Bambu tag: %s %s / %s (%d g)",
+             bt.material.c_str(), bt.subtype.c_str(), bt.color_name.c_str(),
+             (int) label_weight);
+  } else if (local) {
+    // No Bambu payload (NTAG, foreign spool, or decode failed) — keep the
+    // original generic placeholder so behaviour is unchanged for those tags.
+    js = "{\"material\":\"PLA\",\"label_weight\":1000,"
+         "\"tag_uid\":" + json_string(uid) + ","
+         "\"note\":\"Created by ESPoolBuddy\","
+         "\"data_origin\":\"spoolbuddy\"}";
+  } else {
+    js = "{\"material\":\"PLA\",\"label_weight\":1000,"
+         "\"note\":\"Created by ESPoolBuddy\"}";
   }
+  bool ok = http_post_api(local ? "/inventory/spools" : "/spoolman/inventory/spools",
+                          js, resp);
   if (!ok) {
     ESP_LOGW(TAG, "api_create_spool_from_tag: failed");
     // Nothing was created — re-arm the button so the user can try again
@@ -4266,14 +4279,19 @@ void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid,
     set_status("Create spool failed (no id)");
     return;
   }
+  bool tag_link_failed = false;
   if (spoolman_inventory_) {
     char tag_path[64];
     snprintf(tag_path, sizeof(tag_path), "/spoolman/inventory/spools/%d/tag", new_id);
-    std::string tag_js = "{\"tag_uid\":" + json_string(uid) + "}";
+    // tray_uuid only when non-empty, same as api_link_tag().
+    std::string tag_js = "{\"tag_uid\":" + json_string(uid);
+    if (!tray_uuid.empty()) tag_js += ",\"tray_uuid\":" + json_string(tray_uuid);
+    tag_js += "}";
     std::string tag_resp;
     if (!http_patch_api(tag_path, tag_js, tag_resp)) {
       ESP_LOGW(TAG, "api_create_spool_from_tag: created #%d but tag link failed", new_id);
-      set_status("Spool created, tag link failed");
+      // The untagged spool now shows up in the spool picker for a retry.
+      tag_link_failed = true;
     }
   }
   ESP_LOGI(TAG, "api_create_spool_from_tag: created spool #%d", new_id);
@@ -4289,7 +4307,8 @@ void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid,
   display_state_.nfc_state  = NFCTagState::ABSENT;
   display_state_.spool_selected   = false;
   display_state_.current_filament = FilamentInfo{};
-  display_state_.status_message   = "Created spool #" + std::to_string(new_id);
+  display_state_.status_message   = "Created spool #" + std::to_string(new_id) +
+                                    (tag_link_failed ? ", tag link failed" : "");
   unlock_state();
 }
 
@@ -4306,7 +4325,6 @@ void BambuddyAPIComponent::request_recent_spools() {
 }
 
 void BambuddyAPIComponent::request_storage_locations() {
-  if (spoolman_mode()) return;
   lock_state();
   display_state_.storage_locations_loading = true;
   unlock_state();
@@ -4316,7 +4334,7 @@ void BambuddyAPIComponent::request_storage_locations() {
 }
 
 void BambuddyAPIComponent::begin_link_location_tag(int location_id) {
-  if (spoolman_mode() || location_id <= 0) return;
+  if (location_id <= 0) return;
   lock_state();
   display_state_.location_link_pending_id = location_id;
   display_state_.location_link_conflict_msg.clear();
@@ -4335,7 +4353,7 @@ void BambuddyAPIComponent::cancel_link_location_tag() {
 }
 
 void BambuddyAPIComponent::unlink_location_tag(int location_id) {
-  if (spoolman_mode() || location_id <= 0) return;
+  if (location_id <= 0) return;
   HttpJob job;
   job.kind = HttpJob::UNLINK_LOCATION_TAG;
   job.i1   = location_id;
@@ -4391,14 +4409,12 @@ void BambuddyAPIComponent::link_tag_to_spool(int spool_id) {
   // local storage_locations cache can be briefly stale (refreshed on a
   // poll cadence, not pushed) — e.g. right after the tag was linked to a
   // location from Bambuddy's own UI. Re-check here rather than trust that.
-  if (!spoolman_mode()) {
-    std::string conflict_name = find_conflicting_location(uid);
-    if (!conflict_name.empty()) {
-      ESP_LOGW(TAG, "link_tag_to_spool: uid already linked to location \"%s\" — refusing",
-               conflict_name.c_str());
-      set_status("Tag already linked to location \"" + conflict_name + "\"");
-      return;
-    }
+  std::string conflict_name = find_conflicting_location(uid);
+  if (!conflict_name.empty()) {
+    ESP_LOGW(TAG, "link_tag_to_spool: uid already linked to location \"%s\" — refusing",
+             conflict_name.c_str());
+    set_status("Tag already linked to location \"" + conflict_name + "\"");
+    return;
   }
   HttpJob job;
   job.kind = HttpJob::LINK_TAG_TO_SPOOL;
@@ -4428,18 +4444,16 @@ void BambuddyAPIComponent::create_spool_from_tag() {
   // this button at all (on_tag_scanned() routes it away entirely), but the
   // local cache can be briefly stale. Checked ahead of the one-shot
   // create-issued bookkeeping below so a refusal doesn't consume it.
-  if (!spoolman_mode()) {
-    std::string uid_check;
-    lock_state();
-    uid_check = display_state_.last_tag_uid;
-    unlock_state();
-    std::string conflict_name = find_conflicting_location(uid_check);
-    if (!conflict_name.empty()) {
-      ESP_LOGW(TAG, "create_spool_from_tag: uid already linked to location \"%s\" — refusing",
-               conflict_name.c_str());
-      set_status("Tag already linked to location \"" + conflict_name + "\"");
-      return;
-    }
+  std::string uid_check;
+  lock_state();
+  uid_check = display_state_.last_tag_uid;
+  unlock_state();
+  std::string conflict_name = find_conflicting_location(uid_check);
+  if (!conflict_name.empty()) {
+    ESP_LOGW(TAG, "create_spool_from_tag: uid already linked to location \"%s\" — refusing",
+             conflict_name.c_str());
+    set_status("Tag already linked to location \"" + conflict_name + "\"");
+    return;
   }
   std::string uid, tray_uuid;
   BambuTagInfo bambu;

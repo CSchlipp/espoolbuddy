@@ -11,9 +11,8 @@ esphome:
               lv_obj_del(id(row_sound_toggle));
               lv_obj_set_grid_cell(id(row_ams_rows_toggle),
                   LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 0, 1);
-              if (!bambuddy->spoolman_mode())
-                lv_obj_set_grid_cell(id(row_clearloc_toggle),
-                    LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 1, 1);
+              lv_obj_set_grid_cell(id(row_clearloc_toggle),
+                  LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 1, 1);
               // The quick-settings tiles row is a centred flex row, so removing
               // the Sound tile just re-centres the Printer tile — no re-flow.
               lv_obj_del(id(qs_tile_sound));
@@ -31,19 +30,10 @@ esphome:
               if (id(ams_rows_per_page) > ams_rows_max) id(ams_rows_per_page) = ams_rows_max;
               if (id(ams_rows_per_page) < 1) id(ams_rows_per_page) = 1;
             }
-            // Storage locations are a Bambuddy-local-DB-only concept — hide
-            // every piece of that UI when configured for Spoolman inventory.
-            // The clear-location toggle is the grid's last row, so removing
-            // it needs no re-stretch of anything below it.
-            if (bambuddy->spoolman_mode()) {
-              lv_obj_del(id(row_clearloc_toggle));
-              lv_obj_del(id(btn_storage_page));
-            } else {
-              // Push the value restored from flash into the C++ component —
-              // it can't read ESPHome globals itself (id() is lambda-only),
-              // so this is the only place that mirrors it at startup.
-              bambuddy->set_clear_location_on_ams_load(id(clear_location_on_ams_load));
-            }
+            // Push the value restored from flash into the C++ component —
+            // it can't read ESPHome globals itself (id() is lambda-only),
+            // so this is the only place that mirrors it at startup.
+            bambuddy->set_clear_location_on_ams_load(id(clear_location_on_ams_load));
   # Weight-tab display + stable chime, run every main-loop iteration instead
   # of the 400 ms interval below. console_http_scale_weight() (bambuddy_api)
   # writes a landed scale push into display_state_ immediately from the HTTP
@@ -233,7 +223,7 @@ script:
           lv_obj_add_flag(id(assign_id_modal), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(location_link_modal), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(plug_list_modal), LV_OBJ_FLAG_HIDDEN);
-          if (!bambuddy->spoolman_mode()) bambuddy->cancel_link_location_tag();
+          bambuddy->cancel_link_location_tag();
           id(qs_close).execute();
           id(confirm_action) = 0;
           // Sync the calibration reference weight label with the restored global
@@ -257,10 +247,7 @@ script:
           lv_obj_add_flag(id(content_sleep), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(content_system), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(content_features), LV_OBJ_FLAG_HIDDEN);
-          // content_storage (and btn_storage_page) was deleted on boot in
-          // spoolman mode — see the on_boot lambda.
-          if (!bambuddy->spoolman_mode())
-            lv_obj_add_flag(id(content_storage), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(content_storage), LV_OBJ_FLAG_HIDDEN);
 
   # Quick Settings drawer. Its position is translate_y: 0 fully open, -qs_height
   # fully hidden, animated between the two by the scripts below.
@@ -430,7 +417,6 @@ script:
   - id: update_clearloc_btn
     then:
       - lambda: |-
-          if (bambuddy->spoolman_mode()) return;  // row_clearloc_toggle (and its buttons) was deleted on boot
           bool on = id(clear_location_on_ams_load);
           lv_obj_set_style_bg_color(id(btn_clearloc_off),
               !on ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
@@ -451,7 +437,6 @@ script:
   - id: render_storage_locations
     then:
       - lambda: |-
-          if (bambuddy->spoolman_mode()) return;  // content_storage was deleted on boot
           lv_obj_t *parent = id(content_storage_rows);
           lv_obj_clean(parent);  // drop everything built on the previous call
           auto snap = bambuddy->snapshot();
@@ -554,8 +539,7 @@ script:
   # list changes (see the generation-diff check in the interval lambda) —
   # same dynamic-rows-in-C++ pattern as render_storage_locations above, for
   # the same reason: an unbounded, externally-managed list with no
-  # reasonable static cap. Not spoolman-gated; plugs are independent of
-  # inventory mode.
+  # reasonable static cap.
   - id: render_plug_list
     then:
       - lambda: |-
@@ -1179,7 +1163,7 @@ interval:
             lv_label_set_text(id(nfc_colorname),
                 !fi.color_name.empty() ? fi.color_name.c_str() : fi.spool_name.c_str());
 
-            // Storage location badge — empty/never-populated in spoolman mode.
+            // Storage location badge
             if (!fi.storage_location.empty()) {
               lv_label_set_text(id(nfc_location_text), fi.storage_location.c_str());
               lv_obj_clear_flag(id(nfc_location_badge), LV_OBJ_FLAG_HIDDEN);
@@ -1497,35 +1481,31 @@ interval:
           }
 
           // ---- Storage Locations: rebuild rows when the list changes ----
-          if (!bambuddy->spoolman_mode()) {
-            static uint32_t prev_loc_gen = 0;
-            uint32_t loc_gen = s.storage_locations_generation;
-            if (loc_gen != prev_loc_gen) {
-              prev_loc_gen = loc_gen;
-              id(render_storage_locations).execute();
-            }
+          static uint32_t prev_loc_gen = 0;
+          uint32_t loc_gen = s.storage_locations_generation;
+          if (loc_gen != prev_loc_gen) {
+            prev_loc_gen = loc_gen;
+            id(render_storage_locations).execute();
+          }
 
-            // "Link mode" popup. A conflict (this tag already linked
-            // elsewhere — on_tag_scanned refused to link it) takes over the
-            // same modal with a different message and stays open until the
-            // user dismisses it via Cancel, which also clears the conflict
-            // message (see cancel_link_location_tag()). Otherwise it just
-            // hides once location_link_pending_id clears — whether that's
-            // because a tag was actually scanned and linked, or Cancel was
-            // tapped (which also hides it directly, so this is mainly the
-            // scan-completed path).
-            if (!s.location_link_conflict_msg.empty()) {
-              lv_label_set_text(id(location_link_title), "Already Linked");
-              lv_label_set_text(id(location_link_msg), s.location_link_conflict_msg.c_str());
-              lv_obj_clear_flag(id(location_link_modal), LV_OBJ_FLAG_HIDDEN);
-            } else if (s.location_link_pending_id == 0) {
-              lv_obj_add_flag(id(location_link_modal), LV_OBJ_FLAG_HIDDEN);
-            }
+          // "Link mode" popup. A conflict (this tag already linked
+          // elsewhere — on_tag_scanned refused to link it) takes over the
+          // same modal with a different message and stays open until the
+          // user dismisses it via Cancel, which also clears the conflict
+          // message (see cancel_link_location_tag()). Otherwise it just
+          // hides once location_link_pending_id clears — whether that's
+          // because a tag was actually scanned and linked, or Cancel was
+          // tapped (which also hides it directly, so this is mainly the
+          // scan-completed path).
+          if (!s.location_link_conflict_msg.empty()) {
+            lv_label_set_text(id(location_link_title), "Already Linked");
+            lv_label_set_text(id(location_link_msg), s.location_link_conflict_msg.c_str());
+            lv_obj_clear_flag(id(location_link_modal), LV_OBJ_FLAG_HIDDEN);
+          } else if (s.location_link_pending_id == 0) {
+            lv_obj_add_flag(id(location_link_modal), LV_OBJ_FLAG_HIDDEN);
           }
 
           // ---- Smart plugs popup: rebuild rows when the list changes ----
-          // Unlike storage locations this isn't spoolman-gated — plugs are
-          // a Bambuddy/Home-Assistant concept independent of inventory mode.
           {
             static uint32_t prev_plug_gen = 0;
             uint32_t plug_gen = s.plugs_generation;

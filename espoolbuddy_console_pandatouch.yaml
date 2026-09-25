@@ -310,7 +310,6 @@ bambuddy_api:
   api_key: !secret bambuddy_api_key           # from Bambuddy → Settings → Devices → this device's API key
   hostname: "SpoolBuddy-Console-PandaTouch"   # display name for this device in Bambuddy's device list (not the network/mDNS hostname)
   backlight_id: display_backlight             # id of the `light:` below — dimmed/turned off by the sleep state machine
-  inventory_backend: internal    # internal | spoolman — must match Bambuddy's Settings → Spoolman toggle (reflash if changed)
   heartbeat_interval: 10        # seconds — tag scan triggers an extra immediate heartbeat
   # heartbeat_fail_threshold: 3   # consecutive failed heartbeats before cloud/WiFi icons go red (default: 3)
   printer_poll_interval: 15     # seconds between AMS/printer status polls to Bambuddy

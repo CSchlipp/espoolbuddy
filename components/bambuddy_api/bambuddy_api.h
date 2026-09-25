@@ -102,6 +102,11 @@ static constexpr uint32_t SCALE_HEARTBEAT_FAST_MS = 200;
 // as connected (scale_ok).
 static constexpr uint32_t SCALE_LIVE_TIMEOUT_MS = 10000;
 
+// How often the console re-checks which inventory Bambuddy uses (ms), in case
+// it is switched in Bambuddy's settings. Each check makes Bambuddy ping Spoolman,
+// so this is deliberately much slower than the printer poll.
+static constexpr uint32_t INVENTORY_MODE_RECHECK_MS = 300000;
+
 // Remaining-filament bar colour, matching Bambuddy's getFillColor thresholds
 // (frontend FilamentHoverCard.tsx). Takes the integer percentage remaining
 // (0..100), like Bambuddy: <=15 red, <=30 orange, <=50 yellow, else green.
@@ -179,13 +184,14 @@ struct FilamentInfo {
   int spool_id = 0;
 
   // Enriched detail from GET /api/v1/inventory/spools/{id}
+  // (spoolman: GET /api/v1/spoolman/inventory/spools/{id})
   std::string brand;        // "eSUN"
   std::string subtype;      // "Plus"
   std::string color_name;   // "Bone White"
   float label_weight_g = 0; // full spool filament weight (g)
   float weight_used_g = 0;  // filament consumed (g)
   float core_weight_g = 0;  // empty spool body weight (g)
-  std::string storage_location;  // location name, "" if unassigned (local-DB mode only)
+  std::string storage_location;  // location name, "" if unassigned
 };
 
 /** One spool slot inside an AMS unit */
@@ -360,8 +366,8 @@ struct DisplayState {
   uint32_t ams_removed_toast_expiry_ms{0};
   std::string ams_removed_spool_desc;
 
-  // Storage locations (local-DB mode only — always empty/unused in Spoolman
-  // mode). Refreshed periodically and on Storage Locations screen entry.
+  // Storage locations. Refreshed periodically and on Storage Locations
+  // screen entry.
   std::vector<StorageLocation> storage_locations;
   bool storage_locations_loading{false};
   uint32_t storage_locations_generation{0};
@@ -461,15 +467,6 @@ class BambuddyAPIComponent : public Component {
   void set_sleep_timeout(uint32_t s) { sleep_timeout_ms_ = s * 1000; }
   void set_sleep_factor(uint32_t f) { low_power_factor_ = (f < 1) ? 1 : f; }
   uint32_t sleep_timeout_ms() const { return sleep_timeout_ms_; }
-  // Which Bambuddy inventory backend to call: local DB ("internal", default)
-  // or Spoolman ("spoolman").  The two expose different endpoint shapes
-  // (/inventory/... vs /spoolman/inventory/...) and some different request/
-  // response field names, so every inventory call branches on this flag.
-  void set_spoolman_inventory(bool v) { spoolman_inventory_ = v; }
-  // True when configured for Spoolman inventory. Storage locations are a
-  // Bambuddy-local-DB-only concept (no Spoolman endpoint exists for them),
-  // so every piece of that feature checks this and disables/hides itself.
-  bool spoolman_mode() const { return spoolman_inventory_; }
   // Console only: header clock format. true = 24-hour (14:05), false = 12-hour
   // (2:05 PM). Follows Bambuddy's time_format setting — see api_get_settings().
   bool clock_24h() const { return clock_24h_; }
@@ -494,7 +491,7 @@ class BambuddyAPIComponent : public Component {
   // NFC picker — fetch up to 9 most-recently-created spools for the picker UI.
   void request_recent_spools();
 
-  // ---- Storage locations (local-DB mode only — no-ops when spoolman_mode()) ----
+  // ---- Storage locations ----
   // Fetch the full list of storage locations for the Settings screen and for
   // the tag-scan-time identifier cache. Enqueues FETCH_LOCATIONS.
   void request_storage_locations();
@@ -750,19 +747,19 @@ class BambuddyAPIComponent : public Component {
       WRITE_RESULT,
       UPDATE_TARE,
       CLEAR_ASSIGNMENT,      // remove an inventory slot assignment
-      ASSIGN_SPOOL,          // POST /inventory/assignments (assign a spool to a slot)
-      FETCH_RECENT_SPOOLS,   // GET /inventory/spools → fill recent_spools
-      LINK_TAG_TO_SPOOL,     // PATCH /inventory/spools/{id}/link-tag (or unlink)
-      CREATE_SPOOL_FROM_TAG, // POST /inventory/spools with current tag_uid
+      ASSIGN_SPOOL,          // POST /inventory/assignments; spoolman: POST /spoolman/inventory/slot-assignments (assign a spool to a slot)
+      FETCH_RECENT_SPOOLS,   // GET /inventory/spools; spoolman: GET /spoolman/inventory/spools → fill recent_spools
+      LINK_TAG_TO_SPOOL,     // PATCH /inventory/spools/{id}/link-tag; spoolman: PATCH /spoolman/inventory/spools/{id}/tag (or unlink)
+      CREATE_SPOOL_FROM_TAG, // POST /inventory/spools with current tag_uid; spoolman: POST /spoolman/inventory/spools, then PATCH …/{id}/tag
       UPDATE_CALIBRATION,      // POST /calibration/set-factor (reference + measured net)
       UPDATE_SPOOL_WEIGHT,     // PATCH /inventory/spools/{id} {"weight_used": X}
-      ARCHIVE_SPOOL,           // POST /inventory/spools/{id}/archive
+      ARCHIVE_SPOOL,           // POST /inventory/spools/{id}/archive; spoolman: POST /spoolman/inventory/spools/{id}/archive
       CLEAR_PLATE,             // POST /api/v1/printers/{id}/clear-plate
       FETCH_LOCATIONS,         // GET /inventory/locations → fill storage_locations
       LINK_LOCATION_TAG,       // PATCH /inventory/locations/{id} {"identifier": uid}
-      LINK_LOCATION_TAG_CHECKED, // GET spools/by-tag first; only links if no spool owns the uid
+      LINK_LOCATION_TAG_CHECKED, // GET spools/by-tag first; spoolman: scan GET /spoolman/inventory/spools; only links if no spool owns the uid
       UNLINK_LOCATION_TAG,     // PATCH /inventory/locations/{id} {"identifier": ""}
-      SET_SPOOL_LOCATION,      // PATCH /inventory/spools/{id} {"location_id": id|null}
+      SET_SPOOL_LOCATION,      // PATCH /inventory/spools/{id}; spoolman: PATCH /spoolman/inventory/spools/{id} {"location_id": id|null}
       FETCH_POWER_PLUG,        // GET /smart-plugs/ → find the selected printer's power plug
       CONTROL_POWER_PLUG,      // POST /smart-plugs/{id}/control {"action": "on"|"off"}
       // Scale push mode: scale → console (only processed when scale_mode_)
@@ -925,11 +922,23 @@ class BambuddyAPIComponent : public Component {
   // unassign endpoint is keyed by spool id, not by printer/ams/tray.
   bool api_clear_assignment(const std::string &printer_id, int ams_id, int tray_slot,
                              int spool_id);
+  // GET /api/v1/spoolman/status: Bambuddy uses Spoolman when "enabled" is true and
+  // a "url" is set (the same rule its own tag-scan and weight routes use). Not
+  // "connected" — that only says whether Spoolman answers right now. Returns
+  // false if the request failed. When the mode changes, cached assignments and
+  // the spool picker list are dropped, since they belong to the other backend.
+  bool api_get_inventory_mode();
   // Fetch enriched spool detail and merge it into display_state_.current_filament.
   // Internal mode: GET /api/v1/inventory/spools/{id}.
-  // Spoolman mode: no per-id GET exists, so this streams the spool list and
-  // matches the id client-side (same brace-matcher as api_get_recent_spools).
+  // Spoolman mode: GET /api/v1/spoolman/inventory/spools/{id}.
   void api_get_spool(int spool_id, bool check_empty = false);
+
+  // Stream a spool-list response (a JSON array) one top-level object at a time,
+  // so a large inventory is never buffered whole. Calls on_object for each
+  // object until it returns true. Returns false if the request could not be
+  // made or the backend answered non-2xx.
+  bool stream_spool_objects(const std::string &path,
+                            const std::function<bool(const std::string &)> &on_object);
 
   // Assign pending spool to a loaded slot.
   // Internal: POST /api/v1/inventory/assignments {spool_id,...}.
@@ -951,10 +960,13 @@ class BambuddyAPIComponent : public Component {
   // POST /api/v1/printers/{id}/clear-plate — notifies the backend the build
   // plate has been physically cleared.
   void api_clear_plate(const std::string &printer_id);
-  // Create a minimal PLA spool linked to uid.
+  // Create a spool from the scanned tag (decoded Bambu payload when available,
+  // otherwise a generic PLA placeholder) and link the tag to it.
   // Internal: single POST /inventory/spools with tag_uid in the body.
   // Spoolman: POST /spoolman/inventory/spools has no tag field, so this does
-  // a create POST followed by a PATCH .../tag to link the new spool.
+  // a create POST followed by a PATCH .../tag to link the new spool. The
+  // Spoolman body carries material/subtype/brand/colour/label weight/slicer
+  // preset; nozzle temperatures, tag type and data origin are not accepted there.
   // uid / tray_uuid / bambu are snapshotted when the user presses the button,
   // not re-read here: a re-scan landing between the press and this call would
   // otherwise swap the payload out from under it (observed in the field as a
@@ -963,21 +975,26 @@ class BambuddyAPIComponent : public Component {
                                   const std::string &tray_uuid,
                                   const BambuTagInfo &bambu);
 
-  // Storage locations (local-DB mode only).
+  // Storage locations.
   // Fetch GET /api/v1/inventory/locations, fill display_state_.storage_locations.
   void api_get_locations();
   // PATCH /api/v1/inventory/locations/{id} {"identifier": uid or ""}.
   void api_link_location_tag(int location_id, const std::string &uid);
-  // GET /api/v1/inventory/spools/by-tag?tag_uid=<uid> first (a plain,
-  // side-effect-free inventory lookup — unlike POST /nfc/tag-scanned, which
-  // reports a real scan event to the backend) to guard against linking a
-  // tag that's already assigned to a spool. Only calls api_link_location_tag()
-  // when that lookup comes back empty; otherwise sets
+  // Guards against linking a tag that's already assigned to a spool. Only
+  // calls api_link_location_tag() when no spool owns the tag; otherwise sets
   // display_state_.location_link_conflict_msg naming the spool instead.
-  void api_link_location_tag_checked(int location_id, const std::string &uid);
-  // PATCH /api/v1/inventory/spools/{id} {"location_id": id, or null when
-  // location_id == 0}. Used both for scan-time assignment and the AMS-load
-  // auto-clear.
+  // Internal: GET /api/v1/inventory/spools/by-tag?tag_uid=<uid> (a plain,
+  // side-effect-free lookup — unlike POST /nfc/tag-scanned, which reports a real
+  // scan event to the backend).
+  // Spoolman: by-tag only searches the local table, so the spool list is scanned
+  // for a tag_uid or tray_uuid equal to the scanned tag (Spoolman stores one tag
+  // value per spool, which reads back as either).
+  void api_link_location_tag_checked(int location_id, const std::string &uid,
+                                     const std::string &tray_uuid);
+  // Internal: PATCH /api/v1/inventory/spools/{id}
+  // Spoolman: PATCH /api/v1/spoolman/inventory/spools/{id}
+  // Body {"location_id": id, or null when location_id == 0}. Used both for
+  // scan-time assignment and the AMS-load auto-clear.
   void api_set_spool_location(int spool_id, int location_id);
   // Returns the name of the cached storage location whose identifier equals
   // uid, or "" if none (excluding exclude_location_id, so re-linking a tag
@@ -1042,7 +1059,14 @@ class BambuddyAPIComponent : public Component {
   std::string hostname_{"SpoolBuddy-ESP"};
   uint32_t heartbeat_interval_ms_{10000};
   uint32_t scale_report_interval_ms_{1000};
-  bool spoolman_inventory_{false};  // false = Bambuddy local DB, true = Spoolman
+  // Which inventory Bambuddy uses: false = its local DB, true = Spoolman. The two
+  // expose different endpoint shapes (/inventory/... vs /spoolman/inventory/...)
+  // and some different request/response field names, so every inventory call
+  // branches on this flag. Learned from GET /api/v1/spoolman/status by
+  // api_get_inventory_mode(); atomic because the UI task reads it too.
+  std::atomic<bool> spoolman_inventory_{false};
+  bool inventory_mode_known_{false};      // HTTP task only
+  uint32_t last_inventory_mode_ms_{0};    // HTTP task only
   // Whether an AMS-loaded spool's storage location is cleared automatically.
   // Mirrored from the persisted `clear_location_on_ams_load` global — see
   // set_clear_location_on_ams_load(). Defaults true (clear), matching the

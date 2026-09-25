@@ -85,9 +85,8 @@ obj:
                             - obj: {id: nfc_spool_hub, align: CENTER, width: 30, height: 30, radius: 15, bg_color: 0x12121A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF"}
                             - image: {id: nfc_spool_shine, src: img_spool_shine_lg, align: CENTER}
                       # ---- Storage location badge — shown only when the spool
-                      # has one assigned (fi.storage_location non-empty); hidden
-                      # entirely in spoolman mode, where the field is never
-                      # populated. Uses sty_location_badge (lvgl.yaml) — see
+                      # has one assigned (fi.storage_location non-empty).
+                      # Uses sty_location_badge (lvgl.yaml) — see
                       # that style's comment. Anchored off the icon's own
                       # center point (x: 56 = half the icon's 80px width plus
                       # a 16px gap) rather than the icon's edge, so it stays

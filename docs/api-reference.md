@@ -22,6 +22,36 @@ actually goes over the wire. The console consumes the Bambuddy API
 | GET | `/api/v1/printers/{id}/status` | Printer/AMS state; `awaiting_plate_clear` drives the plate-clear popup |
 | GET | `/api/v1/settings/ui-preferences` | Read `require_plate_clear` (the popup only shows when Bambuddy requires plate-clear confirmation) and `time_format` (header clock format) |
 | POST | `/api/v1/printers/{id}/clear-plate` | Confirm the build plate is clear (popup **Confirm**) |
+| GET | `/api/v1/spoolman/status` | Which inventory Bambuddy uses (Spoolman or its own database) |
+
+## Inventory endpoints (internal vs. Spoolman)
+
+The console asks Bambuddy which inventory it uses with `GET /spoolman/status`:
+Spoolman when `enabled` is true and a `url` is set, otherwise Bambuddy's own
+database. It checks once after registering and again every 5 minutes, so
+switching in Bambuddy's settings needs no reflash. In Spoolman mode the console
+still only talks to Bambuddy — Bambuddy proxies to Spoolman. All paths are under
+`/api/v1`.
+
+| Purpose | `internal` | `spoolman` |
+|---|---|---|
+| Get one spool | `GET /inventory/spools/{id}` | `GET /spoolman/inventory/spools/{id}` |
+| List spools (NFC picker; spools that already have a tag are skipped) | `GET /inventory/spools` | `GET /spoolman/inventory/spools` |
+| Link a tag to a spool | `PATCH /inventory/spools/{id}/link-tag` `{tag_uid, tray_uuid, tag_type, data_origin}` | `PATCH /spoolman/inventory/spools/{id}/tag` `{tag_uid, tray_uuid}` — `tray_uuid` is left out when empty (it must be 32 hex characters) |
+| Unlink a tag | same endpoint, empty values | `PATCH /spoolman/inventory/spools/{id}` `{"tag_uid": null}` |
+| Create a spool from a tag | `POST /inventory/spools` (tag in the body) | `POST /spoolman/inventory/spools`, then `PATCH …/{id}/tag` |
+| Set / clear a spool's location | `PATCH /inventory/spools/{id}` `{"location_id": N \| null}` | `PATCH /spoolman/inventory/spools/{id}` (same body) |
+| Archive a spool | `POST /inventory/spools/{id}/archive` | `POST /spoolman/inventory/spools/{id}/archive` |
+| List slot assignments | `GET /inventory/assignments?printer_id=` (spool data is nested) | `GET /spoolman/inventory/slot-assignments/all?printer_id=` (ids only), plus one `GET /spoolman/inventory/spools/{id}` per assigned spool for weight, brand and colour |
+| Assign a spool to a slot | `POST /inventory/assignments` `{spool_id, …}` | `POST /spoolman/inventory/slot-assignments` `{spoolman_spool_id, …}` |
+| Unassign a slot | `DELETE /inventory/assignments/{printer}/{ams}/{tray}` | `DELETE /spoolman/inventory/slot-assignments/{spool_id}` |
+| Storage locations: list, link/unlink a tag (`identifier`) | `GET` / `PATCH /inventory/locations[/{id}]` | same (Bambuddy keeps the catalog itself) |
+| "Does a spool already own this tag?" (before linking a location) | `GET /inventory/spools/by-tag?tag_uid=` | scan of `GET /spoolman/inventory/spools` for a matching `tag_uid` or `tray_uuid` |
+| Update spool weight | `POST /spoolbuddy/scale/update-spool-weight` (Bambuddy picks the backend) | same |
+
+Spoolman-mode limits, all on Bambuddy's side: a spool created from a Bambu tag
+gets no hotend temperatures, `tag_type` or `data_origin`, and the empty-spool
+weight is not stored on the spool.
 
 ## Backend commands handled
 
