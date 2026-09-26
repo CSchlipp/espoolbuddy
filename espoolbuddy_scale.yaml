@@ -132,6 +132,7 @@ spi:
 bambuddy_nfc:
   id: nfc_reader
   api_id: bambuddy     # id of the bambuddy_api: component above (required link)
+  interface: spi       # spi (default) or i2c
   spi_id: spi_bus
   cs_pin: GPIO18
   irq_pin:

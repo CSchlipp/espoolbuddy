@@ -94,6 +94,19 @@ and mounting are the same:
   too — this case also works wired directly to USB-C, no battery/PowerBoost
   at all, same as any SpoolEase case.
 
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <a href="https://makerworld.com/en/models/3043887-nfc-handheld-case-bambuddy-spoolease-and-more#profileId-3423196"><img src="images/makerworld-wt32-handheld-case.jpg" alt="NFC Handheld Case running ESPoolBuddy" width="380"></a><br>
+      <sub><a href="https://makerworld.com/en/models/3043887-nfc-handheld-case-bambuddy-spoolease-and-more#profileId-3423196">NFC Handheld Case</a>, running ESPoolBuddy</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="https://makerworld.com/en/models/1138678-spoolease-console-nfc-rfid-filament-management"><img src="https://makerworld.bblmw.com/makerworld/model/US5601c68b5bd9e6/design/2025-12-10_ce6e819907257.jpg?x-oss-process=image/resize,w_800" alt="SpoolEase console case" width="380"></a><br>
+      <sub><a href="https://makerworld.com/en/models/1138678-spoolease-console-nfc-rfid-filament-management">SpoolEase Console case</a> (photo: SpoolEase, running its own firmware)</sub>
+    </td>
+  </tr>
+</table>
+
 ## Setup & flashing
 
 Once it's wired up, head to the [setup & flashing guide](setup.md) — use

@@ -216,6 +216,7 @@ spi:
 bambuddy_nfc:
   id: nfc_reader
   api_id: bambuddy     # id of the bambuddy_api: component above (required link)
+  interface: spi       # spi (default) or i2c
   spi_id: nfc_spi
   cs_pin: GPIO10
   irq_pin:
@@ -340,8 +341,7 @@ rtttl:
 
 
 # ============================================================================
-# BambuddyAPI — backend connection + scale config
-# Edit these values to match your setup.
+# BambuddyAPI — backend connection
 # ============================================================================
 bambuddy_api:
   id: bambuddy
@@ -349,7 +349,6 @@ bambuddy_api:
   api_key: !secret bambuddy_api_key           # from Bambuddy → Settings → Devices → this device's API key
   hostname: "SpoolBuddy-Console"              # display name for this device in Bambuddy's device list (not the network/mDNS hostname)
   backlight_id: display_backlight             # id of the `light:` below — dimmed/turned off by the sleep state machine
-  nfc_id: nfc_reader             # optional — omit for no PN532 (no-ops + hides Settings UI)
   speaker_id: rtttl_player       # optional — omit for no speaker (no-ops + hides Settings UI)
   heartbeat_interval: 10        # seconds — tag scan triggers an extra immediate heartbeat
   # heartbeat_fail_threshold: 3   # consecutive failed heartbeats before cloud/WiFi icons go red (default: 3)

@@ -47,13 +47,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Console          = display + LVGL + bambuddy_api (console mode) + bambuddy_nfc,
-        #                    480x320 WT32-SC01 Plus.
+        # Console          = display + LVGL + bambuddy_api (console mode) + bambuddy_nfc
+        #                    (SPI), 480x320 WT32-SC01 Plus.
         # Console/Panda    = same shared LVGL UI, 800x480 BigTreeTech Panda
         #                    Touch — exercises the resolution-independent
-        #                    layout on a second screen size/board.
-        # Scale            = HX711 + status LED + bambuddy_api (scale_mode) + bambuddy_nfc.
-        # Together they cover both build modes of the shared components.
+        #                    layout on a second screen size/board, and
+        #                    bambuddy_nfc's I2C transport.
+        # Scale            = HX711 + status LED + bambuddy_api (scale_mode) + bambuddy_nfc (SPI).
+        # Together they cover both build modes of the shared components and
+        # both bambuddy_nfc host interfaces.
         config:
           - espoolbuddy_console.yaml
           - espoolbuddy_console_pandatouch.yaml

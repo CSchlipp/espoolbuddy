@@ -50,6 +50,10 @@ project-specific, check its datasheet.
 Any existing SpoolEase [scale case](https://makerworld.com/en/models/1323092-spoolease-scale-nfc-rfid-filament-weight-scale)
 on MakerWorld fits — the hardware and mounting are the same.
 
+[<img src="https://makerworld.bblmw.com/makerworld/model/USa151d8194259a4/design/2025-04-15_a735171f41b1e8.jpg?x-oss-process=image/resize,w_800" alt="SpoolEase scale case" width="420">](https://makerworld.com/en/models/1323092-spoolease-scale-nfc-rfid-filament-weight-scale)
+
+*[SpoolEase Scale case](https://makerworld.com/en/models/1323092-spoolease-scale-nfc-rfid-filament-weight-scale) (photo: SpoolEase, running its own firmware).*
+
 ## Setup & flashing
 
 Wire it up, then follow the [setup & flashing guide](setup.md) using

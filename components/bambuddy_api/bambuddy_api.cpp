@@ -229,7 +229,7 @@ void BambuddyAPIComponent::http_task_loop() {
     // useless idle-task backtraces — this log makes the trend visible first.
     if (now - last_stack_diag_ms >= 300000UL) {
       last_stack_diag_ms = now;
-      ESP_LOGI(TAG, "%s task stack high-water: %u bytes free, min free internal heap: %u bytes",
+      ESP_LOGD(TAG, "%s task stack high-water: %u bytes free, min free internal heap: %u bytes",
                scale_mode_ ? "scale_push" : "bambuddy_http",
                (unsigned) (uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t)),
                (unsigned) heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
@@ -1042,7 +1042,7 @@ bool BambuddyAPIComponent::api_register_device() {
      << "\"tare_offset\":" << (int)lroundf(tare_offset_) << ","
      << "\"calibration_factor\":" << calibration_factor_ << ","
      << "\"nfc_reader_type\":" << json_string(nfc_ != nullptr ? "PN532" : "") << ","
-     << "\"nfc_connection\":" << json_string(nfc_ != nullptr ? "SPI" : "") << ","
+     << "\"nfc_connection\":" << json_string(nfc_ != nullptr ? nfc_->connection_type() : "") << ","
      << "\"backend_url\":" << json_string(backend_url_) << ","
      << "\"has_backlight\":" << bool_str(backlight_ != nullptr)
      << "}";
@@ -1097,7 +1097,7 @@ void BambuddyAPIComponent::api_heartbeat() {
      << "\"ip_address\":" << json_string(ip) << ","
      << "\"firmware_version\":" << json_string(FIRMWARE_VERSION) << ","
      << "\"nfc_reader_type\":" << json_string(nfc_ != nullptr ? "PN532" : "") << ","
-     << "\"nfc_connection\":" << json_string(nfc_ != nullptr ? "SPI" : "") << ","
+     << "\"nfc_connection\":" << json_string(nfc_ != nullptr ? nfc_->connection_type() : "") << ","
      << "\"backend_url\":" << json_string(backend_url_)
      << "}";
 
@@ -1120,9 +1120,11 @@ void BambuddyAPIComponent::api_heartbeat() {
   heartbeat_fail_count_ = 0;
   lock_state();
   display_state_.backend_state = BackendState::REGISTERED;
-  // No reader configured means nothing will ever call set_nfc_ok(true), so
-  // this just keeps the flag honestly false instead of forcing it true.
-  display_state_.nfc_ok = (nfc_ != nullptr);
+  // nfc_ok is deliberately not touched here: it belongs to the NFC component,
+  // which sets it from the actual PN532 state (init result, link recovery).
+  // Forcing it from "a reader is configured" would report a configured but
+  // disconnected or failed reader as healthy. With no reader configured
+  // nothing ever sets it, so it stays false.
   // Do NOT force scale_ok here — on a scale device it is set true by
   // on_scale_reading(); on the console it is kept in sync with scale push
   // liveness by the maintenance block in http_task_loop().
@@ -1139,7 +1141,7 @@ void BambuddyAPIComponent::api_heartbeat() {
   // Process pending_command
   std::string cmd = parse_json_string(resp, "pending_command");
   if (!cmd.empty()) {
-    ESP_LOGI(TAG, "Heartbeat received command: '%s'", cmd.c_str());
+    ESP_LOGD(TAG, "Heartbeat received command: '%s'", cmd.c_str());
     handle_command(cmd, resp, resp);
   } else {
     ESP_LOGD(TAG, "Heartbeat OK — no pending command");
@@ -1235,9 +1237,10 @@ void BambuddyAPIComponent::activate_spool(FilamentInfo fi,
   pending_assign_expiry_ms_             = expiry;
   display_state_.spool_assign_expiry_ms = expiry;
   assign_clear_ms_ = 0;
-  if (spool_id > 0)
-    ESP_LOGI(TAG, "activate_spool: spool %d uid='%s' src=%d TTL=%lus",
+  if (spool_id > 0) {
+    ESP_LOGD(TAG, "activate_spool: spool %d uid='%s' src=%d TTL=%lus",
              spool_id, source_uid.c_str(), (int)source, ASSIGN_TTL_MS / 1000);
+  }
   unlock_state();
   if (spool_id > 0)
     api_get_spool(spool_id);
@@ -1247,7 +1250,7 @@ bool BambuddyAPIComponent::api_tag_scanned(const std::string &uid,
                                             const std::string &tray_uuid,
                                             int sak,
                                             const std::string &tag_type) {
-  ESP_LOGI(TAG, "api_tag_scanned: POST uid=%s tray_uuid=%s sak=0x%02X type=%s",
+  ESP_LOGD(TAG, "api_tag_scanned: POST uid=%s tray_uuid=%s sak=0x%02X type=%s",
            uid.c_str(), tray_uuid.c_str(), sak, tag_type.c_str());
   std::ostringstream js;
   js << "{"
@@ -1607,11 +1610,12 @@ void BambuddyAPIComponent::handle_command(const std::string &cmd,
 
   } else if (cmd == "run_nfc_diag") {
     // ESPHome cannot run external scripts; return a mock diagnostic result
+    const std::string bus = nfc_ != nullptr ? nfc_->connection_type() : "SPI";
     std::string output =
         "ESPHome SpoolBuddy NFC Diagnostic\n"
-        "NFC Reader: PN532 via SPI\n"
+        "NFC Reader: PN532 via " + bus + "\n"
         "Status: OK (hardware-level diagnostics not available on ESPHome)\n"
-        "Note: PN532 SPI diagnostics are performed at startup.\n";
+        "Note: PN532 " + bus + " diagnostics are performed at startup.\n";
     api_diagnostic_result("nfc", true, output, 0);
     set_status("NFC diagnostic complete (mocked)");
 
@@ -1975,10 +1979,10 @@ void BambuddyAPIComponent::api_get_printers() {
   unlock_state();
   printers_fetched_ = true;  // first good fetch → switch to the slow poll cadence
 
-  ESP_LOGI(TAG, "Printers: %d (selected: %s)", (int)printers.size(),
+  ESP_LOGD(TAG, "Printers: %d (selected: %s)", (int)printers.size(),
            sel.c_str());
   for (const auto &p : printers) {
-    ESP_LOGI(TAG, "  Printer id=%s name='%s' online=%s",
+    ESP_LOGD(TAG, "  Printer id=%s name='%s' online=%s",
              p.id.c_str(), p.name.c_str(), p.online ? "yes" : "no");
   }
 
@@ -2360,12 +2364,12 @@ void BambuddyAPIComponent::api_get_ams() {
   unlock_state();
 
   if (units.empty()) {
-    ESP_LOGI(TAG, "AMS: none reported for printer '%s' (cleared)",
+    ESP_LOGD(TAG, "AMS: none reported for printer '%s' (cleared)",
              printer_id.c_str());
     return;
   }
 
-  ESP_LOGI(TAG, "AMS: %d unit(s) for printer '%s'%s%s", (int)units.size(),
+  ESP_LOGD(TAG, "AMS: %d unit(s) for printer '%s'%s%s", (int)units.size(),
            printer_id.c_str(), dual ? " (dual-nozzle)" : "",
            fila_switch ? " (track switch installed)" : "");
   for (const auto &unit : units) {
@@ -2465,7 +2469,7 @@ void BambuddyAPIComponent::api_get_assignments(const std::string &printer_id) {
     }
   }
 
-  ESP_LOGI(TAG, "Assignments: %d known slot(s) for printer %s",
+  ESP_LOGD(TAG, "Assignments: %d known slot(s) for printer %s",
            (int)cached_assignments_.size(), printer_id.c_str());
 
   // Merge into display_state_.ams_units immediately.  api_get_ams() re-applies
@@ -2512,9 +2516,10 @@ void BambuddyAPIComponent::api_get_ams_labels(const std::string &printer_id) {
     if (endp != key.c_str() && !val.empty()) ams_labels_[(int)id] = val;
     i = p + 1;
   }
-  if (!ams_labels_.empty())
-    ESP_LOGI(TAG, "AMS labels: %d custom name(s) for printer %s",
+  if (!ams_labels_.empty()) {
+    ESP_LOGD(TAG, "AMS labels: %d custom name(s) for printer %s",
              (int)ams_labels_.size(), printer_id.c_str());
+  }
 }
 
 void BambuddyAPIComponent::apply_cached_assignments_locked() {
@@ -3814,7 +3819,7 @@ void BambuddyAPIComponent::api_get_recent_spools() {
   auto finish = [&](std::vector<SpoolSummary> &&result) {
     std::sort(result.begin(), result.end(),
               [](const SpoolSummary &a, const SpoolSummary &b) { return a.id > b.id; });
-    ESP_LOGI(TAG, "api_get_recent_spools: %d spool(s) (streamed)", (int)result.size());
+    ESP_LOGD(TAG, "api_get_recent_spools: %d spool(s) (streamed)", (int)result.size());
     lock_state();
     display_state_.recent_spools_loading = false;
     // Only bump the generation (and so only trigger the picker grid's
@@ -3883,7 +3888,7 @@ void BambuddyAPIComponent::api_get_locations() {
     loc.spool_count = parse_json_int(obj, "spool_count", 0);
     locations.push_back(std::move(loc));
   }
-  ESP_LOGI(TAG, "api_get_locations: %d location(s)", (int)locations.size());
+  ESP_LOGD(TAG, "api_get_locations: %d location(s)", (int)locations.size());
   lock_state();
   display_state_.storage_locations_loading = false;
   // Only bump the generation when the fetch actually changed something —

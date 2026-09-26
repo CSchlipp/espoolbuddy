@@ -14,12 +14,9 @@ AUTO_LOAD = []
 bambuddy_api_ns = cg.esphome_ns.namespace("bambuddy_api")
 BambuddyAPIComponent = bambuddy_api_ns.class_("BambuddyAPIComponent", cg.Component)
 
-# Forward-declared stubs for optional cross-component ids — avoids importing
-# bambuddy_nfc's/rtttl's __init__.py (which would create a circular import,
-# since bambuddy_nfc's own schema already depends on BambuddyAPIComponent).
-bambuddy_nfc_ns = cg.esphome_ns.namespace("bambuddy_nfc")
-BambuddyNFCComponent = bambuddy_nfc_ns.class_("BambuddyNFCComponent")
-
+# Forward-declared stub for the optional speaker id — avoids importing rtttl's
+# __init__.py. (The NFC reader needs no id here: bambuddy_nfc registers itself
+# with this component through its own api_id.)
 rtttl_ns = cg.esphome_ns.namespace("rtttl")
 RtttlComponent = rtttl_ns.class_("Rtttl")
 
@@ -35,7 +32,6 @@ CONF_SCALE_MODE = "scale_mode"
 CONF_CONSOLE_URL = "console_url"
 CONF_SLEEP_TIMEOUT = "sleep_timeout"
 CONF_SLEEP_FACTOR = "sleep_factor"
-CONF_NFC_ID = "nfc_id"
 CONF_SPEAKER_ID = "speaker_id"
 CONF_BACKLIGHT_ID = "backlight_id"
 
@@ -105,8 +101,8 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_SLEEP_FACTOR, default=6): cv.int_range(min=1),
             # Optional hardware this device may not have — when omitted, the
             # component gracefully no-ops calls that would otherwise target it
-            # and reports its absence honestly to the backend.
-            cv.Optional(CONF_NFC_ID): cv.use_id(BambuddyNFCComponent),
+            # and reports its absence honestly to the backend. (An NFC reader
+            # is picked up automatically when a bambuddy_nfc: block exists.)
             cv.Optional(CONF_SPEAKER_ID): cv.use_id(RtttlComponent),
             # Mandatory for any console device (see _validate_backlight_required
             # below) — every display-having device has a real backlight; only
@@ -134,9 +130,6 @@ async def to_code(config):
         cg.add(var.add_console_url(url))
     cg.add(var.set_sleep_timeout(config[CONF_SLEEP_TIMEOUT]))
     cg.add(var.set_sleep_factor(config[CONF_SLEEP_FACTOR]))
-    if CONF_NFC_ID in config:
-        nfc = await cg.get_variable(config[CONF_NFC_ID])
-        cg.add(var.set_nfc_component(nfc))
     if CONF_SPEAKER_ID in config:
         speaker = await cg.get_variable(config[CONF_SPEAKER_ID])
         cg.add(var.set_speaker_component(speaker))
