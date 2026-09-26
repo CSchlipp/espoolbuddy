@@ -102,6 +102,10 @@ logger:
   # while still tracing all Bambuddy HTTP requests/responses and NFC detail.
   # Change to DEBUG if required
   level: INFO
+  # Panda Touch's USB-C port goes through its CH340K bridge to UART0
+  # (GPIO43/44). ESPHome otherwise defaults ESP32-S3 logging to the native
+  # USB_SERIAL_JTAG peripheral, which is not connected to that port.
+  hardware_uart: UART0
   baud_rate: 115200
   logs:
     scheduler: INFO
