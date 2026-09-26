@@ -123,12 +123,6 @@ bool BambuddyNFCComponent::pn532_write_command(
   return transport_write_frame(frame);
 }
 
-bool BambuddyNFCComponent::pn532_read_response(std::vector<uint8_t> &resp,
-                                                uint32_t timeout_ms) {
-  if (!pn532_wait_ready(timeout_ms)) return false;
-  return transport_read_response(resp);
-}
-
 bool BambuddyNFCComponent::pn532_send_receive(const std::vector<uint8_t> &cmd,
                                                std::vector<uint8_t> &resp,
                                                uint32_t timeout_ms) {
@@ -161,17 +155,29 @@ bool BambuddyNFCComponent::pn532_send_receive(const std::vector<uint8_t> &cmd,
     note_link_failure();
     return false;
   }
-  // A valid ACK proves the link — including on the idle path below, where
-  // InListPassiveTarget legitimately times out on every no-tag poll.
-  link_failures_ = 0;
-  if (!pn532_read_response(resp, timeout_ms)) {
-    // No response in time: the command is still running — normal for
-    // InListPassiveTarget with no tag in the field, which the PN532 keeps
-    // retrying indefinitely. Abort it, or its response turns up later in
-    // place of the next command's ACK.
-    // (A detect poll timing out is the idle case, not worth counting.)
-    if (cmd[0] != PN532_CMD_INLISTPASSIVETARGET) stats_.resp_timeout++;
+  if (!pn532_wait_ready(timeout_ms)) {
+    // No response in time: the command is still running. Abort it, or its
+    // response turns up later in place of the next command's ACK.
+    if (cmd[0] == PN532_CMD_INLISTPASSIVETARGET) {
+      // Normal idle poll: with no tag in the field the PN532 keeps searching
+      // indefinitely. The link just proved healthy (valid ACK).
+      link_failures_ = 0;
+    } else {
+      // Every other command gets a response even when it fails (e.g. a MIFARE
+      // auth/read error comes back as an error status), so silence here means
+      // the reader is not working properly.
+      stats_.resp_timeout++;
+      note_link_failure();
+    }
     pn532_abort();
+    return false;
+  }
+  if (!transport_read_response(resp)) {
+    // Ready, but the frame could not be read or parsed (bus error, garbage).
+    ESP_LOGD(NFC_TAG, "PN532: unreadable response for command 0x%02X", cmd[0]);
+    stats_.bad_resp++;
+    pn532_flush();
+    note_link_failure();
     return false;
   }
   if (resp.empty() || resp[0] != (uint8_t) (cmd[0] + 1)) {
@@ -182,6 +188,9 @@ bool BambuddyNFCComponent::pn532_send_receive(const std::vector<uint8_t> &cmd,
     note_link_failure();
     return false;
   }
+  // Only a complete exchange (or a healthy idle poll, above) clears the
+  // failure count, so failures between two valid ACKs still add up.
+  link_failures_ = 0;
   return true;
 }
 

@@ -13,12 +13,15 @@
 - **NFC not detecting tags**: double-check the PN532 module's DIP
   switches/jumpers match the build — **SPI mode** on the WT32-SC01 Plus
   console and the Scale, **I²C mode** on the Panda Touch (most modules ship
-  in I²C mode; the boot log says `PN532 init failed` when the mode is
-  wrong). On SPI builds, wire IRQ if you want instant detection instead of
-  ~300 ms polling.
+  in I²C mode). When the reader doesn't answer, the config dump at the start
+  of every log session shows `Reader: NOT RESPONDING` under `BambuddyNFC`,
+  and the log repeats `PN532 still not responding …` while the firmware
+  keeps retrying every 10 s. On SPI builds, wire IRQ if you want instant
+  detection instead of ~300 ms polling.
 - **Panda Touch: PN532 not found on I²C**: the reader answers at address
-  `0x24` on the rear I²C port's bus (`nfc_i2c`); temporarily add `scan: true` to that bus
-  in the YAML and look for `Found device at address 0x24` in the boot log.
+  `0x24` on the rear I²C port's bus (`nfc_i2c`). ESPHome scans its I²C buses
+  at boot, and the config dump at the start of a log session lists the result
+  — look for `Found device at address 0x24`.
   If nothing shows up, SDA/SCL are swapped, the module isn't in I²C mode, or
   it has no power. Most PN532 breakouts have their own I²C pull-ups; keep
   the cable short (a few cm to ~20 cm), and if reads are flaky leave the bus

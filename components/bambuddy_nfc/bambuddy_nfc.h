@@ -203,7 +203,6 @@ class BambuddyNFCComponent : public Component {
   bool pn532_recover();
   bool pn532_wait_ready(uint32_t timeout_ms = 100);
   bool pn532_write_command(const std::vector<uint8_t> &cmd);
-  bool pn532_read_response(std::vector<uint8_t> &resp, uint32_t timeout_ms = 100);
   bool pn532_send_receive(const std::vector<uint8_t> &cmd,
                           std::vector<uint8_t> &resp,
                           uint32_t timeout_ms = 200);
@@ -305,8 +304,8 @@ class BambuddyNFCComponent : public Component {
     uint32_t bambu_fail{0};     // Bambu reads that gave up
     uint32_t no_ack{0};         // command not acknowledged (bus / reader down)
     uint32_t bad_ack{0};        // wrong frame where the ACK belongs (desync)
-    uint32_t bad_resp{0};       // response for a different command (desync)
-    uint32_t resp_timeout{0};   // no response to a tag command (RF / tag left)
+    uint32_t bad_resp{0};       // response unreadable, or for another command
+    uint32_t resp_timeout{0};   // no response to a non-detect command
     uint32_t recoveries{0};     // PN532 re-initialisations
   } stats_;
   uint32_t last_stats_ms_{0};
