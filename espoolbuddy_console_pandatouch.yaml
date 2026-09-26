@@ -6,11 +6,14 @@
 # shared LVGL package is resolution-independent (flex/grid + the
 # screen_width/screen_height/screen_rotation substitutions below), so this
 # file only needs to supply this board's hardware config, not a second UI.
-#   - No PN532 or speaker is attached on Panda Touch. Unlike the console
-#     build, this file does not declare bambuddy_nfc or a speaker/rtttl/
-#     i2s_audio stack, and does not pass nfc_id/speaker_id to bambuddy_api —
-#     the component gracefully no-ops the corresponding calls and the
-#     dependent Settings UI (Sound, NFC-in-sleep) hides itself at boot.
+#   - NFC: an external PN532 (set to I2C mode) on the rear I2C port (P2)
+#     (I2C1: SDA=GPIO4, SCL=GPIO3). No free GPIO is left for its IRQ line, so
+#     the reader runs in polling mode. Without a PN532 attached the console
+#     still boots normally; NFC is just reported as not OK.
+#   - No speaker on Panda Touch. Unlike the console build, this file does not
+#     declare a speaker/rtttl/i2s_audio stack and does not pass speaker_id to
+#     bambuddy_api — the component gracefully no-ops the chime calls and the
+#     Sound setting hides itself at boot.
 #   - Hardware: BigTreeTech Panda Touch (ESP32-S3, 8MB octal PSRAM,
 #     800x480 RGB565 parallel LCD, GT911 capacitive touch)
 #     ref: https://github.com/bigtreetech/PandaTouch_IDF/blob/master/docs/pinout.md
@@ -176,13 +179,39 @@ time:
     # (a bare container will silently give you UTC).
 
 # ============================================================================
-# I2C0 — GT911 touch controller (Panda Touch pinout)
+# I2C buses (Panda Touch pinout)
 # ============================================================================
 i2c:
+  # I2C0 — GT911 touch controller (onboard)
   - id: i2c_bus
     sda: GPIO2
     scl: GPIO1
     frequency: 400000
+
+  # I2C1 — rear I2C port (P2, next to the power switch), external PN532 NFC reader
+  - id: nfc_i2c
+    sda: GPIO4
+    scl:
+      number: GPIO3
+      # GPIO3 is the JTAG-source strapping pin, but it is only sampled at reset
+      # — the I2C driver takes it over long after that, so the warning does
+      # not apply.
+      ignore_strapping_warning: true
+    frequency: 100kHz   # PN532 allows up to 400kHz; 100kHz is safer over an external cable
+    timeout: 10ms       # PN532 stretches SCL while preparing a response
+
+# ============================================================================
+# BambuddyNFC — PN532 via I2C (rear I2C port)
+# ============================================================================
+bambuddy_nfc:
+  id: nfc_reader
+  api_id: bambuddy     # id of the bambuddy_api: component below (required link)
+  interface: i2c
+  i2c_id: nfc_i2c
+  # address: 0x24      # PN532 default
+  # No irq_pin: the I2C port exposes only SDA/SCL, so ready-detection polls the status byte.
+  poll_interval: 300   # ms between detect cycles (no IRQ, so this is always used)
+  miss_threshold: 3    # consecutive no-tag responses before declaring tag removed
 
 # ============================================================================
 # Sensors
@@ -300,9 +329,7 @@ touchscreen:
             .set_transition_length(0).perform();
 
 # ============================================================================
-# BambuddyAPI — same settings as the console build. No PN532 or speaker on
-# Panda Touch, so nfc_id/speaker_id are omitted — bambuddy_api no-ops the
-# corresponding calls and the dependent Settings rows hide themselves.
+# BambuddyAPI — No speaker on Panda Touch, so speaker_id is omitted
 # ============================================================================
 bambuddy_api:
   id: bambuddy

@@ -7,7 +7,7 @@ For anyone poking at the code rather than just building the hardware:
 ```
 espoolbuddy/
 ├── espoolbuddy_console.yaml            # Console entry point (WT32-SC01 Plus: display + NFC + speaker)
-├── espoolbuddy_console_pandatouch.yaml # Alternate console entry point (Panda Touch: display only)
+├── espoolbuddy_console_pandatouch.yaml # Alternate console entry point (Panda Touch: display + NFC via I2C)
 ├── espoolbuddy_scale.yaml              # Scale entry point (HX711 + NFC, headless)
 ├── secrets.yaml.example               # Template — copy to secrets.yaml (git-ignored)
 ├── espoolbuddy/                       # Console-only packages, shared by both console entry points
@@ -21,9 +21,28 @@ espoolbuddy/
 ├── components/                        # Shared ESPHome external_components
 │   ├── bambuddy_api/                  #   HTTP client/server + Bambuddy API protocol (C++)
 │   └── bambuddy_nfc/                  #   PN532 driver + Bambu MIFARE key derivation (C++)
+│       ├── bambuddy_nfc.*             #     Bus-independent reader logic (abstract base class)
+│       ├── bambuddy_nfc_spi.*         #     SPI transport (`interface: spi`, default)
+│       └── bambuddy_nfc_i2c.*         #     I2C transport (`interface: i2c`)
 ├── docs/                              # This documentation, plus wiring/architecture diagrams
 └── .github/workflows/                 # CI: compiles all three configs against the latest ESPHome release
 ```
+
+`bambuddy_nfc` is one component with two host interfaces. Everything above
+the byte level — PN532 framing, tag detection, the Bambu HKDF read with its
+retries, NTAG write, NDEF detection and the polling task — lives in the
+abstract `BambuddyNFCComponent`. `BambuddyNFCSPIComponent` and
+`BambuddyNFCI2CComponent` only implement a handful of transport hooks
+(wake-up, status byte, raw read, frame write, response read). The YAML
+`interface:` key picks one, and only that one is compiled (guarded by
+`USE_BAMBUDDY_NFC_SPI` / `USE_BAMBUDDY_NFC_I2C`).
+
+The two components talk in both directions — the reader reports scans to
+`bambuddy_api`, and `bambuddy_api` drives the reader's sleep behaviour and
+reports it to the backend — but the YAML needs only one link: `bambuddy_nfc`'s
+`api_id`. Its code generation calls `set_api_component()` on itself and
+`set_nfc_component()` on the API component, so a configured reader is always
+wired up completely.
 
 `espoolbuddy_console.yaml` and `espoolbuddy_console_pandatouch.yaml` pull in
 the same `espoolbuddy/*.yaml` packages — the UI and app logic are written

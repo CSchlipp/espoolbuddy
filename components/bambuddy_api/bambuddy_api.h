@@ -45,6 +45,8 @@ class NFCScanControl {
   virtual ~NFCScanControl() = default;
   virtual void set_scan_enabled(bool enabled) = 0;
   virtual void set_low_power(bool low_power) = 0;
+  // Host interface of the reader ("SPI" or "I2C"), reported to the backend.
+  virtual const char *connection_type() const = 0;
 };
 
 template<typename T>
@@ -53,6 +55,7 @@ class NFCScanControlAdapter : public NFCScanControl {
   explicit NFCScanControlAdapter(T *nfc) : nfc_(nfc) {}
   void set_scan_enabled(bool enabled) override { nfc_->set_scan_enabled(enabled); }
   void set_low_power(bool low_power) override { nfc_->set_low_power(low_power); }
+  const char *connection_type() const override { return nfc_->get_connection_type(); }
 
  private:
   T *nfc_;
@@ -442,6 +445,8 @@ class BambuddyAPIComponent : public Component {
   // hardware to actually exist. Templated so the concrete NFC/speaker type is
   // only resolved at the generated-code call site (see the adapter comment
   // above) — never inside this always-compiled component.
+  // set_nfc_component() is called by bambuddy_nfc's own generated code (it
+  // registers itself via its api_id), so a configured reader is always wired.
   template<typename T> void set_nfc_component(T *nfc) {
     nfc_owned_.reset(new NFCScanControlAdapter<T>(nfc));
     nfc_ = nfc_owned_.get();

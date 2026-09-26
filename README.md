@@ -17,6 +17,32 @@ It's a from-scratch reimplementation of Bambuddy's official
 client (which normally runs on a Raspberry Pi) — same idea, same backend
 API, running natively on ESP32 instead.
 
+## What you can build
+
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <a href="docs/console-wt32sc01.md"><img src="docs/images/makerworld-wt32-handheld-case.jpg" alt="WT32-SC01 Plus console in the handheld case" width="260"></a><br>
+      <b><a href="docs/console-wt32sc01.md">Console — WT32-SC01 Plus</a></b><br>
+      <sub>3.5″ touchscreen, NFC + speaker built in. Shown in the
+      <a href="https://makerworld.com/en/models/3043887-nfc-handheld-case-bambuddy-spoolease-and-more#profileId-3423196">handheld case</a>.</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="docs/console-pandatouch.md"><img src="docs/images/makerworld-pandatouch-nfc-cover.jpg" alt="Panda Touch console with the NFC cover" width="260"></a><br>
+      <b><a href="docs/console-pandatouch.md">Console — Panda Touch</a></b><br>
+      <sub>5″ touchscreen, external PN532 on I²C. Shown in the
+      <a href="https://makerworld.com/en/models/3356046-pandatouch-nfc-cover#profileId-3815048">NFC cover</a>.</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="docs/scale.md"><img src="https://makerworld.bblmw.com/makerworld/model/USa151d8194259a4/design/2025-04-15_a735171f41b1e8.jpg?x-oss-process=image/resize,w_800" alt="Scale in the SpoolEase scale case" width="260"></a><br>
+      <b><a href="docs/scale.md">Scale (optional)</a></b><br>
+      <sub>Load cell + NFC, pushes to the console. Shown in SpoolEase's
+      <a href="https://makerworld.com/en/models/1323092-spoolease-scale-nfc-rfid-filament-weight-scale">scale case</a>
+      (photo: SpoolEase, running its own firmware).</sub>
+    </td>
+  </tr>
+</table>
+
 ---
 
 ## How it fits together
@@ -44,14 +70,14 @@ firmware talks to over the network — you'll need a
 | | [WT32-SC01 Plus](docs/console-wt32sc01.md) ⭐ recommended | [Panda Touch](docs/console-pandatouch.md) |
 |---|---|---|
 | Screen | 3.5″, 480×320 | 5″, 800×480 |
-| NFC built in | ✅ | ❌ — use the [Scale](docs/scale.md) instead |
+| NFC built in | ✅ | ✅ via an external PN532 on I²C (or use the [Scale](docs/scale.md)) |
 | Speaker built in | ✅ | ❌ |
+| 3D-printed case | [Handheld case](https://makerworld.com/en/models/3043887-nfc-handheld-case-bambuddy-spoolease-and-more#profileId-3423196) or any SpoolEase console case | [PandaTouch NFC cover](https://makerworld.com/en/models/3356046-pandatouch-nfc-cover#profileId-3815048) — holds the PN532 beside the screen, magnetic dock still usable |
 | Why pick it | Full feature set, smaller footprint | Bigger screen, one self-contained board, less to wire |
 
 Both run the identical UI and firmware logic — only the hardware pinout
 differs. Whichever you pick, you can add a [Scale](docs/scale.md) later for
-automatic weighing (and it's the only way to get NFC on a Panda Touch
-build).
+automatic weighing — it brings its own NFC reader too.
 
 ---
 

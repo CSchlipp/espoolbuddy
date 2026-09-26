@@ -310,7 +310,22 @@ obj:
                     scrollbar_mode: "OFF"
                     on_click:
                       then:
-                        - lambda: bambuddy->dismiss_spool();
+                        # Instant feedback first: a few cheap flag changes that
+                        # LVGL draws in the very next frame. dismiss_spool()
+                        # itself only resets state (no network), so it's instant.
+                        - lambda: |-
+                            lv_obj_add_flag(id(nfc_spool_box), LV_OBJ_FLAG_HIDDEN);
+                            lv_obj_add_flag(id(nfc_write_banner), LV_OBJ_FLAG_HIDDEN);
+                            lv_obj_add_flag(id(nfc_archive_proposal_popup), LV_OBJ_FLAG_HIDDEN);
+                            lv_label_set_text(id(nfc_waiting), "Waiting for tag...");
+                            lv_obj_clear_flag(id(nfc_waiting), LV_OBJ_FLAG_HIDDEN);
+                            bambuddy->dismiss_spool();
+                        # Then the full refresh (incl. hop back to the previous
+                        # tab) on the next main-loop pass — after the click
+                        # handler has returned and that first frame is drawn —
+                        # instead of waiting for the next 400 ms UI tick.
+                        - delay: 0ms
+                        - script.execute: ui_refresh
                     widgets:
                       - label:
                           text: "Discard"

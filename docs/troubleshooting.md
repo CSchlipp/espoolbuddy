@@ -10,18 +10,32 @@
 - **Console shows connection errors right after a reboot**: normal for the
   first ~10–30 s while WiFi/DNS converge — heartbeats retry automatically
   and it recovers on its own.
-- **NFC not detecting tags**: double-check the PN532 module is jumpered for
-  **SPI mode** (not I²C/UART — most modules default to I²C), and that
-  IRQ is wired if you want instant detection instead of ~300 ms polling.
+- **NFC not detecting tags**: double-check the PN532 module's DIP
+  switches/jumpers match the build — **SPI mode** on the WT32-SC01 Plus
+  console and the Scale, **I²C mode** on the Panda Touch (most modules ship
+  in I²C mode; the boot log says `PN532 init failed` when the mode is
+  wrong). On SPI builds, wire IRQ if you want instant detection instead of
+  ~300 ms polling.
+- **Panda Touch: PN532 not found on I²C**: the reader answers at address
+  `0x24` on the rear I²C port's bus (`nfc_i2c`); temporarily add `scan: true` to that bus
+  in the YAML and look for `Found device at address 0x24` in the boot log.
+  If nothing shows up, SDA/SCL are swapped, the module isn't in I²C mode, or
+  it has no power. Most PN532 breakouts have their own I²C pull-ups; keep
+  the cable short (a few cm to ~20 cm), and if reads are flaky leave the bus
+  at its default `100kHz` rather than raising it.
 - **Bambu reads fail intermittently ("Bambu read failed for block N")**: a
   Bambu read is a long RF exchange — one authentication plus several block
   reads per sector — and a single dropout aborts the series even though the
   spool is still on the reader. The firmware retries the whole series up to
-  four times while the same tag stays present (look for `Bambu read
-  succeeded on attempt 2/4`), and treats the temperature and tray-UID blocks
-  as optional, so losing one of those costs a detail rather than the scan.
-  If it still fails repeatedly, the antenna is too far from the tag or the
-  PN532's power supply is sagging.
+  four times while the same tag stays present, and treats the temperature
+  and tray-UID blocks as optional, so losing one of those costs a detail
+  rather than the scan. If it still fails repeatedly, the antenna is too far
+  from the tag or the PN532's power supply is sagging. To see what happens,
+  set `logger: level: DEBUG`: each read then logs `Bambu read succeeded on
+  attempt N/4` when it needed retries and `Bambu read took N ms (SPI|I2C)` —
+  the time the spool has to stay still; a much higher value on one build than
+  another points at the bus rather than the RF link. A once-a-minute
+  `NFC stats` line summarises reads, retries and bus errors.
 - **Every spool of the same type lands on the same inventory entry**: fixed
   in 0.27.0. The tray UID was previously derived from blocks 4+5, which
   hold the material name and colour — identical on every spool of a given

@@ -74,43 +74,27 @@ void BambuddyNFCComponent::hkdf_derive_keys(const uint8_t *uid, size_t uid_len,
 }
 
 // ============================================================================
-// PN532 SPI low-level helpers
+// PN532 low-level (bus-independent; bytes move through the transport hooks)
 // ============================================================================
 
-bool BambuddyNFCComponent::pn532_spi_read_status(uint8_t &status) {
-  this->enable();
-  delay(2);  // CS setup time: PN532 needs 2ms after /SS assertion before first clock
-  this->write_byte(PN532_SPI_STATREAD);
-  status = this->read_byte();
-  this->disable();
-  return true;
-}
-
-bool BambuddyNFCComponent::pn532_spi_read_data(uint8_t *data, size_t len) {
-  this->enable();
-  delay(2);
-  this->write_byte(PN532_SPI_DATAREAD);
-  this->read_array(data, len);
-  this->disable();
-  return true;
-}
-
 bool BambuddyNFCComponent::pn532_wait_ready(uint32_t timeout_ms) {
-  uint32_t deadline = millis() + timeout_ms;
+  // Elapsed-time comparison: stays correct across the millis() wrap (~49.7
+  // days), where an absolute deadline would end the wait immediately.
+  const uint32_t start = millis();
   if (irq_pin_ != nullptr) {
     // IRQ mode: PN532 pulls the line LOW (active-low open-drain) when it has
-    // data ready.  Watching the GPIO avoids all SPI traffic while waiting.
-    while (millis() < deadline) {
+    // data ready.  Watching the GPIO avoids all bus traffic while waiting.
+    while (millis() - start < timeout_ms) {
       if (!irq_pin_->digital_read()) return true;
       vTaskDelay(pdMS_TO_TICKS(1));  // 1ms resolution, yields to other tasks
     }
     return false;
   }
-  // Fallback (no IRQ pin): poll the SPI status register
-  while (millis() < deadline) {
+  // Fallback (no IRQ pin): poll the status byte over the bus
+  while (millis() - start < timeout_ms) {
     uint8_t status = 0;
-    if (pn532_spi_read_status(status) && status == PN532_READY) return true;
-    delay(5);
+    if (transport_read_status(status) && status == PN532_READY) return true;
+    delay(status_poll_delay_ms());
   }
   return false;
 }
@@ -136,63 +120,107 @@ bool BambuddyNFCComponent::pn532_write_command(
   frame.push_back(dcs);
   frame.push_back(PN532_POSTAMBLE);
 
-  this->enable();
-  delay(2);  // CS setup time before first clock edge
-  this->write_byte(PN532_SPI_DATAWRITE);
-  this->write_array(frame.data(), frame.size());
-  this->disable();
-  return true;
+  return transport_write_frame(frame);
 }
 
 bool BambuddyNFCComponent::pn532_read_response(std::vector<uint8_t> &resp,
                                                 uint32_t timeout_ms) {
   if (!pn532_wait_ready(timeout_ms)) return false;
-
-  // The PN532 SPI state machine resets on every /SS de-assertion, so the
-  // entire response frame — header and body — must be read within a SINGLE
-  // /SS assertion.  Splitting into two pn532_spi_read_data() calls (each
-  // toggles /SS independently) causes the body read to receive garbage.
-  this->enable();
-  delay(2);  // CS setup time before first clock edge
-  this->write_byte(PN532_SPI_DATAREAD);
-
-  // Read header: preamble(1) + start(2) + len(1) + lcs(1) + tfi(1)
-  // header[0] = preamble (0x00)
-  // header[1] = start1 (0x00)
-  // header[2] = start2 (0xFF)
-  // header[3] = LEN
-  // header[4] = LCS
-  // header[5] = TFI (0xD5)
-  uint8_t header[6];
-  this->read_array(header, sizeof(header));
-
-  uint8_t len = header[3];
-  if (len < 1) {
-    this->disable();
-    return false;
-  }
-
-  // Read data bytes (len-1 after TFI) + DCS + postamble — still within same /SS
-  size_t data_len = (size_t)(len - 1);
-  std::vector<uint8_t> data(data_len + 2);  // +2 for DCS + POSTAMBLE
-  this->read_array(data.data(), data.size());
-  this->disable();
-
-  resp.assign(data.begin(), data.begin() + data_len);
-  return true;
+  return transport_read_response(resp);
 }
 
 bool BambuddyNFCComponent::pn532_send_receive(const std::vector<uint8_t> &cmd,
                                                std::vector<uint8_t> &resp,
                                                uint32_t timeout_ms) {
-  if (!pn532_write_command(cmd)) return false;
+  if (!pn532_write_command(cmd)) {
+    note_link_failure();
+    return false;
+  }
   // Wait for the PN532 to assert the ready flag before reading the ACK.
   // Use 100ms here — 50ms was marginal during cold-boot when the PN532
   // oscillator is still stabilising and the first command takes longer.
-  if (!pn532_wait_ready(100)) return false;
-  uint8_t ack[6];
-  if (!pn532_spi_read_data(ack, sizeof(ack))) return false;
-  return pn532_read_response(resp, timeout_ms);
+  if (!pn532_wait_ready(100)) {
+    ESP_LOGD(NFC_TAG, "PN532: no ACK for command 0x%02X", cmd[0]);
+    stats_.no_ack++;
+    note_link_failure();
+    return false;
+  }
+  // The frame waiting here must be the ACK for *this* command. Anything else
+  // (typically a late response to an earlier command) means host and reader
+  // are out of step; reading on regardless would pair every following
+  // command with the previous one's response.
+  uint8_t ack[6] = {};
+  if (!transport_read_raw(ack, sizeof(ack)) ||
+      memcmp(ack, PN532_ACK_FRAME, sizeof(ack)) != 0) {
+    ESP_LOGW(NFC_TAG,
+             "PN532: expected ACK for command 0x%02X, got "
+             "%02X %02X %02X %02X %02X %02X — resyncing",
+             cmd[0], ack[0], ack[1], ack[2], ack[3], ack[4], ack[5]);
+    stats_.bad_ack++;
+    pn532_flush();
+    note_link_failure();
+    return false;
+  }
+  // A valid ACK proves the link — including on the idle path below, where
+  // InListPassiveTarget legitimately times out on every no-tag poll.
+  link_failures_ = 0;
+  if (!pn532_read_response(resp, timeout_ms)) {
+    // No response in time: the command is still running — normal for
+    // InListPassiveTarget with no tag in the field, which the PN532 keeps
+    // retrying indefinitely. Abort it, or its response turns up later in
+    // place of the next command's ACK.
+    // (A detect poll timing out is the idle case, not worth counting.)
+    if (cmd[0] != PN532_CMD_INLISTPASSIVETARGET) stats_.resp_timeout++;
+    pn532_abort();
+    return false;
+  }
+  if (resp.empty() || resp[0] != (uint8_t) (cmd[0] + 1)) {
+    ESP_LOGW(NFC_TAG, "PN532: response 0x%02X does not match command 0x%02X — resyncing",
+             resp.empty() ? 0 : resp[0], cmd[0]);
+    stats_.bad_resp++;
+    pn532_flush();
+    note_link_failure();
+    return false;
+  }
+  return true;
+}
+
+void BambuddyNFCComponent::pn532_abort() {
+  std::vector<uint8_t> ack(PN532_ACK_FRAME, PN532_ACK_FRAME + sizeof(PN532_ACK_FRAME));
+  transport_write_frame(ack);
+  delay(10);  // let the PN532 drop the command before the next one arrives
+}
+
+void BambuddyNFCComponent::pn532_flush() {
+  uint8_t status = 0;
+  if (transport_read_status(status) && status == PN532_READY) {
+    uint8_t discard[64];
+    transport_read_raw(discard, sizeof(discard));
+  }
+  pn532_abort();
+}
+
+void BambuddyNFCComponent::note_link_failure() {
+  if (link_failures_ < 255) link_failures_++;
+}
+
+bool BambuddyNFCComponent::pn532_recover() {
+  ESP_LOGW(NFC_TAG, "PN532 stopped responding (%u failed exchanges) — re-initialising",
+           link_failures_);
+  last_recover_ms_ = millis();
+  stats_.recoveries++;
+  if (api_) api_->set_nfc_ok(false);
+  link_failures_ = 0;
+  if (!pn532_init()) {
+    ESP_LOGE(NFC_TAG, "PN532 re-initialisation failed — retrying in %u s",
+             (unsigned) (PN532_RECOVER_RETRY_MS / 1000));
+    link_failures_ = PN532_LINK_FAILURE_LIMIT;  // keep recovery armed
+    return false;
+  }
+  link_failures_ = 0;
+  if (api_) api_->set_nfc_ok(true);
+  ESP_LOGI(NFC_TAG, "PN532 re-initialised — NFC scanning resumed");
+  return true;
 }
 
 // ============================================================================
@@ -200,45 +228,38 @@ bool BambuddyNFCComponent::pn532_send_receive(const std::vector<uint8_t> &cmd,
 // ============================================================================
 
 bool BambuddyNFCComponent::pn532_init() {
-  // PN532 UM10232 §7.2.11: assert /SS (CS) low for at least 10ms to wake the
-  // PN532 from H_0 (power-down) or any unknown state after power-on / ESP32 reset.
-  // No SPI clock activity should occur during this window.
-  auto do_wakeup = [this]() {
-    this->cs_->digital_write(false);
-    delay(15);  // spec minimum is 10ms; 15ms gives a comfortable margin
-    this->cs_->digital_write(true);
-  };
-  do_wakeup();
+  // Wake the PN532 from H_0 (power-down) or any unknown state after power-on /
+  // ESP32 reset — how that is done depends on the host interface.
+  transport_wakeup();
   delay(100);  // allow PN532 oscillator startup and internal reset to complete
 
   // After an ESP32 reset mid-transaction the PN532 may still assert "ready".
   // Flush any such stale state so it is not mistaken for a command ACK.
   {
     uint8_t status = 0;
-    pn532_spi_read_status(status);
+    transport_read_status(status);
     if (status == PN532_READY) {
       ESP_LOGD(NFC_TAG, "PN532 had stale ready flag at init — flushing");
       uint8_t flush[32];
-      pn532_spi_read_data(flush, sizeof(flush));
+      transport_read_raw(flush, sizeof(flush));
     }
   }
 
   // SAMConfiguration: Normal mode, 500 ms RF timeout, IRQ enabled if wired.
   // Byte 4 (UseIRQ): 0x01 = PN532 asserts IRQ LOW when data ready,
-  //                  0x00 = polled via SPI status register (no IRQ pin).
+  //                  0x00 = polled via the status byte (no IRQ pin).
   // Retry up to 3 times — the first attempt can fail if the PN532 is still
   // completing its internal initialisation after power-on or wakeup.
   const uint8_t use_irq = (irq_pin_ != nullptr) ? 0x01 : 0x00;
-  ESP_LOGI(NFC_TAG, "PN532 ready-detection: %s",
-           use_irq ? "IRQ pin (GPIO)" : "SPI status register (polling)");
   std::vector<uint8_t> resp;
   bool sam_ok = false;
   for (int attempt = 0; attempt < 3 && !sam_ok; attempt++) {
     if (attempt > 0) {
       // Re-issue the wakeup sequence: if the PN532 lost sync after the failed
-      // attempt, a fresh CS+byte pulse lets it re-enter the command-receive state.
-      ESP_LOGW(NFC_TAG, "SAMConfiguration attempt %d/3", attempt + 1);
-      do_wakeup();
+      // attempt, a fresh wakeup lets it re-enter the command-receive state.
+      // DEBUG only: with no reader attached this runs on every init retry.
+      ESP_LOGD(NFC_TAG, "SAMConfiguration attempt %d/3", attempt + 1);
+      transport_wakeup();
       delay(50);
     }
     std::vector<uint8_t> cmd = {PN532_CMD_SAMCONFIGURATION, 0x01, 0x0A, use_irq};
@@ -252,14 +273,26 @@ bool BambuddyNFCComponent::pn532_init() {
   if (resp.size() < 4) return false;
 
   // resp[0]=CMD+1(0x03), resp[1]=IC, resp[2]=Ver, resp[3]=Rev, resp[4]=Support
+  fw_ic_ = resp[1];
+  fw_ver_ = resp[2];
+  fw_rev_ = resp[3];
   ESP_LOGI(NFC_TAG, "PN532 firmware: IC=0x%02X Ver=%d.%d Rev=%d",
            resp[1], resp[2], resp[3], (resp.size() > 4 ? resp[4] : 0));
   return true;
 }
 
+void BambuddyNFCComponent::pn532_rf_off() {
+  // RFConfiguration, CfgItem 0x01 (RF field): bit 0 = RF on, bit 1 = AutoRFCA.
+  std::vector<uint8_t> cmd = {PN532_CMD_RFCONFIGURATION, 0x01, 0x00};
+  std::vector<uint8_t> resp;
+  rf_off_ = pn532_send_receive(cmd, resp, 50);
+}
+
 bool BambuddyNFCComponent::pn532_detect_tag(std::vector<uint8_t> &uid,
                                              uint8_t &sak) {
-  // InListPassiveTarget: max 1 target, 106 kbps ISO14443A
+  // InListPassiveTarget: max 1 target, 106 kbps ISO14443A. Switches the RF
+  // field on by itself if pn532_rf_off() turned it off.
+  rf_off_ = false;
   std::vector<uint8_t> cmd = {PN532_CMD_INLISTPASSIVETARGET, 0x01, 0x00};
   std::vector<uint8_t> resp;
   if (!pn532_send_receive(cmd, resp, 500)) return false;
@@ -386,12 +419,20 @@ bool BambuddyNFCComponent::ntag_write_page(uint8_t target_num, uint8_t page,
 bool BambuddyNFCComponent::read_bambu_blocks_retry(
     const std::vector<uint8_t> &uid,
     std::vector<std::pair<uint8_t, std::array<uint8_t, 16>>> &blocks_out) {
+  // The whole series must complete while the spool sits still, so its length
+  // is worth seeing — it differs by host interface and IRQ/polling mode.
+  const uint32_t start_ms = millis();
   for (uint8_t attempt = 1; attempt <= BAMBU_READ_ATTEMPTS; attempt++) {
     blocks_out.clear();
     if (read_bambu_blocks(1, uid, blocks_out)) {
-      if (attempt > 1)
-        ESP_LOGI(NFC_TAG, "Bambu read succeeded on attempt %u/%u", attempt,
+      stats_.bambu_ok++;
+      if (attempt > 1) {
+        stats_.bambu_retry++;
+        ESP_LOGD(NFC_TAG, "Bambu read succeeded on attempt %u/%u", attempt,
                  BAMBU_READ_ATTEMPTS);
+      }
+      ESP_LOGD(NFC_TAG, "Bambu read took %u ms (%s)",
+               (unsigned) (millis() - start_ms), get_connection_type());
       return true;
     }
     if (attempt == BAMBU_READ_ATTEMPTS) break;
@@ -402,16 +443,21 @@ bool BambuddyNFCComponent::read_bambu_blocks_retry(
     std::vector<uint8_t> again_uid;
     uint8_t again_sak = 0;
     if (!pn532_detect_tag(again_uid, again_sak)) {
-      ESP_LOGD(NFC_TAG, "Bambu read attempt %u: tag left the reader", attempt);
+      ESP_LOGD(NFC_TAG, "Bambu read attempt %u failed and the tag is gone (%u ms)",
+               attempt, (unsigned) (millis() - start_ms));
+      stats_.bambu_fail++;
       return false;
     }
     if (again_uid != uid) {
-      ESP_LOGD(NFC_TAG, "Bambu read attempt %u: a different tag is present",
-               attempt);
+      ESP_LOGD(NFC_TAG, "Bambu read attempt %u failed and a different tag is present (%u ms)",
+               attempt, (unsigned) (millis() - start_ms));
+      stats_.bambu_fail++;
       return false;
     }
   }
-  ESP_LOGW(NFC_TAG, "Bambu read failed after %u attempts", BAMBU_READ_ATTEMPTS);
+  ESP_LOGW(NFC_TAG, "Bambu read failed after %u attempts (%u ms)",
+           BAMBU_READ_ATTEMPTS, (unsigned) (millis() - start_ms));
+  stats_.bambu_fail++;
   return false;
 }
 
@@ -584,32 +630,41 @@ std::string BambuddyNFCComponent::extract_tray_uuid(
 // ============================================================================
 
 void BambuddyNFCComponent::setup() {
-  this->spi_setup();
+  transport_setup();
   if (irq_pin_ != nullptr) {
     irq_pin_->setup();  // configure as input (pull-up set by ESPHome pin schema)
-    ESP_LOGI(NFC_TAG, "BambuddyNFC setup (PN532 via SPI, IRQ-driven)");
+    ESP_LOGI(NFC_TAG, "BambuddyNFC setup (PN532 via %s, IRQ-driven)",
+             get_connection_type());
   } else {
-    ESP_LOGI(NFC_TAG, "BambuddyNFC setup (PN532 via SPI, polling)");
+    ESP_LOGI(NFC_TAG, "BambuddyNFC setup (PN532 via %s, polling)",
+             get_connection_type());
   }
   // Feed WDT then wait for PN532 power-on settle (200 ms covers the PN532's
   // maximum reset/oscillator startup time per the user manual).
   arch_feed_wdt();
   delay(200);
 
-  if (!pn532_init()) {
-    ESP_LOGE(NFC_TAG, "PN532 init failed — NFC will be unavailable");
+  init_attempts_ = 1;
+  last_init_ms_ = millis();
+  if (pn532_init()) {
+    nfc_ok_ = true;
+    if (api_) api_->set_nfc_ok(true);
+    ESP_LOGI(NFC_TAG, "PN532 initialized");
+  } else {
+    // Not fatal: the poll task keeps retrying (PN532_INIT_RETRY_MS), so a
+    // reader that powers up late or is plugged in later still comes up
+    // without a reboot. This line is usually only visible on the serial
+    // console — setup runs before WiFi/API logging — so dump_config() and
+    // the retry warnings repeat the state for network log sessions.
+    ESP_LOGE(NFC_TAG, "PN532 not responding at boot — will keep retrying every %u s",
+             (unsigned) (PN532_INIT_RETRY_MS / 1000));
     nfc_ok_ = false;
     if (api_) api_->set_nfc_ok(false);
-    return;
   }
-
-  nfc_ok_ = true;
-  if (api_) api_->set_nfc_ok(true);
-  ESP_LOGI(NFC_TAG, "PN532 initialized");
 
   // Spawn the polling task on core 1 (the main loop / LVGL run on core 0), so
   // the PN532's busy-wait handshakes run in parallel and never stall the UI.
-  // 8 kB stack: SPI paths + mbedTLS HKDF/SHA-256 key derivation (Bambu MIFARE
+  // 8 kB stack: bus paths + mbedTLS HKDF/SHA-256 key derivation (Bambu MIFARE
   // reads) + ESP_LOG formatting + api_ callback std::string building.  6 kB
   // left too little margin: a wild-PC interrupt-WDT crash on core 1 pointed at
   // stack corruption.  The poll loop logs its high-water mark periodically so
@@ -617,12 +672,34 @@ void BambuddyNFCComponent::setup() {
   xTaskCreatePinnedToCore(&BambuddyNFCComponent::poll_task_trampoline,
                           "bambuddy_nfc", 8192, this,
                           4 /* priority */, &poll_task_handle_, 1 /* core */);
-  ESP_LOGI(NFC_TAG, "NFC polling task started on core 1");
+  ESP_LOGD(NFC_TAG, "NFC polling task started on core 1");
 }
 
 // loop() is intentionally empty — polling runs on the dedicated task so the
 // PN532's busy-wait handshakes never block the main loop / LVGL.
 void BambuddyNFCComponent::loop() {}
+
+void BambuddyNFCComponent::dump_config() {
+  ESP_LOGCONFIG(NFC_TAG, "BambuddyNFC (PN532):");
+  ESP_LOGCONFIG(NFC_TAG, "  Interface: %s", get_connection_type());
+  dump_transport_config();
+  if (irq_pin_ != nullptr) {
+    log_pin(NFC_TAG, "  IRQ Pin: ", irq_pin_);
+  } else {
+    ESP_LOGCONFIG(NFC_TAG, "  Ready detection: polling (no IRQ pin), poll interval %u ms",
+                  (unsigned) poll_interval_ms_);
+  }
+  ESP_LOGCONFIG(NFC_TAG, "  Miss threshold: %u", miss_threshold_);
+  if (nfc_ok_) {
+    ESP_LOGCONFIG(NFC_TAG, "  Reader: OK (IC 0x%02X, firmware %u.%u)", fw_ic_,
+                  fw_ver_, fw_rev_);
+  } else {
+    ESP_LOGCONFIG(NFC_TAG,
+                  "  Reader: NOT RESPONDING (%u init attempts) — check wiring, "
+                  "power and the mode DIP switches",
+                  (unsigned) init_attempts_);
+  }
+}
 
 void BambuddyNFCComponent::poll_task_trampoline(void *arg) {
   static_cast<BambuddyNFCComponent *>(arg)->poll_task_loop();
@@ -634,23 +711,50 @@ void BambuddyNFCComponent::poll_task_loop() {
     // Scanning disabled (console asleep with "NFC in sleep: Off"): leave the RF
     // field off entirely and idle until scanning is re-enabled on wake.
     if (!scan_enabled_) {
+      // The field is still on if the last poll saw a tag — switch it off
+      // once so "off" really means no RF (and no RF current).
+      if (nfc_ok_ && !rf_off_) pn532_rf_off();
+      vTaskDelay(pdMS_TO_TICKS(250));
+      continue;
+    }
+    // Reader never came up (see setup()): retry the full init periodically.
+    if (!nfc_ok_) {
+      if (millis() - last_init_ms_ >= PN532_INIT_RETRY_MS) {
+        last_init_ms_ = millis();
+        init_attempts_++;
+        if (pn532_init()) {
+          link_failures_ = 0;
+          nfc_ok_ = true;
+          if (api_) api_->set_nfc_ok(true);
+          ESP_LOGI(NFC_TAG, "PN532 found after %u attempts — NFC scanning started",
+                   (unsigned) init_attempts_);
+        } else if (init_attempts_ == 2 || init_attempts_ % 30 == 0) {
+          // Once right after boot (visible to a log session opened late),
+          // then every ~5 minutes — not on every 10 s retry.
+          ESP_LOGW(NFC_TAG,
+                   "PN532 still not responding on %s (%u attempts) — check "
+                   "wiring, power and the mode DIP switches",
+                   get_connection_type(), (unsigned) init_attempts_);
+        }
+      }
       vTaskDelay(pdMS_TO_TICKS(250));
       continue;
     }
     poll_once();
+    log_stats_if_due();
     // Stack-headroom diagnostic (every 5 min): high-water mark is the minimum
     // free stack ever seen, in StackType_t words.  If this trends toward zero
     // the task is the prime suspect for wild-PC / int-WDT crashes on core 1.
     uint32_t now_ms = millis();
     if (now_ms - last_stack_diag_ms >= 300000UL) {
       last_stack_diag_ms = now_ms;
-      ESP_LOGI(NFC_TAG, "NFC task stack high-water: %u bytes free",
+      ESP_LOGD(NFC_TAG, "NFC task stack high-water: %u bytes free",
                (unsigned) (uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t)));
     }
     // In IRQ mode the PN532 holds IRQ LOW until we read the response, then
     // de-asserts it.  A 10ms guard prevents hammering the bus if the PN532
     // re-asserts IRQ immediately (e.g. tag still present).
-    // In polling mode honour poll_interval_ms_ to give the SPI bus breathing room.
+    // In polling mode honour poll_interval_ms_ to give the bus breathing room.
     uint32_t gap_ms = (irq_pin_ != nullptr) ? 10 : poll_interval_ms_;
     // While the console sleeps, widen the gap to ~750 ms so the RF field is
     // energized far less often (big power saving), at the cost of slower
@@ -669,8 +773,10 @@ bool BambuddyNFCComponent::ntag_read_pages(uint8_t target_num,
                                MFC_READ, start_page};
   std::vector<uint8_t> resp;
   if (!pn532_send_receive(cmd, resp, 300)) return false;
-  if (resp.size() < 17 || resp[0] != 0x00) return false;
-  memcpy(out, resp.data() + 1, 16);
+  // resp[0] = CMD+1, resp[1] = error code (0x00 = success), then 16 bytes —
+  // same layout as mfc_read_block().
+  if (resp.size() < 18 || resp[1] != 0x00) return false;
+  memcpy(out, resp.data() + 2, 16);
   return true;
 }
 
@@ -791,8 +897,50 @@ bool BambuddyNFCComponent::attempt_pending_write(
   return true;
 }
 
+void BambuddyNFCComponent::log_stats_if_due() {
+  const uint32_t now = millis();
+  if (now - last_stats_ms_ < 60000UL) return;
+  last_stats_ms_ = now;
+  const Stats s = stats_;
+  stats_ = Stats{};
+  const uint32_t errors = s.no_ack + s.bad_ack + s.bad_resp + s.resp_timeout +
+                          s.bambu_fail + s.recoveries;
+  // Quiet when idle and healthy; one line per minute otherwise.
+  if (s.tags == 0 && errors == 0) return;
+  ESP_LOGD(NFC_TAG,
+           "NFC stats (60 s, %s): polls=%u tags=%u bambu ok=%u (retried %u) "
+           "failed=%u | no_ack=%u bad_ack=%u bad_resp=%u resp_timeout=%u "
+           "recoveries=%u",
+           get_connection_type(), (unsigned) s.cycles, (unsigned) s.tags,
+           (unsigned) s.bambu_ok, (unsigned) s.bambu_retry,
+           (unsigned) s.bambu_fail, (unsigned) s.no_ack, (unsigned) s.bad_ack,
+           (unsigned) s.bad_resp, (unsigned) s.resp_timeout,
+           (unsigned) s.recoveries);
+}
+
 void BambuddyNFCComponent::poll_once() {
   if (!nfc_ok_) return;
+  stats_.cycles++;
+
+  // Link supervision: a reader that keeps failing exchanges is re-initialised
+  // rather than polled forever in a state it will not leave by itself.
+  if (link_failures_ >= PN532_LINK_FAILURE_LIMIT) {
+    if (state_ == NFCState::TAG_PRESENT) {
+      // Nothing can be read while the link is down; report the tag gone
+      // instead of leaving it "present" indefinitely. It is re-reported as
+      // soon as the reader is back.
+      std::string old_uid = uid_to_hex(current_uid_);
+      state_ = NFCState::IDLE;
+      current_uid_.clear();
+      current_sak_ = 0;
+      miss_count_ = 0;
+      if (api_) api_->on_tag_removed(old_uid);
+    }
+    if (last_recover_ms_ != 0 &&
+        millis() - last_recover_ms_ < PN532_RECOVER_RETRY_MS)
+      return;
+    if (!pn532_recover()) return;
+  }
 
   std::vector<uint8_t> uid;
   uint8_t sak = 0;
@@ -800,7 +948,7 @@ void BambuddyNFCComponent::poll_once() {
 
   // Diagnostic: surface why a queued write may not be firing.
   if (api_ && api_->has_pending_write()) {
-    ESP_LOGI(NFC_TAG,
+    ESP_LOGD(NFC_TAG,
              "Pending write active: detected=%d sak=0x%02X state=%s",
              detected, detected ? sak : current_sak_,
              state_ == NFCState::TAG_PRESENT ? "PRESENT" : "IDLE");
@@ -830,6 +978,7 @@ void BambuddyNFCComponent::poll_once() {
         if (api_) api_->on_tag_removed(old_uid);
       }
       // New tag detected
+      stats_.tags++;
       state_ = NFCState::TAG_PRESENT;
       current_uid_ = uid;
       current_sak_ = sak;
@@ -885,7 +1034,7 @@ void BambuddyNFCComponent::poll_once() {
       if ((sak == 0x00 || sak == 0x04) && api_) {
         std::string fmt = ntag_detect_ndef_format(1);
         if (!fmt.empty()) {
-          ESP_LOGI(NFC_TAG, "NDEF format detected: %s", fmt.c_str());
+          ESP_LOGD(NFC_TAG, "NDEF format detected: %s", fmt.c_str());
           api_->set_tag_format(fmt);
         }
       }
@@ -901,7 +1050,11 @@ void BambuddyNFCComponent::poll_once() {
     }
 
   } else {
-    // No tag detected
+    // No tag detected: drop the RF field until the next poll re-enables it,
+    // so it is off during the whole inter-poll gap instead of permanently on.
+    // Skipped when the poll failed on the link itself — another command would
+    // only fail too (link supervision handles that case).
+    if (link_failures_ == 0) pn532_rf_off();
     if (state_ == NFCState::TAG_PRESENT) {
       miss_count_++;
       if (miss_count_ >= miss_threshold_) {

@@ -1,0 +1,134 @@
+<svg viewBox="0 0 1000 820" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <rect x="0" y="0" width="1000" height="820" rx="16" fill="#ffffff" stroke="#d0d7de" stroke-width="2"/>
+
+  <text x="500" y="42" text-anchor="middle" font-size="24" font-weight="700" fill="#1b1f23">Console — Panda Touch ↔ PN532 NFC reader (I²C)</text>
+  <text x="500" y="66" text-anchor="middle" font-size="14" fill="#57606a">Set the PN532 module to I²C mode with its DIP switches: 1 = ON, 2 = OFF</text>
+
+  <!-- Device, rear view (layout after BTT's Panda Touch back-side drawing) -->
+  <rect x="40" y="100" width="600" height="396" rx="30" fill="#0969da" stroke="#0550ae" stroke-width="2"/>
+  <rect x="54" y="114" width="572" height="368" rx="20" fill="none" stroke="#cfe3ff" stroke-width="1.5" opacity="0.6"/>
+  <text x="340" y="138" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">BTT Panda Touch</text>
+  <text x="340" y="158" text-anchor="middle" font-size="12" fill="#cfe3ff">Rear view · display faces away</text>
+
+  <!-- Alignment magnets -->
+  <g fill="none" stroke="#cfe3ff" stroke-width="2.5">
+    <circle cx="112" cy="171" r="19"/>
+    <circle cx="568" cy="171" r="19"/>
+    <circle cx="112" cy="425" r="19"/>
+    <circle cx="568" cy="425" r="19"/>
+    <circle cx="340" cy="298" r="19"/>
+  </g>
+
+  <!-- Magnetic charging pads -->
+  <rect x="152" y="214" width="112" height="44" rx="22" fill="#0550ae" stroke="#cfe3ff" stroke-width="1.5"/>
+  <rect x="196" y="224" width="24" height="24" fill="none" stroke="#cfe3ff" stroke-width="1.5"/>
+  <text x="208" y="290" text-anchor="middle" font-size="24" fill="#cfe3ff">+</text>
+  <rect x="416" y="214" width="112" height="44" rx="22" fill="#0550ae" stroke="#cfe3ff" stroke-width="1.5"/>
+  <rect x="460" y="224" width="24" height="24" fill="none" stroke="#cfe3ff" stroke-width="1.5"/>
+  <text x="472" y="290" text-anchor="middle" font-size="24" fill="#cfe3ff">−</text>
+
+  <!-- Mounting: keyhole + screw holes -->
+  <g fill="#0550ae" stroke="#cfe3ff" stroke-width="1.5">
+    <circle cx="124" cy="310" r="15"/>
+    <rect x="117" y="286" width="14" height="14" rx="2"/>
+    <circle cx="556" cy="310" r="15"/>
+    <rect x="549" y="286" width="14" height="14" rx="2"/>
+  </g>
+  <circle cx="162" cy="310" r="5" fill="#cfe3ff"/>
+  <circle cx="518" cy="310" r="5" fill="#cfe3ff"/>
+
+  <!-- Power switch -->
+  <rect x="262" y="404" width="60" height="30" rx="15" fill="#0550ae" stroke="#cfe3ff" stroke-width="1.5"/>
+  <circle cx="279" cy="419" r="11" fill="#cfe3ff"/>
+  <text x="292" y="456" text-anchor="middle" font-size="11" font-weight="700" fill="#ffffff">POWER</text>
+
+  <!-- I2C port: SDA1 · SCL1 · GND · 3.3V (left to right, as printed on the case) -->
+  <rect x="344" y="404" width="76" height="30" rx="3" fill="#1b1f23" stroke="#cfe3ff" stroke-width="1.5"/>
+  <g font-size="10" font-weight="700" fill="#ffffff" text-anchor="start">
+    <text transform="translate(368,398) rotate(-90)">SDA1</text>
+    <text transform="translate(384,398) rotate(-90)">SCL1</text>
+    <text transform="translate(400,398) rotate(-90)">GND</text>
+    <text transform="translate(416,398) rotate(-90)">3.3V</text>
+  </g>
+  <text x="430" y="424" text-anchor="start" font-size="11" font-weight="700" fill="#ffffff">I²C</text>
+
+  <!-- Module: common red PN532 V3 board, drawn rotated 180° from its usual
+       photo orientation so the I²C header (left edge) reads GND, VCC, SDA, SCL
+       top to bottom. In that orientation the mode DIP switch sits just below
+       SCL: switch 1 on top, switch 2 below, ON = slide to the right. -->
+  <text x="830" y="418" text-anchor="middle" font-size="19" font-weight="700" fill="#1b1f23">PN532 NFC Reader</text>
+  <text x="830" y="434" text-anchor="middle" font-size="12" fill="#57606a">V3 module · component side · I²C address 0x24</text>
+  <rect x="700" y="444" width="260" height="280" rx="14" fill="#0f7b6c" stroke="#0b5d52" stroke-width="2"/>
+  <!-- antenna loop around the board edge -->
+  <rect x="709" y="453" width="242" height="262" rx="10" fill="none" stroke="#c9f0e8" stroke-width="5" opacity="0.5"/>
+  <!-- mounting holes (top-left, bottom-right) -->
+  <circle cx="748" cy="492" r="10" fill="#ffffff" stroke="#c9f0e8" stroke-width="3"/>
+  <circle cx="924" cy="694" r="10" fill="#ffffff" stroke="#c9f0e8" stroke-width="3"/>
+  <!-- SPI/HSU header along the top edge (unused) -->
+  <g fill="#c9f0e8">
+    <circle cx="800" cy="484" r="3.5"/><circle cx="815" cy="484" r="3.5"/><circle cx="830" cy="484" r="3.5"/><circle cx="845" cy="484" r="3.5"/>
+    <circle cx="860" cy="484" r="3.5"/><circle cx="875" cy="484" r="3.5"/><circle cx="890" cy="484" r="3.5"/><circle cx="905" cy="484" r="3.5"/>
+  </g>
+  <text x="852" y="503" text-anchor="middle" font-size="10" fill="#c9f0e8">SPI header (unused)</text>
+  <!-- PN532 chip -->
+  <rect x="846" y="566" width="46" height="46" rx="3" fill="#1b1f23" stroke="#c9f0e8" stroke-width="1"/>
+  <text x="869" y="593" text-anchor="middle" font-size="10" font-weight="700" fill="#ffffff">PN532</text>
+
+  <!-- Mode DIP switch, just below SCL: 1 on top, 2 below; ON = slide right -->
+  <text x="806" y="668" text-anchor="end" font-size="9" font-weight="700" fill="#ffffff">ON ▶</text>
+  <rect x="748" y="672" width="58" height="30" rx="3" fill="#1b1f23" stroke="#ffffff" stroke-width="1.5"/>
+  <rect x="754" y="676" width="42" height="10" rx="2" fill="#57606a"/>
+  <rect x="754" y="689" width="42" height="10" rx="2" fill="#57606a"/>
+  <rect x="780" y="677" width="15" height="8" rx="1.5" fill="#ffffff"/>  <!-- 1: right = ON -->
+  <rect x="755" y="690" width="15" height="8" rx="1.5" fill="#ffffff"/>  <!-- 2: left = OFF -->
+  <text x="744" y="685" text-anchor="end" font-size="9" font-weight="700" fill="#ffffff">1</text>
+  <text x="744" y="698" text-anchor="end" font-size="9" font-weight="700" fill="#ffffff">2</text>
+  <text x="814" y="691" font-size="11" font-weight="700" fill="#ffffff">I²C: 1 ON · 2 OFF</text>
+
+  <!-- Wires: from the port pins down out of the device, then across to the
+       module pads (x=700). PN532 header, top to bottom: GND, VCC, SDA, SCL.
+       Port, left to right: SDA1, SCL1, GND, 3.3V — so GND/3.3V and SDA/SCL
+       each cross once; the hop marks a crossing, not a connection. -->
+  <!-- 3.3V -> VCC -->
+  <polyline points="412,419 412,590 700,590" fill="none" stroke="#cf222e" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="412" cy="419" r="6" fill="#cf222e" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="722" cy="590" r="7" fill="#cf222e" stroke="#ffffff" stroke-width="2"/>
+  <text x="734" y="595" font-size="13" font-weight="600" fill="#ffffff">VCC</text>
+
+  <!-- SCL1 -> SCL -->
+  <polyline points="380,419 380,650 700,650" fill="none" stroke="#0969da" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="380" cy="419" r="6" fill="#0969da" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="722" cy="650" r="7" fill="#0969da" stroke="#ffffff" stroke-width="2"/>
+  <text x="734" y="655" font-size="13" font-weight="600" fill="#ffffff">SCL</text>
+
+  <!-- GND -> GND (hops over the 3.3V wire) -->
+  <path d="M401,560 H403 A9,9 0 0 1 421,560 H423" fill="none" stroke="#ffffff" stroke-width="9"/>
+  <path d="M396,419 V560 H403 A9,9 0 0 1 421,560 H722" fill="none" stroke="#24292f" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="396" cy="419" r="6" fill="#24292f" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="722" cy="560" r="7" fill="#24292f" stroke="#ffffff" stroke-width="2"/>
+  <text x="734" y="565" font-size="13" font-weight="600" fill="#ffffff">GND</text>
+
+  <!-- SDA1 -> SDA (hops over the SCL wire) -->
+  <path d="M369,620 H371 A9,9 0 0 1 389,620 H391" fill="none" stroke="#ffffff" stroke-width="9"/>
+  <path d="M364,419 V620 H371 A9,9 0 0 1 389,620 H722" fill="none" stroke="#1a7f37" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="364" cy="419" r="6" fill="#1a7f37" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="722" cy="620" r="7" fill="#1a7f37" stroke="#ffffff" stroke-width="2"/>
+  <text x="734" y="625" font-size="13" font-weight="600" fill="#ffffff">SDA</text>
+
+  <!-- Wire labels (board side) -->
+  <g font-size="13" font-weight="600" fill="#1b1f23">
+    <text x="436" y="553">GND</text>
+    <text x="436" y="583">3.3V</text>
+    <text x="436" y="613">SDA1 (GPIO4)</text>
+    <text x="436" y="643">SCL1 (GPIO3)</text>
+  </g>
+
+  <!-- Legend -->
+  <g font-size="12" fill="#1b1f23">
+    <rect x="265" y="746" width="14" height="14" rx="3" fill="#cf222e"/><text x="284" y="757">Power (3.3V)</text>
+    <rect x="405" y="746" width="14" height="14" rx="3" fill="#24292f"/><text x="424" y="757">Ground</text>
+    <rect x="515" y="746" width="14" height="14" rx="3" fill="#1a7f37"/><text x="534" y="757">I²C Data</text>
+    <rect x="625" y="746" width="14" height="14" rx="3" fill="#0969da"/><text x="644" y="757">I²C Clock</text>
+  </g>
+  <text x="500" y="794" text-anchor="middle" font-size="12" fill="#57606a">The I²C port sits on the back, next to the power switch. No IRQ wire — the port has no spare GPIO, so the firmware polls the reader every 300 ms.</text>
+</svg>

@@ -812,9 +812,11 @@ script:
           lv_label_set_text(id(slot_assign_title), t);
           lv_obj_clear_flag(id(assign_id_modal), LV_OBJ_FLAG_HIDDEN);
 
-
-interval:
-  - interval: 400ms
+  # UI refresh: renders DisplayState into the LVGL widgets. Runs every 400 ms
+  # from the interval below, and on demand (script.execute: ui_refresh) right
+  # after a UI action changes state, so the screen reacts immediately instead
+  # of on the next tick.
+  - id: ui_refresh
     then:
       - lambda: |-
           // Apply user-configured brightness on first tick after boot (no transition).
@@ -2389,3 +2391,7 @@ interval:
             }
           }
 
+interval:
+  - interval: 400ms
+    then:
+      - script.execute: ui_refresh
