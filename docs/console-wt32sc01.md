@@ -12,7 +12,7 @@ Prefer a bigger screen and fewer parts to source instead? See the
 
 | Part | Notes |
 |---|---|
-| [WT32-SC01 Plus](https://www.wireless-tag.com/portfolio/wt32-sc01-plus/) | ESP32-S3, 3.5″ 480×320 touchscreen, onboard I2S speaker amp |
+| [WT32-SC01 Plus](https://en.wireless-tag.com/product-item-26.html) | ESP32-S3, 3.5″ 480×320 touchscreen, onboard I2S speaker amp |
 | PN532 NFC module | **SPI mode** — set the module's DIP switches/jumpers to SPI, not I²C/UART |
 | USB-C cable | For the first (wired) flash and power. If used with the battery, angled connectors like [this](https://de.aliexpress.com/item/1005007470552376.html) are recommended |
 | 7-wire cable | To connect the PN532 to the expansion header |
