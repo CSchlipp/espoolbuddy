@@ -1778,6 +1778,7 @@ bool BambuddyAPIComponent::http_request(esp_http_client_method_t method,
         esp_http_client_set_post_field(client, json_body.c_str(), (int)json_body.size());
       } else {
         esp_http_client_delete_header(client, "Content-Type");
+        esp_http_client_delete_header(client, "Content-Length");
         esp_http_client_set_post_field(client, nullptr, 0);
       }
       if (with_api_key && !api_key_.empty())
