@@ -15,7 +15,9 @@ boards.
 It's a from-scratch reimplementation of Bambuddy's official
 [SpoolBuddy](https://github.com/maziggy/bambuddy/tree/main/spoolbuddy)
 client (which normally runs on a Raspberry Pi) — same idea, same backend
-API, running natively on ESP32 instead.
+API, running natively on ESP32 instead. Not sure which one suits you? See the
+**[ESPoolBuddy vs. SpoolBuddy comparison](docs/comparison.md)** for an honest
+look at features and cost.
 
 ## What you can build
 
@@ -107,6 +109,8 @@ LEDs mean.
 
 ## More documentation
 
+- **[ESPoolBuddy vs. SpoolBuddy](docs/comparison.md)** — how this compares
+  to the official Raspberry Pi client, feature by feature and on cost
 - **[Setup & flashing](docs/setup.md)** — install ESPHome, secrets, first
   flash, OTA updates
 - **[Configuration reference](docs/configuration.md)** — every tunable
