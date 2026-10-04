@@ -12,6 +12,12 @@ automatically. No Raspberry Pi, no SD card, no Linux image to maintain —
 just [ESPHome](https://esphome.io) firmware flashed straight onto the
 boards.
 
+<p align="center">
+  <img src="docs/images/ui/pandatouch-ams.png" alt="ESPoolBuddy console showing the AMS tab: each AMS unit of the selected printer with its spools' colours, materials and spool IDs, remaining-filament bars, temperature and humidity" width="640"><br>
+  <sub>The console's AMS view: every loaded spool with its material, Bambuddy spool ID and remaining filament.
+  <a href="#using-it-day-to-day">More screens below.</a></sub>
+</p>
+
 It's a from-scratch reimplementation of Bambuddy's official
 [SpoolBuddy](https://github.com/maziggy/bambuddy/tree/main/spoolbuddy)
 client (which normally runs on a Raspberry Pi) — same idea, same backend
@@ -100,7 +106,32 @@ automatic weighing — it brings its own NFC reader too.
 ## Using it day to day
 
 Scan a tag, load the spool, watch it get assigned in Bambuddy — most of it
-just works without you thinking about it. See
+just works without you thinking about it.
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/images/ui/ams-slot.png" alt="AMS slot detail popup: spool brand and material, colour, temperature range, AMS and slot, remaining weight and a Clear Assignment button" width="380"><br>
+      <sub><b>AMS slot</b> — tap a slot for its spool's details</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/images/ui/nfc-spool.png" alt="NFC tab after scanning a tag: spool name, colour, remaining weight and actions" width="380"><br>
+      <sub><b>NFC</b> — scanned spool, ready to load into the AMS</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/images/ui/nfc-unlinked.png" alt="NFC tab for a tag that isn't linked to any spool, with Add to Inventory and Assign Spool buttons" width="380"><br>
+      <sub><b>Unknown tag</b> — add it to the inventory or link an existing spool</sub>
+    </td>
+    <td align="center">
+      <img src="docs/images/ui/quick-settings.png" alt="Quick settings drawer with smart plug power and printer tiles" width="380"><br>
+      <sub><b>Quick settings</b> — swipe down for power plug and printer</sub>
+    </td>
+  </tr>
+</table>
+
+See
 **[Using the device](docs/usage.md)** for the full walkthrough: auto-assign,
 unlinked tags, weighing, writing tags, sleep behavior, and what the status
 LEDs mean.

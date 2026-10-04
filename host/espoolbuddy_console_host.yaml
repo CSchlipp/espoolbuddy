@@ -1,0 +1,160 @@
+################################################################################
+# SpoolBuddy Console — desktop (ESPHome host platform) build for LVGL testing
+#
+# Runs the shared console UI (espoolbuddy/app.yaml + lvgl.yaml) as a native
+# Linux/macOS program in an SDL window, so layout and UI logic can be iterated
+# on without flashing hardware. Mouse clicks act as touches.
+#
+# There is no backend, NFC reader or scale: the real bambuddy_api
+# implementation is ESP32-only, so host/bambuddy_api_mock.cpp is compiled in
+# its place (via esphome: includes: below). It fills the UI with demo printers, AMS units, spools, storage locations and
+# smart plugs, and applies UI actions locally. The "Simulate ..." buttons
+# below drive the NFC flows; press them from Home Assistant / the ESPHome
+# dashboard (native API on localhost:6053) or `esphome logs`.
+#
+# Unlike the device configs this one uses the local checkout (components,
+# packages and images) rather than GitHub, since it's for testing changes.
+#
+# Requirements: SDL2 development files (sdl2-config on PATH), e.g.
+#   Debian/Ubuntu: sudo apt install libsdl2-dev
+#   macOS:         brew install sdl2
+#
+# Run:
+#   esphome run host/espoolbuddy_console_host.yaml
+#
+# Screen size: change screen_width/screen_height below to try other panels,
+# e.g. 800x480 for the Panda Touch layout.
+################################################################################
+
+substitutions:
+  screen_width: "800"
+  screen_height: "480"
+  # The SDL window is created at the target resolution directly, so no
+  # software rotation is needed (the WT32-SC01 Plus needs 90).
+  screen_rotation: "0"
+  # Overrides espoolbuddy/assets.yaml's GitHub image base with the local copy.
+  espoolbuddy_images: ../espoolbuddy/images
+
+esphome:
+  name: espoolbuddy-host
+  friendly_name: ESPoolBuddy Host
+  project:
+    name: espoolbuddy.console_host
+  includes:
+    - bambuddy_api_mock.cpp
+  on_boot:
+    # Apply initial tab state after preferences are loaded (restores printer
+    # selection + tab visibility) — same as the device configs.
+    - priority: -100
+      then:
+        - script.execute: apply_tab
+
+host:
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [bambuddy_api]
+
+packages:
+  version: !include ../espoolbuddy/version.yaml
+  app:     !include ../espoolbuddy/app.yaml
+  assets:  !include ../espoolbuddy/assets.yaml
+  ui:      !include ../espoolbuddy/lvgl.yaml
+
+logger:
+  level: DEBUG
+  logs:
+    scheduler: INFO
+    component: INFO
+    lvgl: INFO
+    touchscreen: INFO
+
+# Unencrypted: only reachable on this machine's network, and saves needing a
+# secrets.yaml just to run the simulator.
+api:
+  reboot_timeout: 0s
+
+# Header clock — same id the device configs give their SNTP clock.
+time:
+  - platform: host
+    id: sntp_time
+
+# ============================================================================
+# Display + touch — SDL window, mouse acts as the touchscreen
+# ============================================================================
+display:
+  - platform: sdl
+    id: main_display
+    dimensions:
+      width: ${screen_width}
+      height: ${screen_height}
+    auto_clear_enabled: false
+    update_interval: never
+    # Press "s" in the window to save a screenshot (host/.esphome/snapshots/).
+    snapshot_key: SDLK_s
+
+touchscreen:
+  - platform: sdl
+    id: touch_screen
+    on_touch:
+      - lambda: |-
+          id(display_backlight).turn_on()
+            .set_brightness(id(backlight_brightness_pct) / 100.0f)
+            .set_transition_length(0).perform();
+
+# ============================================================================
+# Backlight — no physical one; a template output keeps the dim/sleep state
+# machine in app.yaml working (it only logs the level here).
+# ============================================================================
+output:
+  - platform: template
+    id: backlight_out
+    type: float
+    write_action:
+      - logger.log:
+          level: DEBUG
+          format: "Backlight %.0f%%"
+          args: ["state * 100.0f"]
+
+light:
+  - platform: monochromatic
+    output: backlight_out
+    name: "Display Backlight"
+    id: display_backlight
+    restore_mode: ALWAYS_ON
+    default_transition_length: 0ms
+
+# ============================================================================
+# Buttons
+# ============================================================================
+button:
+  - platform: restart
+    name: "Restart"
+    id: restart_button
+
+  # NFC simulation (there is no reader on the host). 04A1B2C3D4E5F6 is linked
+  # to demo spool #39 by the mock; any other UID resolves as unlinked.
+  - platform: template
+    name: "Simulate Linked Tag"
+    on_press:
+      - lambda: bambuddy->on_tag_scanned("04A1B2C3D4E5F6", "", 0x00, "ntag");
+
+  - platform: template
+    name: "Simulate Unlinked Tag"
+    on_press:
+      - lambda: bambuddy->on_tag_scanned("04DEADBEEF0001", "", 0x00, "ntag");
+
+  - platform: template
+    name: "Simulate Tag Removed"
+    on_press:
+      - lambda: bambuddy->on_tag_removed("");
+
+# ============================================================================
+# BambuddyAPI — mock backend on this platform (see header)
+# ============================================================================
+bambuddy_api:
+  id: bambuddy
+  hostname: "SpoolBuddy-Host"
+  backlight_id: display_backlight

@@ -1,0 +1,89 @@
+################################################################################
+# Documentation screenshots — scripted run of the desktop simulator
+#
+# Don't run this directly; use host/update_screenshots.py, which compiles it
+# at both console resolutions, runs it and copies the results into
+# docs/images/ui/.
+#
+# Builds espoolbuddy_console_host.yaml unchanged and adds a boot sequence
+# that walks the UI through each documented screen (simulated taps via
+# lv_obj_send_event, simulated NFC scans via the mock), saves a snapshot of
+# each to .esphome/snapshots/espoolbuddy-docs/<name>.bmp, then exits.
+#
+# To add a screen: add a step below that gets the UI into that state, then
+# `- delay: 1200ms` + `- snapshot.take`, and list the name in
+# update_screenshots.py. Each step starts from the previous step's state, so
+# close any popup you open.
+################################################################################
+
+packages:
+  host: !include espoolbuddy_console_host.yaml
+
+esphome:
+  # Separate build dir and snapshot folder from the interactive simulator.
+  name: espoolbuddy-docs
+  on_boot:
+    # After the host config's own priority -100 apply_tab.
+    - priority: -200
+      then:
+        - delay: 3s  # first full draw + boot-time apply_tab
+
+        # ---- AMS tab ----
+        - lambda: |-
+            bambuddy->set_selected_printer(0);
+            id(active_tab) = 0;
+        - script.execute: apply_tab
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: ams}
+
+        # Slot detail popup (row 0, slot 1 = PETG on AMS A)
+        - lambda: 'lv_obj_send_event(id(hit_r0s1), LV_EVENT_CLICKED, nullptr);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: ams-slot}
+        - lambda: 'lv_obj_send_event(id(modal_close_btn), LV_EVENT_CLICKED, nullptr);'
+
+        # Quick settings drawer
+        - script.execute: qs_open
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: quick-settings}
+        - script.execute: qs_close
+
+        # ---- NFC tab ----
+        - lambda: 'id(active_tab) = 1;'
+        - script.execute: apply_tab
+        # Tag linked to a demo spool by the mock
+        - lambda: 'bambuddy->on_tag_scanned("04A1B2C3D4E5F6", "", 0x00, "ntag");'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: nfc-spool}
+
+        # Tag the mock doesn't know -> unlinked panel
+        - lambda: 'bambuddy->on_tag_scanned("04DEADBEEF0001", "", 0x00, "ntag");'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: nfc-unlinked}
+
+        # "Assign Spool" -> spool picker
+        - lambda: 'lv_obj_send_event(id(btn_assign_spool), LV_EVENT_CLICKED, nullptr);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: nfc-picker}
+        - lambda: 'lv_obj_send_event(id(btn_picker_cancel), LV_EVENT_CLICKED, nullptr);'
+
+        # ---- Scale tab ----
+        - lambda: 'id(active_tab) = 2;'
+        - script.execute: apply_tab
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: scale}
+
+        # ---- Settings sub-pages ----
+        - lambda: 'id(active_tab) = 3;'
+        - script.execute: apply_tab
+        - lambda: 'lv_obj_clear_flag(id(content_features), LV_OBJ_FLAG_HIDDEN);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: settings-features}
+        - lambda: |-
+            lv_obj_add_flag(id(content_features), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(content_storage), LV_OBJ_FLAG_HIDDEN);
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: settings-storage}
+
+        - delay: 500ms
+        - lambda: 'exit(0);'

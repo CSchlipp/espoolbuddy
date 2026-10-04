@@ -10,12 +10,34 @@
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
 
+#ifdef USE_ESP32
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_http_server.h"   // httpd_handle_t (scale server mode only)
 #include "esp_http_client.h"   // esp_http_client_method_t (http_request helper)
 #include "esp_wifi_types.h"    // wifi_ps_type_t (dynamic WiFi modem sleep in low-power mode)
+#else
+// ESPHome host platform (host/espoolbuddy_console_host.yaml): no ESP-IDF, so
+// the real implementation in bambuddy_api.cpp is compiled out and
+// host/bambuddy_api_mock.cpp provides a mock with demo data instead. These
+// stand-ins only exist so the class declaration below compiles unchanged —
+// the mock never creates a task, mutex or HTTP handle (state_mutex_ stays
+// null, so lock_state()/unlock_state() never reach the semaphore calls).
+typedef void *SemaphoreHandle_t;
+typedef void *TaskHandle_t;
+typedef struct {} StaticTask_t;
+typedef void *httpd_handle_t;
+typedef struct httpd_req httpd_req_t;
+typedef void *esp_http_client_handle_t;
+typedef int esp_http_client_method_t;
+typedef int esp_err_t;
+typedef int wifi_ps_type_t;
+#define WIFI_PS_NONE 0
+#define portMAX_DELAY 0
+inline bool xSemaphoreTake(SemaphoreHandle_t, int) { return true; }
+inline bool xSemaphoreGive(SemaphoreHandle_t) { return true; }
+#endif
 
 namespace esphome {
 namespace light {
