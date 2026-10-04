@@ -2,13 +2,17 @@
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
+import esphome.final_validate as fv
 from esphome.components.light import LightState
 from esphome.const import CONF_ID
 from esphome.core import CORE
 
 CODEOWNERS = ["@CSchlipp"]
 MULTI_CONF = False
-DEPENDENCIES = ["network", "wifi"]
+# wifi is only required on ESP32 (see _final_validate below): the host
+# platform build (host/espoolbuddy_console_host.yaml) has no wifi component and
+# compiles the mock in host/bambuddy_api_mock.cpp instead.
+DEPENDENCIES = ["network"]
 AUTO_LOAD = []
 
 bambuddy_api_ns = cg.esphome_ns.namespace("bambuddy_api")
@@ -58,6 +62,15 @@ def _validate_backlight_required(config):
     if not config[CONF_SCALE_MODE] and CONF_BACKLIGHT_ID not in config:
         raise cv.Invalid("backlight_id is required unless scale_mode: true")
     return config
+
+
+def _final_validate(config):
+    if CORE.is_esp32 and "wifi" not in fv.full_config.get():
+        raise cv.Invalid("bambuddy_api requires the wifi component on ESP32")
+    return config
+
+
+FINAL_VALIDATE_SCHEMA = _final_validate
 
 
 CONFIG_SCHEMA = cv.All(

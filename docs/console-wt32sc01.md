@@ -5,6 +5,10 @@
 This is the **recommended** console build — a 3.5″ touchscreen with NFC and a
 speaker built in. Firmware: [`espoolbuddy_console.yaml`](../espoolbuddy_console.yaml).
 
+<img src="images/ui/ams.png" alt="AMS tab at 480×320" width="360">
+
+*The AMS tab at 480×320. See [Using the device](usage.md) for the other screens.*
+
 Prefer a bigger screen and fewer parts to source instead? See the
 [Panda Touch console](console-pandatouch.md) build.
 

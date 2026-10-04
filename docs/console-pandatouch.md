@@ -16,6 +16,11 @@ It runs the exact same UI as the [WT32-SC01 Plus console](console-wt32sc01.md)
 external PN532 on the I²C port on the back of the device; only the speaker is
 missing, since the board doesn't have one.
 
+<img src="images/ui/pandatouch-ams.png" alt="AMS tab at 800×480" width="400"> 
+
+*The AMS tab at the Panda Touch's 800×480. See
+[Using the device](usage.md) for the other screens.*
+
 ## Bill of materials
 
 | Part | Notes |

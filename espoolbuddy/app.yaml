@@ -693,7 +693,9 @@ script:
       - lambda: |-
           if (!id(is_sleeping)) return;
           if (id(wifi_sleep_mode) == 1) {
+            #ifdef USE_WIFI  // absent in the host build (host/espoolbuddy_console_host.yaml)
             wifi::global_wifi_component->disable();
+            #endif
             bambuddy->configure_pm(true);
           }
 
@@ -1000,7 +1002,9 @@ script:
                   // Restore full CPU speed before re-enabling WiFi so the stack
                   // initialises at 240 MHz, then force an immediate data refresh.
                   bambuddy->configure_pm(false);
+                  #ifdef USE_WIFI
                   wifi::global_wifi_component->enable();
+                  #endif
                 }
                 // set_low_power(false) resets the HTTP poll timers to trigger an
                 // immediate refresh once the connection is up.

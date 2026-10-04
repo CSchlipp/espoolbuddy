@@ -1,4 +1,8 @@
 #include "bambuddy_api.h"
+
+// Real ESP-IDF implementation. The ESPHome host platform build compiles
+// host/bambuddy_api_mock.cpp (a mock with demo data) instead.
+#ifdef USE_ESP32
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
 #include "esphome/core/hal.h"
@@ -4552,3 +4556,5 @@ void BambuddyAPIComponent::api_clear_plate(const std::string &printer_id) {
 
 }  // namespace bambuddy_api
 }  // namespace esphome
+
+#endif  // USE_ESP32
