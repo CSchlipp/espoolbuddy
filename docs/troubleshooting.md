@@ -104,6 +104,3 @@
   widgets at runtime, so the console pre-declares a ceiling and
   hides/populates however many are actually needed. Printers beyond the
   25th in Bambuddy's list won't appear.
-- **Panda Touch console shows visual glitches**: a known, not-yet-solved
-  issue with this build — see its
-  [known limitations](console-pandatouch.md#known-limitations).

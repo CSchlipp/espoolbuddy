@@ -62,6 +62,9 @@ esp32:
       CONFIG_PM_ENABLE: "y"
       # Required for light sleep — lets the idle task skip ticks while asleep.
       CONFIG_FREERTOS_USE_TICKLESS_IDLE: "1"
+      # -O2 instead of -Os: faster LVGL rendering and JSON parsing at the cost
+      # of a larger binary (plenty of room in 16 MB flash).
+      CONFIG_COMPILER_OPTIMIZATION_PERF: "y"
     advanced:
       # ESPHome's own "loopTask" (esp32/core.cpp) runs setup()/App.loop() —
       # including lv_timer_handler() and every interval lambda — on a

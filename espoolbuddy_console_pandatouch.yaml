@@ -54,12 +54,20 @@ esp32:
     type: esp-idf
     version: recommended
     sdkconfig_options:
-      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240: "y"
       CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
       CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
       CONFIG_ESP_TASK_WDT_TIMEOUT_S: "30"
       CONFIG_PM_ENABLE: "y"
       CONFIG_FREERTOS_USE_TICKLESS_IDLE: "1"
+      # Run code and read-only data from PSRAM instead of flash. Flash writes
+      # (OTA, NVS/preferences saves) disable the flash cache; with these the
+      # RGB panel driver keeps running meanwhile, so the panel doesn't lose sync.
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+      # -O2 instead of -Os: faster LVGL rendering and JSON parsing at the cost
+      # of a larger binary (plenty of room in 16 MB flash).
+      CONFIG_COMPILER_OPTIMIZATION_PERF: "y"
     advanced:
       # ESPHome's own "loopTask" (esp32/core.cpp) runs setup()/App.loop() —
       # including lv_timer_handler() and every interval lambda — on a
