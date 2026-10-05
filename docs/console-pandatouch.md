@@ -108,10 +108,6 @@ and set its DIP switches to I²C before closing the cover.
 - **No NFC IRQ.** The PN532 runs in polling mode (see
   [above](#wiring-the-nfc-reader)); tag detection is slightly slower than on
   the WT32-SC01 Plus.
-- **Occasional display glitches.** This build has shown intermittent visual
-  artifacts on real hardware. It's believed to be related to how this
-  board's RGB-parallel display works, rather than a firmware bug — the
-  WT32-SC01 Plus console doesn't have this issue. Not yet fully solved.
 
 ## Setup & flashing
 
