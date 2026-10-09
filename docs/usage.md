@@ -52,9 +52,12 @@ Panda Touch shows the same screens at 800×480.
   spool in Bambuddy opens the unlinked-tag panel with an **Add to
   Inventory** button. For a Bambu Lab tag the new spool is populated from
   the tag itself — material and subtype, colour name and RGBA, brand,
-  label weight, slicer filament id and hotend temperatures. For any other
-  tag (NTAG, foreign spool, or a tag that could not be decoded) it falls
-  back to a default entry (PLA, 1000 g). Either way the spool is linked to
+  label weight, slicer filament id and hotend temperatures. An
+  [OpenTag3D](https://opentag3d.info) tag is decoded the same way —
+  material and modifier, manufacturer, colour name and RGBA, label and
+  empty-spool weight and hotend temperatures. For any other tag (plain NTAG,
+  foreign spool, or a tag that could not be decoded) it falls back to a
+  default entry (PLA, 1000 g). Either way the spool is linked to
   that tag and carries a `"Created by ESPoolBuddy"` note so it's easy to
   identify later. With the Spoolman backend everything above is still filled
   in except the hotend temperatures, which Bambuddy does not accept for
@@ -62,7 +65,16 @@ Panda Touch shows the same screens at 800×480.
   console or on the scale — the scale decodes the tag itself and pushes the
   decoded values to the console along with the UID.
 
-  <img src="images/ui/nfc-unlinked.png" alt="NFC tab for an unlinked tag: its UID with Add to Inventory, Assign Spool and Discard buttons" width="360">
+  The panel already previews what will be added: the title names the tag
+  type ("New Bambu Lab Tag discovered", "New OpenTag3D discovered" or "New
+  generic NFC Tag discovered"), the spool icon is tinted in the tag's colour, and
+  the line below the title shows the material, colour name and spool weight
+  decoded from the tag (plus the manufacturer for OpenTag3D). Tags without
+  decodable filament data show a grey spool and "No filament info on tag".
+
+  <img src="images/ui/nfc-unlinked.png" alt="NFC tab for an unlinked NTAG: grey spool icon, New generic NFC Tag discovered, No filament info on tag and its UID, with Add to Inventory, Assign Spool and Discard buttons" width="360">
+  <img src="images/ui/nfc-unlinked-bambu.png" alt="NFC tab for an unlinked Bambu Lab tag: spool icon tinted in the tag colour, New Bambu Lab Tag discovered, with material, colour name and weight decoded from the tag above its UID" width="360">
+  <img src="images/ui/nfc-unlinked-opentag3d.png" alt="NFC tab for an unlinked OpenTag3D tag: spool icon tinted in the tag colour, New OpenTag3D discovered, with manufacturer, material, colour name and weight decoded from the tag above its UID" width="360">
 
 - **Unknown tag → link to an existing spool**: from that same panel, use
   **Assign Spool** instead to link the tag to an existing, untagged spool.

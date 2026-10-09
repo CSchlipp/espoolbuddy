@@ -509,9 +509,9 @@ const uint8_t *find_block(
 
 }  // namespace
 
-bambuddy_api::BambuTagInfo BambuddyNFCComponent::parse_bambu_tag(
+bambuddy_api::TagFilamentInfo BambuddyNFCComponent::parse_bambu_tag(
     const std::vector<std::pair<uint8_t, std::array<uint8_t, 16>>> &blocks) {
-  bambuddy_api::BambuTagInfo info;
+  bambuddy_api::TagFilamentInfo info;
 
   const uint8_t *b1 = find_block(blocks, 1);
   const uint8_t *b2 = find_block(blocks, 2);
@@ -596,7 +596,9 @@ bambuddy_api::BambuTagInfo BambuddyNFCComponent::parse_bambu_tag(
     info.nozzle_temp_min = bambu_u16(b6, 10);
   }
 
-  info.valid = true;
+  info.format = "bambu_lab";
+  info.brand  = "Bambu Lab";
+  info.valid  = true;
   return info;
 }
 
@@ -789,64 +791,174 @@ bool BambuddyNFCComponent::ntag_read_pages(uint8_t target_num,
   return true;
 }
 
-std::string BambuddyNFCComponent::ntag_detect_ndef_format(uint8_t target_num) {
-  // Read the first 16 bytes of the NTAG NDEF data area (pages 4–7).
-  uint8_t pages[16];
-  if (!ntag_read_pages(target_num, 4, pages)) {
-    ESP_LOGD(NFC_TAG, "NDEF detect: page read failed");
+std::string BambuddyNFCComponent::ntag_read_ndef(uint8_t target_num,
+                                                 bambuddy_api::TagFilamentInfo &info) {
+  // NTAG data area starts at page 4; reads come in 16-byte (4-page) chunks.
+  // The first chunk is enough to locate the NDEF Message TLV and its length;
+  // only then is the rest of the message read, so a blank or tiny tag costs a
+  // single read.  Capped at NTAG215's 504-byte user area — the largest tag an
+  // OpenTag3D spool carries; a bigger NTAG216 message is cut there, which
+  // only loses records after the (first) OpenTag3D one.
+  static constexpr size_t MAX_NDEF_AREA = 504;
+  std::vector<uint8_t> mem(16);
+  if (!ntag_read_pages(target_num, 4, mem.data())) {
+    ESP_LOGD(NFC_TAG, "NDEF read: page read failed");
     return "";
   }
 
   // Walk TLV blocks to find the NDEF Message TLV (0x03).
   size_t pos = 0;
-  while (pos < 16) {
-    uint8_t tlv_t = pages[pos++];
+  while (true) {
+    if (pos >= mem.size()) return "";
+    uint8_t tlv_t = mem[pos++];
     if (tlv_t == 0x03) break;     // NDEF Message TLV — found
     if (tlv_t == 0xFE) return ""; // Terminator — no NDEF content
     if (tlv_t == 0x00) continue;  // NULL TLV (padding byte)
-    // Any other TLV: skip length + data
-    if (pos >= 16) return "";
-    uint8_t tlv_l = pages[pos++];
-    if (tlv_l == 0xFF) pos += 2;  // 3-byte length encoding
+    // Any other TLV (lock / memory control): skip length + data
+    if (pos >= mem.size()) return "";
+    uint8_t tlv_l = mem[pos++];
+    if (tlv_l == 0xFF) return "ndef";  // 3-byte length — never seen before 0x03
     pos += tlv_l;
   }
-  if (pos >= 16) return "";  // never found 0x03
 
-  // Skip the NDEF message length byte(s).
-  uint8_t msg_len = pages[pos++];
-  if (msg_len == 0xFF) pos += 2;  // 3-byte length
-  if (pos >= 16) return "ndef";
-
-  // Parse the first NDEF record header byte.
-  uint8_t hdr      = pages[pos++];
-  uint8_t tnf      = hdr & 0x07;  // Type Name Format
-  bool    sr       = (hdr & 0x10) != 0;  // Short Record
-  bool    il       = (hdr & 0x08) != 0;  // ID Length present
-  if (pos >= 16) return "ndef";
-
-  uint8_t type_len = pages[pos++];
-  if (pos >= 16) return "ndef";
-
-  // Skip payload length: 1 byte (SR=1) or 4 bytes.
-  pos += sr ? 1 : 4;
-  // Skip optional ID length field.
-  if (il && pos < 16) pos++;
-  if (pos + type_len > 16 || type_len == 0) return "ndef";
-
-  // Extract record type bytes.
-  std::string rtype(reinterpret_cast<const char *>(pages + pos), type_len);
-  ESP_LOGD(NFC_TAG, "NDEF detect: TNF=0x%02X type='%.*s'", tnf,
-           (int)type_len, pages + pos);
-
-  // NFC Forum External Type (TNF=0x04) with "opentag" in the domain name
-  // → OpenTag3D format (e.g. "opentag3d.org:f")
-  if (tnf == 0x04) {
-    std::string lower = rtype;
-    for (char &c : lower) c = (char)tolower((unsigned char)c);
-    if (lower.find("opentag") != std::string::npos) return "open_tag_3d";
+  // NDEF message length: 1 byte, or 0xFF + 2-byte big-endian length.
+  if (pos >= mem.size()) return "ndef";
+  size_t msg_len = mem[pos++];
+  if (msg_len == 0xFF) {
+    if (pos + 2 > mem.size()) return "ndef";
+    msg_len = (static_cast<size_t>(mem[pos]) << 8) | mem[pos + 1];
+    pos += 2;
   }
+  if (msg_len == 0) return "ndef";  // NDEF-formatted but empty
 
-  return "ndef";
+  // Read the rest of the message.
+  size_t want = std::min(pos + msg_len, MAX_NDEF_AREA);
+  while (mem.size() < want) {
+    uint8_t chunk[16];
+    uint8_t page = static_cast<uint8_t>(4 + mem.size() / 4);
+    if (!ntag_read_pages(target_num, page, chunk)) {
+      ESP_LOGW(NFC_TAG, "NDEF read: page %u read failed", page);
+      break;  // parse what we have; records past the gap are skipped
+    }
+    mem.insert(mem.end(), chunk, chunk + 16);
+  }
+  const size_t end = std::min(pos + msg_len, mem.size());
+
+  // Walk the NDEF records.
+  std::string fmt = "ndef";
+  while (pos < end) {
+    uint8_t hdr      = mem[pos++];
+    uint8_t tnf      = hdr & 0x07;              // Type Name Format
+    bool    me       = (hdr & 0x40) != 0;       // Message End
+    bool    sr       = (hdr & 0x10) != 0;       // Short Record
+    bool    il       = (hdr & 0x08) != 0;       // ID Length present
+    if (pos >= end) break;
+    size_t type_len = mem[pos++];
+    size_t payload_len = 0;
+    if (sr) {
+      if (pos >= end) break;
+      payload_len = mem[pos++];
+    } else {
+      if (pos + 4 > end) break;
+      payload_len = (static_cast<size_t>(mem[pos]) << 24) |
+                    (static_cast<size_t>(mem[pos + 1]) << 16) |
+                    (static_cast<size_t>(mem[pos + 2]) << 8) | mem[pos + 3];
+      pos += 4;
+    }
+    size_t id_len = 0;
+    if (il) {
+      if (pos >= end) break;
+      id_len = mem[pos++];
+    }
+    if (pos + type_len > end) break;
+    std::string rtype(reinterpret_cast<const char *>(mem.data() + pos), type_len);
+    pos += type_len + id_len;
+    if (pos > end) break;
+    const size_t payload_avail = std::min(payload_len, end - pos);
+    ESP_LOGD(NFC_TAG, "NDEF record: TNF=0x%02X type='%s' payload=%u bytes",
+             tnf, rtype.c_str(), (unsigned) payload_len);
+
+    std::string lower = rtype;
+    for (char &c : lower) c = (char) tolower((unsigned char) c);
+    // The spec'd record: MIME type (TNF=0x02) application/opentag3d.
+    if (tnf == 0x02 && lower == "application/opentag3d") {
+      info = parse_opentag3d(mem.data() + pos, payload_avail);
+      return "open_tag_3d";
+    }
+    // Older writers used an NFC Forum External Type (TNF=0x04) such as
+    // "opentag3d.org:f" — recognised as OpenTag3D, but not decoded.
+    if (tnf == 0x04 && lower.find("opentag") != std::string::npos)
+      fmt = "open_tag_3d";
+
+    pos += payload_len;
+    if (me) break;
+  }
+  return fmt;
+}
+
+// ============================================================================
+// OpenTag3D payload decoding (https://opentag3d.info/spec)
+//
+// Fixed offsets into the record payload; integers are unsigned big-endian,
+// strings UTF-8 padded with NUL.  Temperatures are stored in °C / 5.  Bytes
+// past the end of a short payload read as 0 (as the spec requires).
+// ============================================================================
+
+bambuddy_api::TagFilamentInfo BambuddyNFCComponent::parse_opentag3d(const uint8_t *p,
+                                                                  size_t len) {
+  bambuddy_api::TagFilamentInfo info;
+  auto u8 = [&](size_t off) -> uint8_t { return off < len ? p[off] : 0; };
+  auto u16 = [&](size_t off) -> uint16_t {
+    return static_cast<uint16_t>((u8(off) << 8) | u8(off + 1));
+  };
+  // 0xFF = unwritten byte on a factory-fresh tag; treat it as "not set".
+  auto temp = [&](size_t off) -> uint16_t {
+    uint8_t v = u8(off);
+    return v == 0xFF ? 0 : static_cast<uint16_t>(v * 5);
+  };
+  auto str = [&](size_t off, size_t n) -> std::string {
+    std::string out;
+    for (size_t i = off; i < off + n && i < len; i++) {
+      if (p[i] == 0x00 || p[i] == 0xFF) break;
+      out += static_cast<char>(p[i]);
+    }
+    while (!out.empty() && (out.back() == ' ' || out.back() == '\t')) out.pop_back();
+    return out;
+  };
+
+  info.format   = "open_tag_3d";
+  info.material = str(0x02, 5);    // base material, required
+  if (info.material.empty()) {
+    ESP_LOGW(NFC_TAG, "OpenTag3D record without a base material — not decoded");
+    return info;
+  }
+  info.subtype       = str(0x07, 5);   // material modifier: "CF", "Silk", ...
+  info.detailed_type = info.subtype.empty() ? info.material
+                                            : info.material + " " + info.subtype;
+  info.brand         = str(0x0C, 16);  // filament manufacturer
+  info.color_name    = str(0x1C, 32);
+  if (len >= 0x3C + 3) {
+    char hex[7];
+    snprintf(hex, sizeof(hex), "%02X%02X%02X", p[0x3C], p[0x3D], p[0x3E]);
+    info.color_hex = hex;
+  }
+  uint16_t dia_um = u16(0x8C);         // µm
+  if (dia_um != 0 && dia_um != 0xFFFF) info.diameter = dia_um / 1000.0f;
+
+  uint16_t target = temp(0x90);
+  info.nozzle_temp_min = temp(0x91) ? temp(0x91) : target;
+  info.nozzle_temp_max = temp(0x92) ? temp(0x92) : target;
+  info.bed_temp        = temp(0x94);
+  info.drying_temp     = temp(0x9A);
+  info.drying_time     = u8(0x9B) == 0xFF ? 0 : u8(0x9B);  // hours
+
+  uint16_t w = u16(0x9E);              // target filament weight, grams
+  info.spool_weight = (w == 0xFFFF) ? 0 : w;
+  uint16_t core = u16(0xA0);           // empty spool weight, grams
+  info.core_weight = (core == 0xFFFF) ? 0 : core;
+
+  info.valid = true;
+  return info;
 }
 
 bool BambuddyNFCComponent::attempt_pending_write(
@@ -1004,23 +1116,43 @@ void BambuddyNFCComponent::poll_once() {
 
       std::string uid_str = uid_to_hex(uid);
 
-      // Try to read Bambu tag data for MIFARE Classic
+      // Filament payload decoded from the tag: Bambu blocks on MIFARE
+      // Classic, an OpenTag3D record on NTAG.
       std::string tray_uuid;
-      bambuddy_api::BambuTagInfo bambu_info;
+      bambuddy_api::TagFilamentInfo tag_info;
+      // For NTAG tags: read the NDEF message to refine the format beyond SAK
+      // alone and decode an OpenTag3D record.  Done before on_tag_scanned()
+      // (unlike the old 16-byte format probe) so the decoded payload can ride
+      // along with the scan, and before attempt_pending_write() so we
+      // classify the current content.
+      std::string ndef_fmt;
+      if (sak == 0x00 || sak == 0x04) {
+        ndef_fmt = ntag_read_ndef(1, tag_info);
+        if (tag_info.valid) {
+          ESP_LOGI(NFC_TAG,
+                   "OpenTag3D tag decoded: %s %s / %s (#%s) %u g, "
+                   "hotend %u-%u C, bed %u C",
+                   tag_info.brand.c_str(), tag_info.detailed_type.c_str(),
+                   tag_info.color_name.c_str(), tag_info.color_hex.c_str(),
+                   tag_info.spool_weight, tag_info.nozzle_temp_min,
+                   tag_info.nozzle_temp_max, tag_info.bed_temp);
+        }
+      }
+      // Try to read Bambu tag data for MIFARE Classic
       if (sak == 0x08 || sak == 0x18) {
         std::vector<std::pair<uint8_t, std::array<uint8_t, 16>>> blocks;
         if (read_bambu_blocks_retry(uid, blocks)) {
           tray_uuid   = extract_tray_uuid(blocks);
-          bambu_info  = parse_bambu_tag(blocks);
-          if (bambu_info.valid) {
+          tag_info  = parse_bambu_tag(blocks);
+          if (tag_info.valid) {
             ESP_LOGI(NFC_TAG,
                      "Bambu tag decoded: %s / %s / %s (#%s) %u g, "
                      "hotend %u-%u C, bed %u C",
-                     bambu_info.material.c_str(),
-                     bambu_info.subtype.empty() ? "-" : bambu_info.subtype.c_str(),
-                     bambu_info.color_name.c_str(), bambu_info.color_hex.c_str(),
-                     bambu_info.spool_weight, bambu_info.nozzle_temp_min,
-                     bambu_info.nozzle_temp_max, bambu_info.bed_temp);
+                     tag_info.material.c_str(),
+                     tag_info.subtype.empty() ? "-" : tag_info.subtype.c_str(),
+                     tag_info.color_name.c_str(), tag_info.color_hex.c_str(),
+                     tag_info.spool_weight, tag_info.nozzle_temp_min,
+                     tag_info.nozzle_temp_max, tag_info.bed_temp);
           }
         }
       }
@@ -1034,18 +1166,13 @@ void BambuddyNFCComponent::poll_once() {
         // console straight away, so anything set after the call would arrive
         // too late to be forwarded.
         api_->on_tag_scanned(uid_str, tray_uuid, (int)sak, tag_type,
-                             bambu_info.valid ? &bambu_info : nullptr);
+                             tag_info.valid ? &tag_info : nullptr);
       }
 
-      // For NTAG tags: read NDEF pages and refine the format beyond SAK alone.
-      // This runs after on_tag_scanned() so the UI gets immediate feedback,
-      // and before attempt_pending_write() so we classify the current content.
-      if ((sak == 0x00 || sak == 0x04) && api_) {
-        std::string fmt = ntag_detect_ndef_format(1);
-        if (!fmt.empty()) {
-          ESP_LOGD(NFC_TAG, "NDEF format detected: %s", fmt.c_str());
-          api_->set_tag_format(fmt);
-        }
+      // Refine the SAK-based format with what the NDEF read found.
+      if (!ndef_fmt.empty() && api_) {
+        ESP_LOGD(NFC_TAG, "NDEF format detected: %s", ndef_fmt.c_str());
+        api_->set_tag_format(ndef_fmt);
       }
 
       // A write command may already be queued (e.g. tag re-placed); try it.

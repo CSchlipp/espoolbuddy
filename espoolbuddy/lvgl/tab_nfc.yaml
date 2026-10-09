@@ -646,12 +646,17 @@ obj:
         scrollbar_mode: "OFF"
         hidden: true
         widgets:
-          # ---- Hero content group — icon/UID/title/TTL, centered as a block
-          # regardless of screen size (no per-device pixel offsets; the
-          # bottom action row stays absolute). ----
+          # ---- Hero content group — spool icon/title/filament info/UID/TTL,
+          # centered as a block regardless of screen size (the bottom action
+          # row stays absolute). y: -25 = half that fixed 44px + 6px row, so
+          # the block is centred in the space above the buttons — otherwise
+          # the 80px icon plus the TTL line reach into them on 480x320.
+          # Same layout for every tag; only the title (tag type), the icon
+          # tint and the info line differ. ----
           - obj:
               id: nfc_unlinked_hero_group
               align: CENTER
+              y: -25
               width: 100%
               height: SIZE_CONTENT
               bg_opa: TRANSP
@@ -664,12 +669,41 @@ obj:
                 flex_align_cross: center
                 pad_row: 4
               widgets:
+                # Same 3-layer spool icon as the linked-spool hero (nfc_swatch);
+                # tinted with the tag's colour for a Bambu Lab tag, neutral grey
+                # otherwise.
+                - obj:
+                    id: nfc_unlinked_swatch
+                    width: 80
+                    height: 80
+                    bg_opa: TRANSP
+                    border_width: 0
+                    pad_all: 0
+                    scrollbar_mode: "OFF"
+                    widgets:
+                      - image: {id: nfc_unlinked_spool_fill, src: img_spool_fill_lg, align: CENTER, image_recolor: 0x444466, image_recolor_opa: COVER}
+                      - obj: {align: CENTER, width: 30, height: 30, radius: 15, bg_color: 0x12121A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF"}
+                      - image: {src: img_spool_shine_lg, align: CENTER}
+                # Names the tag type: "New Bambu Lab Tag discovered" etc.
                 - label:
+                    id: nfc_unlinked_title
                     width: 100%
-                    text: "\U000F0396"
-                    text_font: mdi_30
-                    text_color: 0x8585B8
+                    height: 26
+                    text: "New generic NFC Tag discovered"
+                    text_font: roboto_20
+                    text_color: 0xBBBBCC
                     text_align: CENTER
+                # Filament decoded from the tag — what "Add to Inventory" will
+                # create, e.g. "PLA Matte · Desert Tan · 1000 g".
+                - label:
+                    id: nfc_unlinked_info
+                    width: 100%
+                    height: 20
+                    text: ""
+                    text_font: roboto_16
+                    text_color: 0xDDDDEE
+                    text_align: CENTER
+                    long_mode: DOT
                 - label:
                     id: nfc_unlinked_uid
                     width: 100%
@@ -677,13 +711,6 @@ obj:
                     text: ""
                     text_font: roboto_12
                     text_color: 0x9898C0
-                    text_align: CENTER
-                - label:
-                    width: 100%
-                    height: 26
-                    text: "Tag not linked to any spool"
-                    text_font: roboto_20
-                    text_color: 0xBBBBCC
                     text_align: CENTER
                 - label:
                     id: nfc_unlinked_ttl

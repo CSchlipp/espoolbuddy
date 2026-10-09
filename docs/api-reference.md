@@ -49,7 +49,7 @@ still only talks to Bambuddy — Bambuddy proxies to Spoolman. All paths are und
 | "Does a spool already own this tag?" (before linking a location) | `GET /inventory/spools/by-tag?tag_uid=` | scan of `GET /spoolman/inventory/spools` for a matching `tag_uid` or `tray_uuid` |
 | Update spool weight | `POST /spoolbuddy/scale/update-spool-weight` (Bambuddy picks the backend) | same |
 
-Spoolman-mode limits, all on Bambuddy's side: a spool created from a Bambu tag
+Spoolman-mode limits, all on Bambuddy's side: a spool created from a Bambu or OpenTag3D tag
 gets no hotend temperatures, `tag_type` or `data_origin`, and the empty-spool
 weight is not stored on the spool.
 
