@@ -670,7 +670,7 @@ obj:
                 pad_row: 4
               widgets:
                 # Same 3-layer spool icon as the linked-spool hero (nfc_swatch);
-                # tinted with the tag's colour for a Bambu Lab tag, neutral grey
+                # tinted with the decoded tag's colour when available, neutral grey
                 # otherwise.
                 - obj:
                     id: nfc_unlinked_swatch
