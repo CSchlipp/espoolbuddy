@@ -83,16 +83,32 @@ static esp_err_t send_json(httpd_req_t *req, const char *json) {
   return ESP_OK;
 }
 
-// Read a request body (up to 511 bytes) into `out`.
-// Returns false when no body was received.
+// Read the full request body (as declared by Content-Length) into `out`.
+// Returns false when there is no body, it is larger than MAX_REQ_BODY, or the
+// connection fails before all of it arrived — never a silently truncated
+// body: the JSON parser would happily accept a cut-off scale push (its early
+// keys intact) and drop the fields near the end.  httpd_req_recv() may
+// return fewer bytes than asked for, hence the loop.
 static bool read_req_body(httpd_req_t *req, std::string &out) {
-  char buf[512] = {};
-  int len = (req->content_len > 0 && req->content_len < (int)sizeof(buf) - 1)
-                ? req->content_len
-                : (int)sizeof(buf) - 1;
-  int received = httpd_req_recv(req, buf, len);
-  if (received <= 0) return false;
-  out.assign(buf, received);
+  static constexpr size_t MAX_REQ_BODY = 2048;  // largest push (OpenTag3D tag-scanned) is ~600 B
+  if (req->content_len == 0) return false;
+  if (req->content_len > MAX_REQ_BODY) {
+    ESP_LOGW(TAG, "Request body too large: %u bytes (max %u)",
+             (unsigned) req->content_len, (unsigned) MAX_REQ_BODY);
+    return false;
+  }
+  out.assign(req->content_len, '\0');
+  size_t got = 0;
+  int timeouts = 0;
+  while (got < out.size()) {
+    int r = httpd_req_recv(req, &out[got], out.size() - got);
+    if (r == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts <= 3) continue;
+    if (r <= 0) {
+      out.clear();
+      return false;
+    }
+    got += r;
+  }
   return true;
 }
 

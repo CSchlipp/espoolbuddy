@@ -870,11 +870,20 @@ std::string BambuddyNFCComponent::ntag_read_ndef(uint8_t target_num,
       if (pos >= end) break;
       id_len = mem[pos++];
     }
-    if (pos + type_len > end) break;
+    // Every advance below is checked against what was read *before* it
+    // happens (pos <= end holds here, so end - pos cannot underflow).
+    if (type_len + id_len > end - pos) break;
     std::string rtype(reinterpret_cast<const char *>(mem.data() + pos), type_len);
     pos += type_len + id_len;
-    if (pos > end) break;
-    const size_t payload_avail = std::min(payload_len, end - pos);
+    // payload_len is untrusted (4 bytes from the tag for non-short records):
+    // a record that claims more than was read is truncated or corrupt.  Stop
+    // here instead of parsing a partial payload or advancing past it — on the
+    // 32-bit ESP32 an oversized length would wrap pos and loop forever.
+    if (payload_len > end - pos) {
+      ESP_LOGW(NFC_TAG, "NDEF record '%s' claims %u payload bytes, only %u read",
+               rtype.c_str(), (unsigned) payload_len, (unsigned) (end - pos));
+      break;
+    }
     ESP_LOGD(NFC_TAG, "NDEF record: TNF=0x%02X type='%s' payload=%u bytes",
              tnf, rtype.c_str(), (unsigned) payload_len);
 
@@ -882,7 +891,7 @@ std::string BambuddyNFCComponent::ntag_read_ndef(uint8_t target_num,
     for (char &c : lower) c = (char) tolower((unsigned char) c);
     // The spec'd record: MIME type (TNF=0x02) application/opentag3d.
     if (tnf == 0x02 && lower == "application/opentag3d") {
-      info = parse_opentag3d(mem.data() + pos, payload_avail);
+      info = parse_opentag3d(mem.data() + pos, payload_len);
       return "open_tag_3d";
     }
     // Older writers used an NFC Forum External Type (TNF=0x04) such as
