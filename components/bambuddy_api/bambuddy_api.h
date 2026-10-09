@@ -9,12 +9,17 @@
 #include "esphome/core/component.h"
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
+#include "esphome/core/defines.h"
+
+#ifdef USE_BAMBUDDY_SCALE_SENSOR
+#include "esphome/components/sensor/sensor.h"
+#endif
 
 #ifdef USE_ESP32
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
-#include "esp_http_server.h"   // httpd_handle_t (scale server mode only)
+#include "esp_http_server.h"   // httpd_handle_t (console receive server)
 #include "esp_http_client.h"   // esp_http_client_method_t (http_request helper)
 #include "esp_wifi_types.h"    // wifi_ps_type_t (dynamic WiFi modem sleep in low-power mode)
 #else
@@ -123,9 +128,18 @@ static constexpr uint32_t SCALE_HEARTBEAT_INTERVAL_MS = 1000;
 // write_tag command latency so the write starts within ~200 ms of the command
 // arriving at the console (instead of waiting up to 1 s at idle rate).
 static constexpr uint32_t SCALE_HEARTBEAT_FAST_MS = 200;
-// How long (ms) after the last scale push the console still reports the scale
-// as connected (scale_ok).
-static constexpr uint32_t SCALE_LIVE_TIMEOUT_MS = 10000;
+// How long (ms) a tare/calibrate command for a remote scale stays deliverable.
+// Matches the Bambuddy UI's own confirmation timeout: a command older than this
+// has already been reported as failed there, and applying it later (possibly
+// with a spool on the platform) would set a wrong zero point.
+static constexpr uint32_t PENDING_SCALE_CMD_TTL_MS = 15000;
+
+// Where a device gets its weight from (bambuddy_api `scale:` block).
+//   NONE   — no scale (a satellite that only forwards NFC events).
+//   REMOTE — a separate scale device pushes readings to this console.
+//   LOCAL  — a load-cell sensor wired to this device (scale device, or a
+//            console with a built-in load cell).
+enum class ScaleSource : uint8_t { NONE, REMOTE, LOCAL };
 
 // How often the console re-checks which inventory Bambuddy uses (ms), in case
 // it is switched in Bambuddy's settings. Each check makes Bambuddy ping Spoolman,
@@ -430,7 +444,7 @@ struct DisplayState {
  *   - Registers the device on startup (retries until success)
  *   - Sends periodic heartbeats and processes commands from the backend
  *   - Accepts NFC tag-scanned / tag-removed callbacks from BambuddyNFCComponent
- *   - Accepts scale weight callbacks from the scale sensor automation
+ *   - Reads weight from a local load-cell sensor or a remote scale device
  *   - Maintains a DisplayState struct that LVGL lambdas can query
  *   - Mocks SSH key deployment (not supported on ESP32)
  */
@@ -450,10 +464,16 @@ class BambuddyAPIComponent : public Component {
   void set_heartbeat_fail_threshold(uint8_t n) { heartbeat_fail_threshold_ = n; }
   void set_scale_report_interval(uint32_t ms) { scale_report_interval_ms_ = ms; }
   void set_printer_poll_interval(uint32_t s) { printer_poll_interval_ms_ = s * 1000; }
-  // Scale server mode: this device IS the scale — serves weight/tare/calibrate
-  // over HTTP and does not connect to Bambuddy at all.
-  void set_scale_mode(bool v) { scale_mode_ = v; }
-  // Scale device only: base URL of a console to push data to — no port suffix
+  // Weight source (`scale:` block) and its settings.
+  void set_scale_source(ScaleSource s) { scale_source_ = s; }
+  void set_remote_scale_timeout(uint32_t ms) { remote_scale_timeout_ms_ = ms; }
+#ifdef USE_BAMBUDDY_SCALE_SENSOR
+  void set_scale_sensor(sensor::Sensor *s) { scale_sensor_ = s; }
+#endif
+  void set_local_scale_stable_after(uint32_t ms) { local_stable_after_ms_ = ms; }
+  void set_local_scale_stable_band(float units) { local_stable_band_ = units; }
+  void set_local_scale_timeout(uint32_t ms) { local_timeout_ms_ = ms; }
+  // Satellite only: base URL of a console to push data to — no port suffix
   // (e.g. "http://espoolbuddy-console.local").  CONSOLE_PUSH_PORT is appended
   // automatically when building push request URLs and starting the receive server.
   // Called once per configured console_url entry; the first call's console
@@ -649,9 +669,6 @@ class BambuddyAPIComponent : public Component {
                       const BambuTagInfo *bambu = nullptr);
   void on_tag_removed(const std::string &uid);
 
-  // ---- Callbacks from scale sensor ----
-  void on_scale_reading(float grams, bool stable, int raw_adc = 0);
-
   // ---- Pending NTAG write (set by write_tag command) ----
   bool has_pending_write() const { return pending_write_active_; }
   const std::vector<uint8_t> &pending_write_data() const { return pending_write_ndef_; }
@@ -659,8 +676,8 @@ class BambuddyAPIComponent : public Component {
   void on_write_tag_result(const std::string &uid, bool success, const std::string &msg);
   void clear_pending_write() { pending_write_active_ = false; }
 
-  // ---- Scale server status (scale_mode_ only) ----
-  // True when the last push from this scale to the console succeeded within
+  // ---- Satellite status (console_url set) ----
+  // True when the last push from this device to the console succeeded within
   // timeout_ms. Drives the scale's status LED (green = connected, blue =
   // console absent). Safe to call from any task (uint32_t read is atomic).
   bool is_console_connected(uint32_t timeout_ms = 5000) const {
@@ -694,37 +711,28 @@ class BambuddyAPIComponent : public Component {
 
   // ---- Tare support ----
   // Single tare entry point for both the UI tare button and the backend
-  // "tare" command (handle_command).  Routing: scale device → local_tare();
-  // console with push-mode scale → deliver via next heartbeat response;
-  // console with local weight only → capture reading + notify backend.
+  // "tare" command (handle_command).  Routing by weight source: LOCAL →
+  // local_tare(); REMOTE scale connected → deliver via its next heartbeat
+  // response; otherwise only shows "No scale connected" (nothing is posted
+  // to Bambuddy, so its UI times out instead of storing a bogus tare).
   void request_tare();
 
-  // ---- Local tare (scale_mode only) ----
-  // Called by the physical tare button or by a heartbeat-delivered tare command.
-  // After updating tare_offset_, forces one weight push so the console immediately
-  // sees the zeroed reading — necessary because the ESPHome sensor's delta filter
-  // suppresses on_scale_reading() callbacks when the raw sensor value is stable.
-  // No-op when not in scale_mode.
-  void local_tare() {
-    if (!scale_mode_) return;
-    lock_state();
-    tare_offset_ = display_state_.weight_grams;
-    unlock_state();
-    save_calibration_nvs();
-    // Force a push of the tared weight (will compute net≈0). The push task
-    // reads tare_offset_ and display_state_.weight_grams fresh when it
-    // actually sends, so this always reflects the new tare correctly.
-    if (!console_urls_.empty()) weight_push_dirty_ = true;
-  }
+  // ---- Local tare (scale: type: local only) ----
+  // Takes the current gross reading as the new zero point, saves it to NVS
+  // and republishes the reading so the zeroed weight shows at once (the
+  // sensor's delta filter emits nothing while the load is unchanged).  On a
+  // console it also reports the new tare to Bambuddy.  Called by the scale's
+  // Tare button, request_tare() and a heartbeat-delivered tare command.
+  // No-op for any other weight source.
+  void local_tare();
 
   // ---- Calibration support ----
   // Single calibrate entry point for both the UI calibrate button and the
   // backend "calibrate_with_weight" command (handle_command).  Place a known
-  // reference weight on the scale, then call this with its value.  Push-mode
-  // scale: the command is delivered via the next heartbeat response.  Local:
-  // captures the current reading and sends both values to the backend, which
-  // computes a new calibration_factor (returned in the next heartbeat
-  // response and stored in calibration_factor_).  Rejects values <= 0.
+  // reference weight on the scale, then call this with its value.  LOCAL:
+  // factor = reference / net reading, saved to NVS and reported to Bambuddy.
+  // REMOTE scale connected: delivered via its next heartbeat response.
+  // Otherwise only shows "No scale connected".  Rejects values <= 0.
   void request_calibration(float reference_weight_g);
 
   // ---- Sleep / low-power mode ----
@@ -740,12 +748,43 @@ class BambuddyAPIComponent : public Component {
   // 240 MHz before re-enabling WiFi. No-op when CONFIG_PM_ENABLE is not set.
   void configure_pm(bool light_sleep);
 
-  // ---- Scale server lifecycle (scale_mode only) ----
-  // Stops and restarts the httpd. Call from the WiFi on_connect hook to
-  // recover the server socket after a disconnect/reconnect cycle.
-  void restart_scale_server();
-
  protected:
+  // ---- Weight intake ----
+  // Gross (pre-tare) reading from the local sensor path. Satellite: stored for
+  // the next push to the console(s). Console: converted to net grams and
+  // handed to ingest_weight().
+  void on_scale_reading(float gross, bool stable);
+  // Console: the single intake point for net weight, whether it comes from
+  // the local sensor or a remote scale's push. Updates the UI state and marks
+  // the reading for the HTTP task, which reports the latest value to Bambuddy
+  // (rate limited — see http_task_loop()). Never queues a job, so weight can't
+  // crowd user actions out of the job queue.
+  void ingest_weight(float net, bool stable, int raw_adc);
+  // LOCAL source: calibrate against a reference weight on the platform.
+  // Returns false (and sets a status) when no usable reading is available.
+  bool local_calibrate(float reference_weight_g);
+  // LOCAL source: re-feed the last reading so a tare/calibration change shows
+  // at once.
+  void republish_local_reading();
+  // LOCAL source: sensor callbacks (main loop).
+  void on_local_sample(float gross);
+  // True when the configured weight source currently delivers readings.
+  bool scale_connected() const {
+    switch (scale_source_) {
+      case ScaleSource::LOCAL:  return local_live();
+      case ScaleSource::REMOTE: return scale_live();
+      default:                  return false;
+    }
+  }
+  // LOCAL: the sensor produced a raw reading within local_timeout_ms_.
+  bool local_live() const {
+    return last_local_raw_ms_ > 0 &&
+           (millis() - last_local_raw_ms_) < local_timeout_ms_;
+  }
+  // Uplink: true when this device pushes to consoles (console_url set)
+  // instead of talking to Bambuddy itself.
+  bool satellite() const { return !console_urls_.empty(); }
+
   // Scan generation for which a spool-create was already issued.  "Add to
   // Inventory" is a one-shot per physical scan: a bouncing touch panel, or an
   // impatient second press while the POST is still in flight, must not create
@@ -770,7 +809,9 @@ class BambuddyAPIComponent : public Component {
     enum Kind {
       TAG_SCANNED,
       TAG_REMOVED,
-      SCALE_READING,
+      // (weight is NOT a job kind — see weight_report_dirty_ (console) and
+      // weight_push_dirty_ (satellite): one job per reading flooded the
+      // capped queue and pushed user actions out of it)
       WRITE_RESULT,
       UPDATE_TARE,
       CLEAR_ASSIGNMENT,      // remove an inventory slot assignment
@@ -789,7 +830,7 @@ class BambuddyAPIComponent : public Component {
       SET_SPOOL_LOCATION,      // PATCH /inventory/spools/{id}; spoolman: PATCH /spoolman/inventory/spools/{id} {"location_id": id|null}
       FETCH_POWER_PLUG,        // GET /smart-plugs/ → find the selected printer's power plug
       CONTROL_POWER_PLUG,      // POST /smart-plugs/{id}/control {"action": "on"|"off"}
-      // Scale push mode: scale → console (only processed when scale_mode_)
+      // Satellite push: satellite → console (only processed when satellite())
       // (weight is NOT a job kind — see weight_push_dirty_ — because pushing
       // it as a queued one-shot job could silently drop readings that arrive
       // while an earlier push, possibly to several consoles, is in flight)
@@ -811,7 +852,11 @@ class BambuddyAPIComponent : public Component {
 
   static void http_task_trampoline(void *arg);
   void http_task_loop();
-  void enqueue_job(const HttpJob &job);
+  // Returns false when the (capped) queue was full and the job was dropped.
+  bool enqueue_job(const HttpJob &job);
+  // LOCAL source: queue an UPDATE_TARE / UPDATE_CALIBRATION job and count it
+  // in local_cal_jobs_ until the HTTP task has sent it.
+  void enqueue_local_cal_job(const HttpJob &job);
   bool dequeue_job(HttpJob &job);
 
   // State-mutex helpers (guard all concurrent access to display_state_)
@@ -884,19 +929,15 @@ class BambuddyAPIComponent : public Component {
   void api_get_ams();
   void api_get_printer_status(const std::string &printer_id);
 
-  // Scale server (scale_mode_ == true only)
-  void start_scale_server();
+  // Tare/calibration persistence (scale: type: local only)
   void load_calibration_nvs();
   void save_calibration_nvs();
-  // Static HTTP handlers registered with esp_http_server.
-  // user_ctx in every httpd_req_t points to the BambuddyAPIComponent instance.
-  static esp_err_t scale_http_weight(httpd_req_t *req);
-  static esp_err_t scale_http_tare(httpd_req_t *req);
-  static esp_err_t scale_http_calibrate(httpd_req_t *req);
 
-  // Console receive server (started in console/standard mode, port CONSOLE_PUSH_PORT)
-  // Accepts POST requests from the scale device and routes them through the
-  // same on_tag_scanned / on_tag_removed / SCALE_READING paths as local events.
+  // Console receive server (started on every console, port CONSOLE_PUSH_PORT)
+  // Accepts POST requests from satellites and routes them through the same
+  // on_tag_scanned / on_tag_removed / ingest_weight paths as local events.
+  // Static HTTP handlers: user_ctx in every httpd_req_t points to the
+  // BambuddyAPIComponent instance.
   void start_console_server();
   static esp_err_t console_http_scale_weight(httpd_req_t *req);
   static esp_err_t console_http_scale_nfc_scanned(httpd_req_t *req);
@@ -904,7 +945,7 @@ class BambuddyAPIComponent : public Component {
   static esp_err_t console_http_scale_nfc_write_result(httpd_req_t *req);
   static esp_err_t console_http_scale_heartbeat(httpd_req_t *req);
 
-  // Scale push helpers (scale_mode_ && !console_urls_.empty() only)
+  // Satellite push helpers (satellite() only)
   bool api_scale_push_weight(float grams, bool stable);
   void api_scale_push_heartbeat();
   void api_scale_push_nfc_scanned(const std::string &uid,
@@ -938,11 +979,13 @@ class BambuddyAPIComponent : public Component {
   // Caller must hold the state mutex.
   void apply_cached_assignments_locked();
   // Console: true when the scale has pushed any message (heartbeat, weight,
-  // NFC event) within SCALE_LIVE_TIMEOUT_MS.  Reads millis() at call time, so
-  // a concurrent last_scale_push_ms_ update cannot cause an unsigned wrap.
+  // NFC event) within remote_scale_timeout_ms_ and its last heartbeat did not
+  // report a dead load-cell sensor.  Reads millis() at call time, so a
+  // concurrent last_scale_push_ms_ update cannot cause an unsigned wrap.
   bool scale_live() const {
     return last_scale_push_ms_ > 0 &&
-           (millis() - last_scale_push_ms_) < SCALE_LIVE_TIMEOUT_MS;
+           (millis() - last_scale_push_ms_) < remote_scale_timeout_ms_ &&
+           remote_sensor_ok_;
   }
   // spool_id is the id that was assigned to the slot (caller looks it up from
   // display_state_ before clearing). Only used in Spoolman mode, where the
@@ -1129,7 +1172,6 @@ class BambuddyAPIComponent : public Component {
   uint32_t start_ms_{0};
   uint32_t last_heartbeat_ms_{0};
   uint32_t last_register_ms_{0};
-  uint32_t last_scale_report_ms_{0};
   // Debounces backend_state ERROR: only mark the backend down after this many
   // *consecutive* failed heartbeats, so a single transient blip doesn't flash
   // the console's cloud/WiFi icons red. A single success always clears this
@@ -1165,31 +1207,65 @@ class BambuddyAPIComponent : public Component {
   std::unique_ptr<ChimePlayer> speaker_owned_;
   light::LightState *backlight_{nullptr};
 
-  // Scale server / push mode
-  bool scale_mode_{false};
-  // Base URLs of the console(s), no port (scale push mode only). The first
+  // Weight source (see ScaleSource).
+  ScaleSource scale_source_{ScaleSource::NONE};
+  uint32_t remote_scale_timeout_ms_{10000};
+  // LOCAL source settings and sample state. Written on the main loop (sensor
+  // callbacks, loop()); local_gross_ / last_local_raw_ms_ are also read by
+  // the HTTP task (single 32-bit values — atomic on Xtensa).
+#ifdef USE_BAMBUDDY_SCALE_SENSOR
+  sensor::Sensor *scale_sensor_{nullptr};
+#endif
+  uint32_t local_stable_after_ms_{750};
+  float local_stable_band_{0.3f};
+  uint32_t local_timeout_ms_{5000};
+  volatile uint32_t last_local_raw_ms_{0};  // last raw (pre-filter) reading — liveness
+  float local_gross_{0.0f};                 // last filtered gross reading
+  float local_anchor_{0.0f};                // reading the stable timer was last restarted at
+  uint32_t local_change_ms_{0};             // when the reading last moved by >= stable_band
+  bool local_have_value_{false};
+  bool local_stable_{false};
+
+  // Base URLs of the console(s), no port (satellites only). The first
   // entry drives connectivity (last_push_ok_ms_) and the LED; commands
   // (tare/calibrate/write_tag) are honored from any console's response —
   // see push_to_consoles() in bambuddy_api.cpp.
   std::vector<std::string> console_urls_;
-  httpd_handle_t scale_server_handle_{nullptr};
   httpd_handle_t console_server_handle_{nullptr};
-  // Scale push mode: millis() of the last successful push to the console.
+  // Satellite: millis() of the last successful push to the console.
   // Written by api_scale_push_heartbeat() and the NFC push helpers; read by
   // is_console_connected() for the status LED.  Atomic uint32 read — no lock.
   volatile uint32_t last_push_ok_ms_{0};
   uint32_t last_heartbeat_push_ms_{0};  // when the last heartbeat was sent (push task only)
+  uint32_t last_weight_push_ms_{0};     // when the last weight push was sent (push task only)
 
   // Console push receive: millis() of the last message (heartbeat, weight, or
   // NFC event) from the scale.  Written by every console_http_scale_* handler
   // under state_mutex_.  Read by api_heartbeat() / api_register_device() and
   // the scale-liveness maintenance block in http_task_loop().
   uint32_t last_scale_push_ms_{0};
+  // Console: the remote scale's last heartbeat reported a working load-cell
+  // sensor ("sensor_ok"; absent in older scale firmware → true).
+  bool remote_sensor_ok_{true};
+  // Console with a non-REMOTE source: a /scale/weight push was already
+  // logged as ignored (log once).
+  bool remote_weight_ignored_logged_{false};
+  // LOCAL source: tare/calibration jobs queued but not yet sent to Bambuddy.
+  // While non-zero, the heartbeat's calibration sync is skipped — its values
+  // predate the local change and would revert it.
+  std::atomic<int> local_cal_jobs_{0};
+  // LOCAL source: a tare/calibration POST failed, so the backend holds stale
+  // values. Set by the HTTP task; the next successful heartbeat re-sends the
+  // local values instead of syncing from the backend.
+  bool local_cal_unsynced_{false};
 
   // Pending console→scale command: delivered in the next /scale/heartbeat response.
   // Written by request_tare() / request_calibration() / handle_command() (under state_mutex_).
   // Read and cleared by console_http_scale_heartbeat() (under state_mutex_).
   std::string pending_scale_cmd_;
+  // millis() when pending_scale_cmd_ was set — tare/calibrate older than
+  // PENDING_SCALE_CMD_TTL_MS are dropped instead of delivered.
+  uint32_t pending_scale_cmd_ms_{0};
   // True after a "tare" command was handed to the scale, until the next weight
   // push carrying a tare_offset arrives.  Forces an unconditional set-tare POST
   // to the backend even when the offset value did not change — the Bambuddy UI
@@ -1207,8 +1283,18 @@ class BambuddyAPIComponent : public Component {
   // decide where to route write_tag.  Int-sized enum, atomic on Xtensa; no mutex.
   TagSource last_tag_source_{TagSource::LOCAL};
 
-  // Scale buffering
+  // Console weight reporting to Bambuddy (HTTP task). ingest_weight() stores
+  // the latest reading in report_* (under state_mutex_) and sets
+  // weight_report_dirty_; the HTTP task sends the then-current value when the
+  // rate limit allows, so the final (stable) reading always gets through.
+  float report_weight_{0.0f};
+  bool report_stable_{false};
+  int report_raw_adc_{0};
+  std::atomic<bool> weight_report_dirty_{false};
+  uint32_t last_weight_report_ms_{0};      // last attempt (HTTP task only)
+  bool last_weight_report_ok_{true};       // outcome of that attempt
   float last_reported_weight_{0.0f};
+  bool last_reported_stable_{false};
   bool last_reported_valid_{false};
   static constexpr float REPORT_THRESHOLD = 2.0f;
   static constexpr uint32_t ASSIGN_TTL_MS = 60000;  // ms a pending scan stays valid
@@ -1257,7 +1343,7 @@ class BambuddyAPIComponent : public Component {
   // every api_get_ams() poll. Only accessed from the HTTP task — no lock needed.
   std::map<int, std::string> ams_labels_;
 
-  // Scale push mode: true when display_state_'s weight/stable fields hold a
+  // Satellite: true when display_state_'s weight/stable fields hold a
   // reading that hasn't been pushed to the console(s) yet. Set (idempotent,
   // just a flag write) by on_scale_reading() and the force-push call sites
   // below on core-0/1; cleared by the scale push task right before it reads

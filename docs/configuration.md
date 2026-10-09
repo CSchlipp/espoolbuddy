@@ -17,12 +17,52 @@ same `bambuddy_api` component; several options only apply to one mode.
 | `bambuddy_api.printer_poll_interval` | Console | `30` s | AMS/printer state poll frequency |
 | `bambuddy_api.sleep_timeout` | Console | `600` s | Idle time before deep sleep (`0` = disabled); also adjustable live from the Settings tab |
 | `bambuddy_api.sleep_factor` | Console | `6` | Heartbeat/poll interval multiplier while asleep |
-| `bambuddy_api.scale_mode` | Scale | `true` | Runs the local HTTP server + push client instead of talking to Bambuddy |
-| `bambuddy_api.console_url` | Scale | `http://espoolbuddy-console.local` | Console URL(s) to push readings to — a single string or a list, see [Scale build](scale.md#point-it-at-the-console) |
-| `bambuddy_api.scale_report_interval` | Scale | `100` ms | Weight push cadence to the console |
+| `bambuddy_api.console_url` | Scale | `http://espoolbuddy-console.local` | Console URL(s) to push readings to — a single string or a list, see [Scale build](scale.md#point-it-at-the-console). Setting it makes the device push to the console instead of talking to Bambuddy, so it can't be combined with `backend_url` |
+| `bambuddy_api.scale` | Both | console: `type: remote` | Where weight comes from — see [below](#weight-source-scale) |
+| `bambuddy_api.scale_report_interval` | Both | `1000` ms (scale YAML: `100`) | Scale: weight push cadence to the console. Console: minimum interval between weight reports to Bambuddy (a change of the stable flag is reported at once) |
 | `bambuddy_nfc.interface` | Both | `spi` | PN532 host interface: `spi` or `i2c` — see [below](#nfc-reader-interface) |
 | `bambuddy_nfc.poll_interval` | Both | `300` ms | Fallback polling rate (only used if IRQ isn't wired) |
 | `bambuddy_nfc.miss_threshold` | Both | `3` | Missed reads before a "tag removed" event fires |
+
+## Weight source (`scale:`)
+
+Each device has exactly one weight source, picked by `type:`. Bambuddy keeps
+one tare/calibration per device, so two sources on one device would overwrite
+each other's calibration.
+
+```yaml
+bambuddy_api:
+  scale:
+    type: remote   # console default: a separate scale device pushes to it
+    timeout: 10s   # no push for this long → "No scale connected"
+```
+
+```yaml
+bambuddy_api:
+  scale:
+    type: local           # a load cell wired to this device
+    sensor: spool_weight  # id of the load-cell sensor
+    stable_after: 750ms   # reading counts as stable after this long without a move...
+    stable_band: 0.3      # ...of at least this much (sensor units)
+    timeout: 5s           # no reading from the sensor for this long → "No scale connected"
+```
+
+| `type` | Used on | Notes |
+|---|---|---|
+| `remote` | Console | Default on a console. Weight comes from a [scale device](scale.md) pushing to this console |
+| `local` | Scale device, or a console with a [built-in load cell](console-builtin-scale.md) (optional, untested) | The component applies tare and calibration itself and keeps them in NVS |
+
+A device with `console_url` and no `scale:` block only forwards NFC events.
+`type: remote` isn't valid there: a device that pushes to a console can't
+receive pushes from another scale.
+
+**Sensor contract for `type: local`.** The sensor must report a value that is
+linear in the load and **not tared**, with at least about one unit per gram:
+raw ADC counts, or roughly scaled grams like the scale YAML's
+`calibrate_linear` filter. Tare and calibration are applied on top as
+`net = (value − tare) × factor`, so the sensor's own scaling only needs to be
+consistent, not accurate. A `delta:` filter is fine, and recommended: liveness
+is tracked from the sensor's unfiltered readings.
 
 ## NFC reader interface
 

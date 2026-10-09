@@ -7,6 +7,12 @@
   your router/network allows mDNS (`.local`) resolution between the two
   devices. As a fallback, replace the hostname with the console's static
   IP, e.g. `http://192.168.1.50`.
+- **Console shows "No scale connected" although the scale is green**: the
+  scale reaches the console, but its HX711 hasn't delivered a reading for 5 s
+  (the `scale:` block's `timeout`). Check the HX711's power and its DOUT/SCK
+  wiring.
+- **Old scale YAML fails with "scale_mode was removed"**: see
+  [Migrating from 2.x](scale.md#migrating-from-2x).
 - **Console shows connection errors right after a reboot**: normal for the
   first ~10–30 s while WiFi/DNS converge — heartbeats retry automatically
   and it recovers on its own.

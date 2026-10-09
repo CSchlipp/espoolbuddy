@@ -53,7 +53,7 @@ jobs:
         #                    Touch — exercises the resolution-independent
         #                    layout on a second screen size/board, and
         #                    bambuddy_nfc's I2C transport.
-        # Scale            = HX711 + status LED + bambuddy_api (scale_mode) + bambuddy_nfc (SPI).
+        # Scale            = HX711 + status LED + bambuddy_api (console_url + scale: local) + bambuddy_nfc (SPI).
         # Together they cover both build modes of the shared components and
         # both bambuddy_nfc host interfaces.
         config:
