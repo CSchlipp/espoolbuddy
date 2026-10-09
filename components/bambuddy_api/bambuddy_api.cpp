@@ -106,39 +106,49 @@ void BambuddyAPIComponent::setup() {
   display_state_.ip_address = get_ip_address();
 
   // Always create the state mutex — it guards display_state_ which is accessed
-  // by both the main/LVGL task and the HTTP task (or scale HTTP server task).
+  // by both the main/LVGL task and the HTTP task (or the console receive server).
   state_mutex_ = xSemaphoreCreateMutex();
   job_mutex_   = xSemaphoreCreateMutex();
 
-  // ---- Scale server mode ------------------------------------------------
-  // The scale device runs a lightweight HTTP server for weight/tare/calibrate
-  // and does not communicate with BamBuddy at all.
-  if (scale_mode_) {
-    display_state_.status_message = "Scale server ready";
-    ESP_LOGI(TAG, "BambuddyAPI scale server mode: device_id=%s", device_id_.c_str());
+  // ---- Local load cell ----------------------------------------------------
+  // Tare and calibration factor live in NVS on the device that owns the load
+  // cell, so they survive reboots without a backend round trip.
+  if (scale_source_ == ScaleSource::LOCAL) {
     load_calibration_nvs();
-    start_scale_server();
-
-    // If a console URL is configured, start a push task that forwards weight
-    // and NFC events to the console.  The HTTP task runs in push-only mode
-    // (scale_mode_ == true); it never contacts BamBuddy directly.
-    if (!console_urls_.empty()) {
-      ESP_LOGI(TAG, "Scale push mode active — console: %s%s", console_urls_[0].c_str(),
-               console_urls_.size() > 1 ? " (+ secondary consoles)" : "");
-      constexpr uint32_t PUSH_STACK_BYTES = 12288;
-      auto *push_stack = static_cast<StackType_t *>(
-          heap_caps_malloc(PUSH_STACK_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-      if (push_stack == nullptr)
-        push_stack = static_cast<StackType_t *>(
-            heap_caps_malloc(PUSH_STACK_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
-      http_task_handle_ = xTaskCreateStaticPinnedToCore(
-          &BambuddyAPIComponent::http_task_trampoline,
-          "scale_push",
-          PUSH_STACK_BYTES / sizeof(StackType_t),
-          this, 5, push_stack, &http_task_tcb_, 1);
-      ESP_LOGI(TAG, "Scale push worker task started on core 1");
+    display_state_.calibration_factor = calibration_factor_;
+#ifdef USE_BAMBUDDY_SCALE_SENSOR
+    if (scale_sensor_ != nullptr) {
+      // Raw (pre-filter) readings track liveness: a delta filter goes quiet
+      // while the load is unchanged, but the ADC still delivers readings.
+      scale_sensor_->add_on_raw_state_callback([this](float x) {
+        if (!std::isnan(x)) last_local_raw_ms_ = millis();
+      });
+      scale_sensor_->add_on_state_callback([this](float x) { on_local_sample(x); });
     }
-    return;  // no BamBuddy communication
+#endif
+  }
+
+  // ---- Satellite: push to console(s) --------------------------------------
+  // A device with console_url forwards weight and NFC events to the console(s)
+  // and never contacts Bambuddy itself; the console relays everything under
+  // its own device_id.
+  if (satellite()) {
+    display_state_.status_message = "Pushing to console";
+    ESP_LOGI(TAG, "BambuddyAPI satellite: device_id=%s console=%s%s", device_id_.c_str(),
+             console_urls_[0].c_str(), console_urls_.size() > 1 ? " (+ secondary consoles)" : "");
+    constexpr uint32_t PUSH_STACK_BYTES = 12288;
+    auto *push_stack = static_cast<StackType_t *>(
+        heap_caps_malloc(PUSH_STACK_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (push_stack == nullptr)
+      push_stack = static_cast<StackType_t *>(
+          heap_caps_malloc(PUSH_STACK_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    http_task_handle_ = xTaskCreateStaticPinnedToCore(
+        &BambuddyAPIComponent::http_task_trampoline,
+        "scale_push",
+        PUSH_STACK_BYTES / sizeof(StackType_t),
+        this, 5, push_stack, &http_task_tcb_, 1);
+    ESP_LOGI(TAG, "Satellite push worker task started on core 1");
+    return;  // no Bambuddy communication
   }
 
   // ---- Console / standard mode ------------------------------------------
@@ -153,7 +163,7 @@ void BambuddyAPIComponent::setup() {
              backend_url_.c_str());
   }
 
-  // Start the console HTTP receive server (CONSOLE_PUSH_PORT) so the scale device
+  // Start the console HTTP receive server (CONSOLE_PUSH_PORT) so satellites
   // can push weight and NFC events to us.
   start_console_server();
 
@@ -192,9 +202,18 @@ void BambuddyAPIComponent::setup() {
            (reinterpret_cast<uintptr_t>(http_stack) >= 0x3C000000 ? "PSRAM" : "SRAM"));
 }
 
-// loop() is intentionally empty: all network I/O runs on the HTTP task so the
-// main loop (LVGL/touch) is never blocked.
-void BambuddyAPIComponent::loop() {}
+// All network I/O runs on the HTTP task so the main loop (LVGL/touch) is never
+// blocked. loop() only times the LOCAL source's stability: a delta filter on
+// the sensor stops emitting once the load is steady, so "stable" can't be
+// edge-detected from the sensor stream — it is the absence of moves for
+// local_stable_after_ms_.
+void BambuddyAPIComponent::loop() {
+  if (scale_source_ != ScaleSource::LOCAL || !local_have_value_ || local_stable_) return;
+  if (millis() - local_change_ms_ >= local_stable_after_ms_) {
+    local_stable_ = true;
+    on_scale_reading(local_gross_, true);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Background HTTP task
@@ -205,13 +224,13 @@ void BambuddyAPIComponent::http_task_trampoline(void *arg) {
 }
 
 void BambuddyAPIComponent::http_task_loop() {
-  // Register with the ESP-IDF task WDT only in console mode.  In scale push
-  // mode the push task blocks inside esp_http_client_perform() during mDNS
+  // Register with the ESP-IDF task WDT only on a console.  On a satellite
+  // the push task blocks inside esp_http_client_perform() during mDNS
   // resolution (up to ~30 s when the console is unreachable), which would
   // trigger the TWDT if this task were registered.  The idle tasks always
   // feed their own TWDT slots because FreeRTOS yields to them while our task
   // blocks on the network — so not registering here is safe.
-  if (!scale_mode_) {
+  if (!satellite()) {
     esp_task_wdt_add(NULL);  // NULL = current task
   }
   uint32_t last_stack_diag_ms = 0;
@@ -225,7 +244,7 @@ void BambuddyAPIComponent::http_task_loop() {
     // the loop running, not to how often we hit the backend — so interval/cadence
     // choices can't starve it. (esp_task_wdt_reset only valid for a subscribed
     // task, so guard on the same condition as the esp_task_wdt_add above.)
-    if (!scale_mode_) esp_task_wdt_reset();
+    if (!satellite()) esp_task_wdt_reset();
 
     // Core-1 health diagnostic (every 5 min): stack high-water mark of this
     // task plus minimum-ever free internal heap.  Creeping stack exhaustion
@@ -234,7 +253,7 @@ void BambuddyAPIComponent::http_task_loop() {
     if (now - last_stack_diag_ms >= 300000UL) {
       last_stack_diag_ms = now;
       ESP_LOGD(TAG, "%s task stack high-water: %u bytes free, min free internal heap: %u bytes",
-               scale_mode_ ? "scale_push" : "bambuddy_http",
+               satellite() ? "scale_push" : "bambuddy_http",
                (unsigned) (uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t)),
                (unsigned) heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
     }
@@ -245,11 +264,11 @@ void BambuddyAPIComponent::http_task_loop() {
       continue;
     }
 
-    // ---- Scale push mode (scale_mode_ && !console_urls_.empty()) ----
+    // ---- Satellite push (satellite()) ----
     // Heartbeat is sent on a fixed timer; response carries pending commands.
     // Weight is pushed whenever dirty (see below); NFC events are processed
     // one-job-per-tick so a blocked HTTP call never starves the loop.
-    if (scale_mode_) {
+    if (satellite()) {
       // Heartbeat — use a faster interval when an NFC tag is present so
       // write_tag commands are picked up quickly (~200 ms vs 1 s at idle).
       // The NFC task runs on the main core; reading nfc_state under the lock
@@ -280,7 +299,11 @@ void BambuddyAPIComponent::http_task_loop() {
       // one — could be lost for the entire duration of that push.
       // On failure, re-mark dirty so delivery keeps retrying (paced by the
       // 2 s backoff below) until it succeeds or a newer reading supersedes it.
-      if (weight_push_dirty_.exchange(false)) {
+      // Paced to scale_report_interval_ms_: a reading arriving sooner just
+      // stays dirty and goes out (as the then-latest value) once it's due.
+      if (millis() - last_weight_push_ms_ >= scale_report_interval_ms_ &&
+          weight_push_dirty_.exchange(false)) {
+        last_weight_push_ms_ = millis();
         lock_state();
         float grams  = display_state_.weight_grams;
         bool  stable = display_state_.weight_stable;
@@ -359,11 +382,12 @@ void BambuddyAPIComponent::http_task_loop() {
         display_state_.current_filament = FilamentInfo{};
         ESP_LOGI(TAG, "Unlinked-tag TTL expired, clearing NFC state");
       }
-      // Keep scale_ok in sync with the push timeout. scale_live() reads millis()
-      // at call time — NOT the stale `now` from the loop top — so a concurrent
-      // last_scale_push_ms_ update from the httpd task (core 0) cannot cause an
+      // Keep scale_ok in sync with the weight source's liveness.
+      // scale_connected() reads millis() at call time — NOT the stale `now`
+      // from the loop top — so a concurrent last_scale_push_ms_ /
+      // last_local_raw_ms_ update from another task cannot cause an
       // unsigned-subtraction wrap.
-      display_state_.scale_ok = scale_live();
+      display_state_.scale_ok = scale_connected();
       unlock_state();
     }
 
@@ -421,14 +445,17 @@ void BambuddyAPIComponent::http_task_loop() {
         case HttpJob::TAG_REMOVED:
           api_tag_removed(job.s1);
           break;
-        case HttpJob::SCALE_READING:
-          api_scale_reading(job.f1, job.b1, job.i1);
-          break;
         case HttpJob::WRITE_RESULT:
           api_write_tag_result(job.i1, job.s1, job.b1, job.s2);
           break;
         case HttpJob::UPDATE_TARE:
-          api_update_tare(job.f1);
+          // Every UPDATE_TARE / UPDATE_CALIBRATION job on a LOCAL console was
+          // queued through enqueue_local_cal_job(); a failed one leaves the
+          // backend stale, so re-send on the next good heartbeat instead of
+          // letting its calibration sync revert the local values.
+          if (!api_update_tare(job.f1) && scale_source_ == ScaleSource::LOCAL)
+            local_cal_unsynced_ = true;
+          if (scale_source_ == ScaleSource::LOCAL) local_cal_jobs_--;
           break;
         case HttpJob::CLEAR_ASSIGNMENT: {
           int ams_id   = job.i1;
@@ -465,7 +492,10 @@ void BambuddyAPIComponent::http_task_loop() {
           api_create_spool_from_tag(job.s1, job.s2, job.bambu);
           break;
         case HttpJob::UPDATE_CALIBRATION:
-          api_report_calibration_point(job.f1, job.f2);
+          if (!api_report_calibration_point(job.f1, job.f2) &&
+              scale_source_ == ScaleSource::LOCAL)
+            local_cal_unsynced_ = true;
+          if (scale_source_ == ScaleSource::LOCAL) local_cal_jobs_--;
           break;
         case HttpJob::UPDATE_SPOOL_WEIGHT:
           api_update_spool_weight(job.i1, job.f1);
@@ -499,12 +529,49 @@ void BambuddyAPIComponent::http_task_loop() {
           break;
         case HttpJob::SCALE_PUSH_NFC_SCANNED:
         case HttpJob::SCALE_PUSH_NFC_REMOVED:
-          // Scale-mode-only job kinds — never enqueued here since the
-          // scale_mode_ branch above handles them in its own switch and
+          // Satellite-only job kinds — never enqueued here since the
+          // satellite() branch above handles them in its own switch and
           // `continue`s before reaching this code. Listed explicitly (rather
           // than a catch-all default) so this switch stays exhaustive and a
           // future new HttpJob::Kind still trips -Wswitch as a reminder.
           break;
+      }
+    }
+
+    // ---- Weight report to Bambuddy ----
+    // Sends the CURRENT reading (latest ingest_weight()), not one captured per
+    // push, at most once per scale_report_interval_ms_ — except that a change
+    // of the stable flag goes out at once (unless the previous attempt failed,
+    // so a down backend is retried at the interval, not every loop). Readings
+    // within REPORT_THRESHOLD of the last report and with the same stable
+    // flag are not worth a POST. Anything not sent yet stays dirty and is
+    // re-evaluated next loop, so the final stable value always gets through.
+    if (weight_report_dirty_.exchange(false)) {
+      lock_state();
+      float w   = report_weight_;
+      bool  st  = report_stable_;
+      int   raw = report_raw_adc_;
+      unlock_state();
+      bool stable_changed = !last_reported_valid_ || st != last_reported_stable_;
+      bool moved = !last_reported_valid_ ||
+                   fabsf(w - last_reported_weight_) >= REPORT_THRESHOLD;
+      if (moved || stable_changed) {
+        bool due = (now - last_weight_report_ms_ >= scale_report_interval_ms_) ||
+                   (stable_changed && last_weight_report_ok_);
+        if (due) {
+          last_weight_report_ms_ = now;
+          last_weight_report_ok_ = api_scale_reading(w, st, raw);
+          if (last_weight_report_ok_) {
+            last_reported_weight_ = w;
+            last_reported_stable_ = st;
+            last_reported_valid_  = true;
+          } else {
+            weight_report_dirty_ = true;
+          }
+          did_work = true;
+        } else {
+          weight_report_dirty_ = true;
+        }
       }
     }
 
@@ -613,12 +680,15 @@ void BambuddyAPIComponent::http_task_loop() {
   }
 }
 
-void BambuddyAPIComponent::enqueue_job(const HttpJob &job) {
-  if (!job_mutex_) return;
+bool BambuddyAPIComponent::enqueue_job(const HttpJob &job) {
+  if (!job_mutex_) return false;
   xSemaphoreTake(job_mutex_, portMAX_DELAY);
   // Cap the queue so a stalled backend can't grow it without bound.
-  if (job_queue_.size() < 32) job_queue_.push_back(job);
+  bool queued = job_queue_.size() < 32;
+  if (queued) job_queue_.push_back(job);
+  else ESP_LOGW(TAG, "HTTP job queue full — dropping job kind %d", (int) job.kind);
   xSemaphoreGive(job_mutex_);
+  return queued;
 }
 
 bool BambuddyAPIComponent::dequeue_job(HttpJob &job) {
@@ -799,7 +869,7 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
   }
 
   // Queue the HTTP work for the background task so this callback returns instantly.
-  if (!scale_mode_) {
+  if (!satellite()) {
     // Console mode: POST tag-scanned to BamBuddy backend.
     // Set tag_resolving so the UI shows "Identifying tag..." instead of the
     // unlinked panel while the HTTP call is in flight.
@@ -820,8 +890,8 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
     job.s3 = tag_type;
     job.i1 = sak;
     enqueue_job(job);
-  } else if (!console_urls_.empty()) {
-    // Scale push mode: forward tag event to the console, decoded Bambu
+  } else {
+    // Satellite: forward tag event to the console, decoded Bambu
     // payload included, so the console can create a fully populated spool
     // instead of a generic placeholder.
     HttpJob job;
@@ -839,9 +909,9 @@ void BambuddyAPIComponent::on_tag_removed(const std::string &uid) {
   ESP_LOGI(TAG, "Tag removed: uid=%s", uid.c_str());
   lock_state();
   display_state_.tag_resolving = false;  // cancel any in-flight resolution
-  if (display_state_.spool_selected || scale_mode_) {
-    // Linked spool, OR scale-server mode: clear physical presence immediately.
-    // In scale_mode_ the console manages its own sticky-TTL once it
+  if (display_state_.spool_selected || satellite()) {
+    // Linked spool, OR satellite: clear physical presence immediately.
+    // On a satellite the console manages its own sticky-TTL once it
     // receives the push event; the scale must mirror physical reality.
     display_state_.nfc_state = NFCTagState::ABSENT;
   } else {
@@ -854,14 +924,14 @@ void BambuddyAPIComponent::on_tag_removed(const std::string &uid) {
   }
   unlock_state();
 
-  if (!scale_mode_) {
+  if (!satellite()) {
     // Console mode: POST tag-removed to BamBuddy backend.
     HttpJob job;
     job.kind = HttpJob::TAG_REMOVED;
     job.s1 = uid;
     enqueue_job(job);
-  } else if (!console_urls_.empty()) {
-    // Scale push mode: forward removal event to the console.
+  } else {
+    // Satellite: forward removal event to the console.
     HttpJob job;
     job.kind = HttpJob::SCALE_PUSH_NFC_REMOVED;
     job.s1 = uid;
@@ -873,42 +943,57 @@ void BambuddyAPIComponent::on_tag_removed(const std::string &uid) {
 // Scale callbacks
 // ---------------------------------------------------------------------------
 
-void BambuddyAPIComponent::on_scale_reading(float grams, bool stable,
-                                             int raw_adc) {
-  // Fast UI update (no HTTP) under the state lock.
-  lock_state();
-  display_state_.weight_grams = grams;
-  display_state_.weight_stable = stable;
-  display_state_.scale_ok = true;
-  unlock_state();
+void BambuddyAPIComponent::on_local_sample(float gross) {
+  if (std::isnan(gross)) return;
+  // A move of at least stable_band restarts the stability timer; smaller
+  // wobble (when the sensor has no delta filter) only updates the value.
+  if (!local_have_value_ || fabsf(gross - local_anchor_) >= local_stable_band_) {
+    local_anchor_    = gross;
+    local_change_ms_ = millis();
+    local_stable_    = false;
+  }
+  local_have_value_ = true;
+  local_gross_      = gross;
+  on_scale_reading(gross, local_stable_);
+}
 
-  uint32_t now = millis();
-  if (now - last_scale_report_ms_ < scale_report_interval_ms_) return;
-  last_scale_report_ms_ = now;
+void BambuddyAPIComponent::republish_local_reading() {
+  if (scale_source_ != ScaleSource::LOCAL || !local_have_value_) return;
+  on_scale_reading(local_gross_, local_stable_);
+}
 
-  if (!scale_mode_) {
-    // Console mode: only report to the backend when weight changes significantly
-    // to avoid spamming the backend with identical readings.
-    bool weight_changed = !last_reported_valid_ ||
-                          fabsf(grams - last_reported_weight_) >= REPORT_THRESHOLD;
-    if (!weight_changed) return;
-    last_reported_weight_ = grams;
-    last_reported_valid_ = true;
-
-    HttpJob job;
-    job.kind = HttpJob::SCALE_READING;
-    job.f1 = grams;
-    job.b1 = stable;
-    job.i1 = raw_adc;
-    enqueue_job(job);
-  } else if (!console_urls_.empty()) {
-    // Scale push mode: mark the reading dirty; the HTTP task picks up the
+void BambuddyAPIComponent::on_scale_reading(float gross, bool stable) {
+  if (satellite()) {
+    // Satellite: display_state_ keeps the gross reading; the push task applies
+    // tare/factor when it sends (api_scale_push_weight()). It reads the
     // freshest display_state_ weight/stable whenever it's ready to send (see
     // http_task_loop()), rather than us capturing a snapshot into a queued
     // job here that could go stale — or be silently dropped — while an
     // earlier push to a slow/multi-console setup is still in flight.
+    lock_state();
+    display_state_.weight_grams  = gross;
+    display_state_.weight_stable = stable;
+    display_state_.scale_ok      = true;
+    unlock_state();
     weight_push_dirty_ = true;
+    return;
   }
+  lock_state();
+  float net = (gross - tare_offset_) * calibration_factor_;
+  unlock_state();
+  ingest_weight(net, stable, (int) lroundf(gross));
+}
+
+void BambuddyAPIComponent::ingest_weight(float net, bool stable, int raw_adc) {
+  lock_state();
+  display_state_.weight_grams  = net;
+  display_state_.weight_stable = stable;
+  display_state_.scale_ok      = true;
+  report_weight_  = net;
+  report_stable_  = stable;
+  report_raw_adc_ = raw_adc;
+  unlock_state();
+  weight_report_dirty_ = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -997,30 +1082,54 @@ void BambuddyAPIComponent::on_write_tag_result(const std::string &uid,
 // ---------------------------------------------------------------------------
 
 void BambuddyAPIComponent::request_tare() {
-  if (scale_mode_) {
+  if (scale_source_ == ScaleSource::LOCAL) {
+    if (!local_live()) {
+      set_status("No scale connected");
+      ESP_LOGW(TAG, "Tare ignored: load-cell sensor not delivering readings");
+      return;
+    }
     local_tare();
     return;
   }
-  // Push mode: scale is connected — deliver tare via next heartbeat response.
-  if (last_scale_push_ms_ > 0) {
+  // Remote scale connected — deliver tare via its next heartbeat response.
+  if (scale_source_ == ScaleSource::REMOTE && scale_live()) {
     lock_state();
-    pending_scale_cmd_ = "tare";
+    pending_scale_cmd_    = "tare";
+    pending_scale_cmd_ms_ = millis();
     unlock_state();
     set_status("Tare sent to scale...");
     return;
   }
-  // Local scale (no external scale device).
-  float new_offset;
-  lock_state();
-  new_offset = display_state_.weight_grams;
-  display_state_.status_message = "Tare applied";
-  unlock_state();
-  tare_offset_ = new_offset;
+  // No scale: post nothing — a tare of whatever happens to be in
+  // display_state_ would be stored by Bambuddy as the real zero point.
+  set_status("No scale connected");
+  ESP_LOGW(TAG, "Tare ignored: no scale connected");
+}
 
-  HttpJob job;
-  job.kind = HttpJob::UPDATE_TARE;
-  job.f1 = new_offset;
-  enqueue_job(job);
+void BambuddyAPIComponent::local_tare() {
+  if (scale_source_ != ScaleSource::LOCAL) return;
+  if (!local_have_value_) {
+    ESP_LOGW(TAG, "Tare ignored: no reading from the load-cell sensor yet");
+    return;
+  }
+  lock_state();
+  tare_offset_ = local_gross_;
+  unlock_state();
+  save_calibration_nvs();
+  // Show the zeroed reading at once (and, on a satellite, force a push of it).
+  republish_local_reading();
+  if (!satellite()) {
+    set_status("Tare applied");
+    HttpJob job;
+    job.kind = HttpJob::UPDATE_TARE;
+    job.f1   = tare_offset_;
+    enqueue_local_cal_job(job);
+  }
+}
+
+void BambuddyAPIComponent::enqueue_local_cal_job(const HttpJob &job) {
+  local_cal_jobs_++;
+  if (!enqueue_job(job)) local_cal_jobs_--;
 }
 
 // ---------------------------------------------------------------------------
@@ -1037,11 +1146,12 @@ bool BambuddyAPIComponent::api_register_device() {
      << "\"hostname\":" << json_string(hostname) << ","
      << "\"ip_address\":" << json_string(ip) << ","
      << "\"firmware_version\":" << json_string(FIRMWARE_VERSION) << ","
-     // has_scale=true when in scale_mode (physical HX711) or when the push-mode
-     // scale is live (pushed within SCALE_LIVE_TIMEOUT_MS).  Goes false when
-     // the scale disconnects so the backend reflects reality.
+     // has_scale=true while the weight source delivers readings (local
+     // sensor live, or remote scale pushed within its timeout).  Goes false
+     // when the scale disconnects so the backend reflects reality.
      << "\"has_nfc\":" << bool_str(nfc_ != nullptr) << ","
-     << "\"has_scale\":" << bool_str(scale_mode_ || scale_live()) << ","
+     << "\"has_scale\":" << bool_str(scale_source_ == ScaleSource::LOCAL ||
+                                       scale_connected()) << ","
      // tare_offset is an integer in the backend schema — see api_update_tare().
      << "\"tare_offset\":" << (int)lroundf(tare_offset_) << ","
      << "\"calibration_factor\":" << calibration_factor_ << ","
@@ -1057,7 +1167,27 @@ bool BambuddyAPIComponent::api_register_device() {
   // Parse server-side calibration if provided
   float cal = parse_json_float(resp, "calibration_factor", calibration_factor_);
   float tare = parse_json_float(resp, "tare_offset", tare_offset_);
-  if (cal != calibration_factor_ || tare != tare_offset_) {
+  if (scale_source_ == ScaleSource::LOCAL) {
+    // The load cell is ours and its tare/factor come from NVS, which may hold
+    // a calibration made while the backend was unreachable. Bring the backend
+    // in line instead of adopting its (possibly stale) copy — otherwise the
+    // next heartbeat's calibration sync would revert the local values. Same
+    // thresholds as that sync, so rounding alone never triggers a POST.
+    if (fabsf(tare - tare_offset_) > 0.5f) {
+      HttpJob tj;
+      tj.kind = HttpJob::UPDATE_TARE;
+      tj.f1   = tare_offset_;
+      enqueue_local_cal_job(tj);
+    }
+    if (calibration_factor_ > 0.0f &&
+        fabsf(cal - calibration_factor_) > calibration_factor_ * 1e-3f) {
+      HttpJob cj;
+      cj.kind = HttpJob::UPDATE_CALIBRATION;
+      cj.f1   = 10000.0f;  // synthetic pair, see request_calibration()
+      cj.f2   = 10000.0f / calibration_factor_;
+      enqueue_local_cal_job(cj);
+    }
+  } else if (cal != calibration_factor_ || tare != tare_offset_) {
     calibration_factor_ = cal;
     tare_offset_ = tare;
     lock_state();
@@ -1085,9 +1215,9 @@ void BambuddyAPIComponent::api_heartbeat() {
   int uptime = display_state_.uptime_s;
   std::string ip = display_state_.ip_address;
   bool nfc_ok = display_state_.nfc_ok;
-  // scale_ok: true when the scale sensor is live (scale device) or when a push
-  // was received within the liveness window (console).
-  bool scale_ok = scale_mode_ ? display_state_.scale_ok : scale_live();
+  // scale_ok: true while the weight source delivers readings (local sensor
+  // live, or remote scale pushed within its liveness window).
+  bool scale_ok = scale_connected();
   unlock_state();
 
   // Note: the backend's HeartbeatRequest schema has no tare/calibration
@@ -1129,9 +1259,8 @@ void BambuddyAPIComponent::api_heartbeat() {
   // Forcing it from "a reader is configured" would report a configured but
   // disconnected or failed reader as healthy. With no reader configured
   // nothing ever sets it, so it stays false.
-  // Do NOT force scale_ok here — on a scale device it is set true by
-  // on_scale_reading(); on the console it is kept in sync with scale push
-  // liveness by the maintenance block in http_task_loop().
+  // Do NOT force scale_ok here — it is kept in sync with the weight
+  // source's liveness by the maintenance block in http_task_loop().
   unlock_state();
 
   // Handle SSH key in heartbeat response (same mock as registration)
@@ -1169,15 +1298,32 @@ void BambuddyAPIComponent::api_heartbeat() {
     }
   }
 
-  // ---- Calibration sync: backend → console → scale ----
+  // ---- Calibration sync: backend → console (→ remote scale) ----
   // Skip when this same response delivered a tare/calibrate command (its
   // tare/calibration fields predate the command's effect — the Python daemon
-  // does the same), and while a tare ack is still in flight, so stale backend
-  // values are never forwarded back to the scale and revert a fresh tare.
+  // does the same), while a remote tare ack is still in flight, and while a
+  // local tare/calibration has not reached the backend yet, so stale backend
+  // values never revert a fresh tare.
   lock_state();
   bool tare_in_flight = tare_ack_pending_;
   unlock_state();
-  if (cmd != "tare" && cmd != "calibrate_with_weight" && !tare_in_flight) {
+  if (local_cal_unsynced_ && local_cal_jobs_.load() == 0) {
+    // An earlier local tare/calibration POST failed; the backend is reachable
+    // again (this heartbeat worked), so send the local values once more.
+    local_cal_unsynced_ = false;
+    ESP_LOGI(TAG, "Re-sending local calibration to backend");
+    HttpJob tj;
+    tj.kind = HttpJob::UPDATE_TARE;
+    tj.f1   = tare_offset_;
+    enqueue_local_cal_job(tj);
+    HttpJob cj;
+    cj.kind = HttpJob::UPDATE_CALIBRATION;
+    cj.f1   = 10000.0f;  // synthetic pair, see request_calibration()
+    cj.f2   = 10000.0f / calibration_factor_;
+    enqueue_local_cal_job(cj);
+  }
+  if (cmd != "tare" && cmd != "calibrate_with_weight" && !tare_in_flight &&
+      local_cal_jobs_.load() == 0) {
     float cal  = parse_json_float(resp, "calibration_factor", calibration_factor_);
     float tare = parse_json_float(resp, "tare_offset",        tare_offset_);
     // Thresholds absorb the backend's integer tare rounding and the
@@ -1195,16 +1341,21 @@ void BambuddyAPIComponent::api_heartbeat() {
       unlock_state();
       ESP_LOGI(TAG, "Calibration from backend: tare=%.2f factor=%.6f",
                tare_offset_, calibration_factor_);
-      // The push-mode scale applies tare/factor itself — forward the new
-      // values via its next heartbeat response so they take effect on the
-      // actual readings and persist in the scale's NVS.
-      if (scale_live()) {
+      if (scale_source_ == ScaleSource::LOCAL) {
+        // Our own load cell: persist and show the recalibrated weight.
+        save_calibration_nvs();
+        republish_local_reading();
+      } else if (scale_source_ == ScaleSource::REMOTE && scale_live()) {
+        // The remote scale applies tare/factor itself — forward the new
+        // values via its next heartbeat response so they take effect on the
+        // actual readings and persist in the scale's NVS.
         char pl[64];
         snprintf(pl, sizeof(pl), "\"tare\":%.2f,\"factor\":%.6f",
                  tare_offset_, calibration_factor_);
         lock_state();
         pending_scale_cmd_         = "set_calibration";
         pending_scale_cmd_payload_ = pl;
+        pending_scale_cmd_ms_      = millis();
         unlock_state();
         ESP_LOGI(TAG, "Forwarding calibration to scale via heartbeat response");
       }
@@ -1471,6 +1622,13 @@ bool BambuddyAPIComponent::api_report_calibration_point(float reference_weight_g
     return false;
   }
 
+  if (scale_source_ == ScaleSource::LOCAL) {
+    // Our own load cell already holds the exact factor (in NVS); the backend's
+    // echo is quantised by its integer raw_adc / tare fields — don't adopt it.
+    ESP_LOGI(TAG, "Calibration reported to backend: factor=%.6f", calibration_factor_);
+    return true;
+  }
+
   // Parse the updated calibration params the backend computed and echo back.
   float new_factor = parse_json_float(resp, "calibration_factor", calibration_factor_);
   float new_tare   = parse_json_float(resp, "tare_offset",        tare_offset_);
@@ -1493,33 +1651,69 @@ void BambuddyAPIComponent::request_calibration(float reference_weight_g) {
     return;
   }
 
-  // Push mode: scale is connected — deliver calibrate cmd via next heartbeat response.
-  if (last_scale_push_ms_ > 0) {
+  if (scale_source_ == ScaleSource::LOCAL) {
+    if (!local_live()) {
+      set_status("No scale connected");
+      ESP_LOGW(TAG, "Calibrate ignored: load-cell sensor not delivering readings");
+      return;
+    }
+    if (!local_calibrate(reference_weight_g)) return;
+    char msg[64];
+    snprintf(msg, sizeof(msg), "Calibration applied (factor %.4f)", calibration_factor_);
+    set_status(msg);
+    // Report to Bambuddy as a synthetic reference/measured pair that
+    // reproduces the factor: its set-factor endpoint only takes integer
+    // raw readings, and 10000 / factor (>= 10000 units for a sensor with at
+    // least one unit per gram) keeps the rounding error below 1e-4, well
+    // inside the heartbeat sync's threshold — so the echo can't ping-pong.
+    HttpJob job;
+    job.kind = HttpJob::UPDATE_CALIBRATION;
+    job.f1   = 10000.0f;
+    job.f2   = 10000.0f / calibration_factor_;
+    enqueue_local_cal_job(job);
+    return;
+  }
+
+  // Remote scale connected — deliver calibrate cmd via its next heartbeat response.
+  if (scale_source_ == ScaleSource::REMOTE && scale_live()) {
     lock_state();
     pending_scale_cmd_       = "calibrate";
     pending_scale_cmd_value_ = reference_weight_g;
+    pending_scale_cmd_ms_    = millis();
     unlock_state();
     set_status("Calibrate sent to scale...");
     ESP_LOGI(TAG, "request_calibration (push): ref=%.1f g queued for scale", reference_weight_g);
     return;
   }
 
-  // Local scale device path: capture the live reading and report reference + measured.
-  float measured;
+  // No scale: post nothing — a measurement of whatever happens to be in
+  // display_state_ would make Bambuddy compute and store a garbage factor.
+  set_status("No scale connected");
+  ESP_LOGW(TAG, "Calibrate ignored: no scale connected");
+}
+
+bool BambuddyAPIComponent::local_calibrate(float reference_weight_g) {
+  if (scale_source_ != ScaleSource::LOCAL || !local_have_value_) {
+    ESP_LOGW(TAG, "Calibrate ignored: no reading from the load-cell sensor yet");
+    return false;
+  }
   lock_state();
-  measured = display_state_.weight_grams;
+  float raw_net = local_gross_ - tare_offset_;
   unlock_state();
-  // Use the tare-adjusted net reading — the backend expects the measured
-  // weight of the reference object alone, not the gross ADC value.
-  float measured_net = measured - tare_offset_;
-  set_status("Calibrating...");
-  ESP_LOGI(TAG, "request_calibration (local): ref=%.1f g gross=%.1f g tare=%.2f net=%.1f g",
-           reference_weight_g, measured, tare_offset_, measured_net);
-  HttpJob job;
-  job.kind = HttpJob::UPDATE_CALIBRATION;
-  job.f1 = reference_weight_g;
-  job.f2 = measured_net;
-  enqueue_job(job);
+  if (raw_net <= 0.0f) {
+    set_status("Place the reference weight first");
+    ESP_LOGW(TAG, "Calibrate ignored: reading at or below tare (net %.2f)", raw_net);
+    return false;
+  }
+  lock_state();
+  calibration_factor_ = reference_weight_g / raw_net;
+  display_state_.calibration_factor = calibration_factor_;
+  unlock_state();
+  save_calibration_nvs();
+  ESP_LOGI(TAG, "Calibrated: ref=%.1f g net=%.2f → factor=%.6f",
+           reference_weight_g, raw_net, calibration_factor_);
+  republish_local_reading();
+  return true;
 }
 
 bool BambuddyAPIComponent::api_write_tag_result(int spool_id,
@@ -1575,8 +1769,8 @@ void BambuddyAPIComponent::handle_command(const std::string &cmd,
   ESP_LOGI(TAG, "Received command: %s", cmd.c_str());
 
   if (cmd == "tare") {
-    // Same routing as the UI tare button: push-mode scale gets the command via
-    // the next heartbeat response, otherwise capture locally + notify backend.
+    // Same routing as the UI tare button: local load cell → tare here, remote
+    // scale → via its next heartbeat response, no scale → status only.
     request_tare();
 
   } else if (cmd == "calibrate_with_weight") {
@@ -1821,7 +2015,7 @@ bool BambuddyAPIComponent::http_request(esp_http_client_method_t method,
     // console mode.  The scale-push task is deliberately not subscribed to the
     // TWDT (see http_task_loop), so arch_feed_wdt() -> esp_task_wdt_reset() there
     // just spams "task not found" on every heartbeat.
-    if (!scale_mode_) arch_feed_wdt();
+    if (!satellite()) arch_feed_wdt();
     esp_err_t err = esp_http_client_perform(client);
     int status = esp_http_client_get_status_code(client);
 
@@ -2728,107 +2922,7 @@ void BambuddyAPIComponent::parse_printer_list(const std::string &json,
 }
 
 // ---------------------------------------------------------------------------
-// Scale server — HTTP server on the scale device
-// ---------------------------------------------------------------------------
-
-esp_err_t BambuddyAPIComponent::scale_http_weight(httpd_req_t *req) {
-  auto *self = static_cast<BambuddyAPIComponent *>(req->user_ctx);
-
-  self->lock_state();
-  float raw_w       = self->display_state_.weight_grams;  // ESPHome-filtered, pre-tare
-  bool  st          = self->display_state_.weight_stable;
-  bool  nfc_pres    = (self->display_state_.nfc_state == NFCTagState::PRESENT);
-  std::string uid   = self->display_state_.last_tag_uid;
-  std::string tuuid = self->display_state_.current_filament.tray_uuid;
-  int  sak           = self->display_state_.current_filament.sak;
-  std::string ttype  = self->display_state_.current_filament.tag_type;
-  // Read tare/cal while holding the lock (same mutex guards local_tare writes).
-  float tare   = self->tare_offset_;
-  float factor = self->calibration_factor_;
-  self->unlock_state();
-
-  // Apply runtime tare offset and calibration factor.
-  float w = (raw_w - tare) * factor;
-
-  // Escape any double-quotes that might appear in string fields.
-  // (UIDs and UUIDs are hex/dashes, so in practice this is just defensive.)
-  char buf[512];
-  snprintf(buf, sizeof(buf),
-           "{\"weight_grams\":%.2f,\"stable\":%s,\"hostname\":\"%s\","
-           "\"nfc_present\":%s,\"nfc_uid\":\"%s\",\"nfc_tray_uuid\":\"%s\","
-           "\"nfc_sak\":%d,\"nfc_tag_type\":\"%s\"}",
-           w, st ? "true" : "false", esc(self->hostname_).c_str(),
-           nfc_pres ? "true" : "false",
-           esc(uid).c_str(), esc(tuuid).c_str(),
-           sak, esc(ttype).c_str());
-  return send_json(req, buf);
-}
-
-esp_err_t BambuddyAPIComponent::scale_http_tare(httpd_req_t *req) {
-  auto *self = static_cast<BambuddyAPIComponent *>(req->user_ctx);
-
-  // Read the raw (pre-tare) weight and set it as the new zero-point.
-  self->lock_state();
-  float raw = self->display_state_.weight_grams;  // raw ESPHome-filtered value
-  float factor = self->calibration_factor_;
-  self->tare_offset_ = raw;
-  self->unlock_state();
-
-  self->save_calibration_nvs();
-
-  // Net weight after tare (should be ~0).
-  float net = (raw - self->tare_offset_) * factor;
-
-  char buf[64];
-  snprintf(buf, sizeof(buf),
-           "{\"ok\":true,\"tare_offset\":%.2f,\"weight_grams\":%.2f}",
-           self->tare_offset_, net);
-  ESP_LOGI(TAG, "Scale server tare: offset=%.2f", self->tare_offset_);
-  return send_json(req, buf);
-}
-
-esp_err_t BambuddyAPIComponent::scale_http_calibrate(httpd_req_t *req) {
-  auto *self = static_cast<BambuddyAPIComponent *>(req->user_ctx);
-
-  // Read JSON body: {"reference_weight_grams": N}
-  std::string json;
-  float ref_g = 0.0f;
-  if (read_req_body(req, json))
-    ref_g = parse_json_float(json, "reference_weight_grams", 0.0f);
-  if (ref_g <= 0.0f) {
-    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                        "reference_weight_grams must be > 0");
-    return ESP_FAIL;
-  }
-
-  // Capture the current tare-adjusted net reading.
-  self->lock_state();
-  float measured = self->display_state_.weight_grams;
-  self->unlock_state();
-  float net = measured - self->tare_offset_;
-
-  if (net <= 0.0f) {
-    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                        "Scale reading is zero or negative — place weight first");
-    return ESP_FAIL;
-  }
-
-  // new_factor = reference / net_reading
-  float new_factor = ref_g / net;
-  self->calibration_factor_ = new_factor;
-  self->save_calibration_nvs();
-
-  char buf[80];
-  snprintf(buf, sizeof(buf),
-           "{\"ok\":true,\"calibration_factor\":%.6f,\"reference_g\":%.1f,\"measured_g\":%.1f}",
-           new_factor, ref_g, net);
-  ESP_LOGI(TAG, "Scale server calibrate: ref=%.1f g net=%.1f g factor=%.6f",
-           ref_g, net, new_factor);
-  return send_json(req, buf);
-}
-
-// ---------------------------------------------------------------------------
-// Scale push mode — scale → console
+// Satellite push — satellite → console
 // ---------------------------------------------------------------------------
 
 // POSTs `body` to `path` on every configured console; see the declaration in
@@ -2878,8 +2972,12 @@ bool BambuddyAPIComponent::api_scale_push_weight(float grams, bool stable) {
 void BambuddyAPIComponent::api_scale_push_heartbeat() {
   if (console_urls_.empty()) return;
 
-  char body[128];
-  snprintf(body, sizeof(body), "{\"hostname\":\"%s\"}", esc(hostname_).c_str());
+  // sensor_ok lets the console tell "scale device online but its load cell
+  // is dead/unplugged" (or a satellite without a load cell) from a working
+  // scale, instead of showing a frozen weight as connected.
+  char body[160];
+  snprintf(body, sizeof(body), "{\"hostname\":\"%s\",\"sensor_ok\":%s}",
+           esc(hostname_).c_str(), bool_str(scale_connected()).c_str());
 
   std::string primary_resp;
   std::vector<std::string> all_resps;
@@ -2925,19 +3023,10 @@ void BambuddyAPIComponent::api_scale_push_heartbeat() {
     local_tare();
   } else if (cmd == "calibrate") {
     float ref = parse_json_float(resp, "value", 0.0f);
-    if (ref > 0.0f) {
-      lock_state();
-      float raw_net = display_state_.weight_grams - tare_offset_;
-      unlock_state();
-      if (raw_net > 0.0f) {
-        calibration_factor_ = ref / raw_net;
-        save_calibration_nvs();
-        ESP_LOGI(TAG, "Scale calibrate via heartbeat: ref=%.1f g factor=%.6f",
-                 ref, calibration_factor_);
-        // Force-push so the console immediately reflects the new calibration.
-        weight_push_dirty_ = true;
-      }
-    }
+    ESP_LOGI(TAG, "Scale received calibrate command via heartbeat (ref=%.1f g)", ref);
+    // local_calibrate() saves to NVS and force-pushes the recalibrated
+    // weight (which also carries the new factor to the console).
+    if (ref > 0.0f) local_calibrate(ref);
   } else if (cmd == "set_calibration") {
     // Backend-driven calibration relayed by the console: adopt the values,
     // persist them, and force-push so the recalibrated weight is visible
@@ -3082,6 +3171,22 @@ esp_err_t BambuddyAPIComponent::console_http_scale_weight(httpd_req_t *req) {
     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad body");
     return ESP_OK;
   }
+  self->lock_state();
+  self->last_scale_push_ms_ = millis();  // any scale→console message counts as "alive"
+  self->unlock_state();
+
+  // Weight comes from exactly one source. With a local load cell (or none),
+  // a pushing scale's weight is acknowledged and ignored — its NFC events
+  // are still accepted by the other handlers.
+  if (self->scale_source_ != ScaleSource::REMOTE) {
+    if (!self->remote_weight_ignored_logged_) {
+      self->remote_weight_ignored_logged_ = true;
+      ESP_LOGW(TAG, "Ignoring weight pushed by a scale device: this console's "
+                    "scale: block is not type: remote");
+    }
+    return send_json(req, "{\"ok\":true}");
+  }
+
   float grams   = parse_json_float(json, "weight_grams",       0.0f);
   bool  stable  = parse_json_bool (json, "stable",             false);
   // tare_offset and calibration_factor are sent by the scale on every weight
@@ -3092,10 +3197,6 @@ esp_err_t BambuddyAPIComponent::console_http_scale_weight(httpd_req_t *req) {
   float new_cal  = parse_json_float(json, "calibration_factor", kAbsent);
 
   self->lock_state();
-  self->last_scale_push_ms_          = millis();  // any scale→console message counts as "alive"
-  self->display_state_.weight_grams  = grams;
-  self->display_state_.weight_stable = stable;
-  self->display_state_.scale_ok      = true;
   // A tare command was delivered to the scale and this push carries its
   // (post-tare) offset — consume the ack flag.
   bool ack_tare = false;
@@ -3153,13 +3254,9 @@ esp_err_t BambuddyAPIComponent::console_http_scale_weight(httpd_req_t *req) {
                     ? (int)lroundf(grams / eff_cal + eff_tare)
                     : 0;
 
-  // Relay weight to BamBuddy via the existing SCALE_READING path.
-  HttpJob job;
-  job.kind = HttpJob::SCALE_READING;
-  job.f1   = grams;
-  job.b1   = stable;
-  job.i1   = raw_adc;
-  self->enqueue_job(job);
+  // Hand the reading to the console's single weight intake (UI + rate
+  // limited report to Bambuddy).
+  self->ingest_weight(grams, stable, raw_adc);
 
   // Weight push is data-only — commands are delivered via /scale/heartbeat.
   return send_json(req, "{\"ok\":true}");
@@ -3169,7 +3266,9 @@ esp_err_t BambuddyAPIComponent::console_http_scale_heartbeat(httpd_req_t *req) {
   auto *self = static_cast<BambuddyAPIComponent *>(req->user_ctx);
 
   std::string json;
-  read_req_body(req, json);  // drain the body; contents are unused (hostname ignored)
+  read_req_body(req, json);  // hostname is ignored; sensor_ok is used below
+  // Older scale firmware doesn't send sensor_ok — treat as healthy.
+  bool sensor_ok = parse_json_bool(json, "sensor_ok", true);
 
   self->lock_state();
 
@@ -3177,19 +3276,30 @@ esp_err_t BambuddyAPIComponent::console_http_scale_heartbeat(httpd_req_t *req) {
   // (not only in console_http_scale_weight) so the UI shows "scale connected"
   // as soon as the first heartbeat arrives, before any weight data is pushed.
   self->last_scale_push_ms_ = millis();
-  self->display_state_.scale_ok = true;
+  self->remote_sensor_ok_   = sensor_ok;
+  if (self->scale_source_ == ScaleSource::REMOTE) self->display_state_.scale_ok = sensor_ok;
 
   // Read and clear any pending console→scale command.
   std::string cmd        = self->pending_scale_cmd_;
   float       cmdval     = self->pending_scale_cmd_value_;
   std::string cmdpayload = self->pending_scale_cmd_payload_;
+  uint32_t    cmd_age    = millis() - self->pending_scale_cmd_ms_;
   self->pending_scale_cmd_.clear();
   self->pending_scale_cmd_payload_.clear();
+  // A tare/calibrate the Bambuddy UI has already given up on must not be
+  // applied now — the platform may hold a spool by then.
+  bool expired = (cmd == "tare" || cmd == "calibrate") && cmd_age > PENDING_SCALE_CMD_TTL_MS;
   // Tare handed to the scale: ack to the backend on the next weight push,
   // even if the offset value comes back unchanged (see tare_ack_pending_).
-  if (cmd == "tare") self->tare_ack_pending_ = true;
+  if (cmd == "tare" && !expired) self->tare_ack_pending_ = true;
 
   self->unlock_state();
+
+  if (expired) {
+    ESP_LOGW(TAG, "Console: dropping %s command queued %lu ms ago (older than %lu ms)",
+             cmd.c_str(), (unsigned long) cmd_age, (unsigned long) PENDING_SCALE_CMD_TTL_MS);
+    cmd.clear();
+  }
 
   // Respond — include pending command if any.
   // Use std::string for write_tag so large NDEF hex payloads don't truncate.
@@ -3304,47 +3414,7 @@ esp_err_t BambuddyAPIComponent::console_http_scale_nfc_write_result(httpd_req_t 
 }
 
 // ---------------------------------------------------------------------------
-// Scale HTTP server (scale_mode_ == true)
-// ---------------------------------------------------------------------------
-
-void BambuddyAPIComponent::start_scale_server() {
-  httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
-  cfg.server_port  = 80;
-  cfg.stack_size   = 8192;
-  cfg.max_uri_handlers = 8;
-
-  httpd_handle_t server = nullptr;
-  esp_err_t err = httpd_start(&server, &cfg);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "httpd_start failed: %s", esp_err_to_name(err));
-    return;
-  }
-  scale_server_handle_ = server;
-
-  httpd_uri_t weight_uri = {"/weight",    HTTP_GET,  scale_http_weight,    this};
-  httpd_uri_t tare_uri   = {"/tare",      HTTP_POST, scale_http_tare,      this};
-  httpd_uri_t cal_uri    = {"/calibrate", HTTP_POST, scale_http_calibrate, this};
-
-  httpd_register_uri_handler(server, &weight_uri);
-  httpd_register_uri_handler(server, &tare_uri);
-  httpd_register_uri_handler(server, &cal_uri);
-
-  ESP_LOGI(TAG, "Scale HTTP server started on port %d (GET /weight, POST /tare, POST /calibrate)",
-           cfg.server_port);
-}
-
-void BambuddyAPIComponent::restart_scale_server() {
-  if (!scale_mode_) return;
-  if (scale_server_handle_) {
-    ESP_LOGI(TAG, "WiFi reconnect — restarting scale HTTP server");
-    httpd_stop(scale_server_handle_);
-    scale_server_handle_ = nullptr;
-  }
-  start_scale_server();
-}
-
-// ---------------------------------------------------------------------------
-// NVS calibration persistence (scale server mode only)
+// NVS calibration persistence (scale: type: local only)
 // ---------------------------------------------------------------------------
 
 static const char *NVS_NS      = "spoolbuddy";

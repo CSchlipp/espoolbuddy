@@ -24,8 +24,8 @@ clear win, it says so.
 | Screen | 7″ HDMI, 1024×600 | 3.5″ 480×320 ([WT32-SC01 Plus](console-wt32sc01.md)) or 5″ 800×480 ([Panda Touch](console-pandatouch.md)) |
 | UI | Bambuddy's own web UI in a browser kiosk | Native LVGL UI, reimplemented in firmware |
 | NFC reader | PN5180 (SPI) | PN532 (SPI with IRQ, or I²C) |
-| Scale | Built in: NAU7802 ADC + load cell under the device | Separate, optional device: HX711 ADC + load cell on its own ESP32-S3 |
-| Form factor | One unit: screen, reader and scale together | Two units: a console, plus an optional scale that can sit elsewhere |
+| Scale | Built in: NAU7802 ADC + load cell under the device | Separate, optional device: HX711 ADC + load cell on its own ESP32-S3. Opt-in and untested: an HX711 wired [into the console](console-builtin-scale.md), no ready-made case |
+| Form factor | One unit: screen, reader and scale together | Usually two units: a console, plus an optional scale that can sit elsewhere |
 | Print control (pause / resume / progress) | No, the kiosk only shows AMS, inventory and spool screens | No, only AMS and spool screens |
 | Can host Bambuddy itself | Yes ("full local mode" on the same Pi) | No, needs Bambuddy running somewhere else |
 | Storage / OS upkeep | microSD card, Linux OS updates | None; firmware lives in on-board flash |
@@ -84,6 +84,8 @@ Both cover the core workflow:
 - **Flexible layout.** The scale is a separate box, so it can sit on the shelf
   while the console lives next to the printer. You can run a console with no
   scale at all, or feed [one scale into several consoles](scale.md#point-it-at-the-console).
+  If you'd rather have one box, a console can also read a
+  [load cell wired to it](console-builtin-scale.md) (untested).
 - **Fits into ESPHome / Home Assistant.** If you already run ESPHome, the
   devices show up in your existing dashboard and get OTA updates like
   everything else.

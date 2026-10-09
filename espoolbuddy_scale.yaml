@@ -3,12 +3,11 @@
 # Target: ESP32-S3 headless scale device (HX711 + PN532 NFC, no display)
 #
 # Architecture:
-#   • scale_mode: true  — this device does NOT connect to BamBuddy at all.
-#     It exposes a tiny HTTP server (port 80) for tare/calibrate commands:
-#       POST /tare     → apply tare, persist to NVS
-#       POST /calibrate → body: {"reference_weight_grams": N}
-#   • Weight readings and NFC events are PUSHED to the console (port 8080) instead
-#     of being polled.  The console relays them to BamBuddy under its own device_id.
+#   • console_url is set — this device does NOT connect to BamBuddy at all.
+#     Weight readings and NFC events are PUSHED to the console (port 8080); the
+#     console relays them to BamBuddy under its own device_id.
+#   • scale: type: local — bambuddy_api reads the HX711 sensor below, applies
+#     tare/calibration and detects when the reading has settled.
 #   • write_tag / tare / calibrate commands are delivered in the /scale/heartbeat
 #     response; the scale performs them locally and pushes the result back.
 #   • Tare offset and calibration factor are stored in NVS (namespace "spoolbuddy")
@@ -34,7 +33,7 @@ esphome:
   on_boot:
     priority: 600
     then:
-      - logger.log: "SpoolBuddy Scale booting (scale_mode)..."
+      - logger.log: "SpoolBuddy Scale booting..."
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -80,7 +79,6 @@ wifi:
     password: !secret ap_fallback_password
   on_connect:
     - logger.log: "WiFi connected"
-    - lambda: bambuddy->restart_scale_server();
   on_disconnect:
     - logger.log: "WiFi disconnected"
 
@@ -100,15 +98,19 @@ api:
   reboot_timeout: 0s   # scale runs standalone; never reboot just because HA isn't there
 
 # ============================================================================
-# BambuddyAPI — scale server mode
-# No backend_url / api_key required; starts HTTP server on port 80 instead.
+# BambuddyAPI — pushes to the console
+# No backend_url / api_key: setting console_url makes this device push to the
+# console instead of talking to Bambuddy.
 # ============================================================================
 bambuddy_api:
   id: bambuddy
-  # backend_url: ""              # not used in scale_mode — it runs its own HTTP server instead
-  # api_key: ""                  # not used in scale_mode — it runs its own HTTP server instead
   hostname: "SpoolBuddy-Scale"  # display name sent with every push to the console (not the network/mDNS hostname)
-  scale_mode: true             # starts HTTP server for tare/cal; persists cal in NVS
+  scale:
+    type: local                # weight from the HX711 sensor below; tare/cal kept in NVS
+    sensor: spool_weight
+    # stable_after: 750ms      # reading counts as settled after this long without a move...
+    # stable_band: 0.3         # ...of at least this much (matches the delta filter below)
+    # timeout: 5s              # no HX711 reading for this long → console shows "No scale connected"
   scale_report_interval: 100   # ms — weight push cadence to the console
   console_url: "http://espoolbuddy-console.local"   # or a list; first entry is authoritative for commands/LED, rest are push-only
   # console_url:
@@ -161,23 +163,6 @@ button:
     id: restart_button
 
 # ============================================================================
-# Stability-detector state (see the HX711 on_value lambda + 250 ms interval)
-# ============================================================================
-globals:
-  - id: scale_last_change_ms   # millis() of the last >=0.3 g change (0 = none yet)
-    type: uint32_t
-    restore_value: no
-    initial_value: '0'
-  - id: scale_last_grams       # most recent emitted weight, re-pushed when stable
-    type: float
-    restore_value: no
-    initial_value: '0.0f'
-  - id: scale_is_stable        # latched true once the reading has been frozen long enough
-    type: bool
-    restore_value: no
-    initial_value: 'false'
-
-# ============================================================================
 # HX711 scale sensor — weight in grams
 # ============================================================================
 sensor:
@@ -209,31 +194,14 @@ sensor:
       - multiply: -1
       # 4. Coarse ADC → grams mapping (placeholder).
       #    Real zero-point (tare_f) and slope (cal_factor) are stored in NVS and
-      #    applied at HTTP-serve time; this just needs to be a consistent linear map.
+      #    applied by bambuddy_api; this just needs to be a consistent linear map.
       - calibrate_linear:
           - 0 -> 0
           - 1000000 -> 1000
       # 5. Delta(0.3 g): suppress sub-0.3 g jitter so the displayed value is
-      #    rock-solid when the scale is loaded but undisturbed.
+      #    rock-solid when the scale is loaded but undisturbed. bambuddy_api
+      #    times "stable" from the absence of these emissions (stable_after).
       - delta: 0.3
-    on_value:
-      then:
-        - lambda: |-
-            // A new emission means the filtered reading just moved by >=0.3 g —
-            // the delta(0.3) filter above blocks anything smaller — so the scale
-            // is NOT settled.  We cannot detect "stable" here: once the value
-            // holds steady the delta filter stops emitting, so settled == the
-            // absence of on_value calls.  Record the change time and report
-            // unstable now; the 250 ms interval below latches stable once the
-            // reading has been frozen long enough and pushes the final value.
-            float grams = x;
-            id(scale_last_grams)     = grams;
-            id(scale_last_change_ms) = millis();
-            id(scale_is_stable)      = false;
-            // on_scale_reading() updates display_state_ (weight/stable).
-            // In scale_mode the SCALE_READING job enqueue is skipped
-            // automatically, so no BamBuddy traffic is generated here.
-            bambuddy->on_scale_reading(grams, false, 0);
 
   - platform: wifi_signal
     name: "WiFi Signal"
@@ -264,25 +232,6 @@ light:
     restore_mode: ALWAYS_OFF
 
 interval:
-  # Stability detector.  The HX711 pipeline's delta(0.3) filter stops emitting
-  # on_value once the reading is steady, so "stable" cannot be edge-detected
-  # from the sensor stream — it must be timed.  When the last >=0.3 g change was
-  # >= 750 ms ago (≈2 missed 400 ms SMA emissions), declare the weight stable
-  # and push it once: the value is frozen, so no on_value will do it for us.
-  # Delivery reliability (retrying a push that actually failed) is handled in
-  # bambuddy_api's HTTP task, which knows the real success/failure of each
-  # attempt — a blind resend from here can't tell "still in flight" from
-  # "dropped" and ends up mostly getting silently absorbed by the in-flight
-  # dedup instead of actually retrying.
-  - interval: 250ms
-    then:
-      - lambda: |-
-          if (!id(scale_is_stable) && id(scale_last_change_ms) != 0 &&
-              (millis() - id(scale_last_change_ms)) >= 750) {
-            id(scale_is_stable) = true;
-            bambuddy->on_scale_reading(id(scale_last_grams), true, 0);
-          }
-
   - interval: 1s
     then:
       - lambda: |-

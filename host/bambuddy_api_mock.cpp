@@ -215,7 +215,6 @@ void BambuddyAPIComponent::set_low_power(bool enable) {
   low_power_ = enable;
 }
 void BambuddyAPIComponent::configure_pm(bool light_sleep) {}
-void BambuddyAPIComponent::restart_scale_server() {}
 void BambuddyAPIComponent::save_calibration_nvs() {}
 
 // ---- Printer / AMS ----
@@ -434,8 +433,8 @@ void BambuddyAPIComponent::on_write_tag_result(const std::string &uid, bool succ
 }
 
 // ---- Scale ----
-void BambuddyAPIComponent::on_scale_reading(float grams, bool stable, int raw_adc) {
-  display_state_.weight_grams = grams - tare_offset_;
+void BambuddyAPIComponent::on_scale_reading(float gross, bool stable) {
+  display_state_.weight_grams = gross - tare_offset_;
   display_state_.weight_stable = stable;
   display_state_.scale_ok = true;
 }

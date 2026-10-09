@@ -6,9 +6,13 @@ A load cell + NFC reader that weighs a spool and pushes the reading straight
 to the console — no display of its own, no direct connection to Bambuddy.
 Firmware: [`espoolbuddy_scale.yaml`](../espoolbuddy_scale.yaml).
 
-Works with either console build. It can also run **standalone**, without a
-console at all — its local `tare`/`calibrate` HTTP server still works — but
-then you lose the Bambuddy integration.
+Works with either console build. It's what the console uses by default
+(`scale: type: remote`). A console can instead read a
+[load cell wired to itself](console-builtin-scale.md) (optional, untested).
+
+Just want a scale in Home Assistant, without a console? Then you don't need
+`bambuddy_api` at all: delete its block and the `bambuddy_nfc` block, and the
+HX711 sensor still shows up in Home Assistant.
 
 ## Bill of materials
 
@@ -97,4 +101,50 @@ Bambuddy dashboard:
 
 The console sends the tare/calibrate command to the scale on its next
 heartbeat (within ~1 s); the scale stores the resulting slope/offset itself,
-so it survives reboots.
+so it survives reboots. If the scale is offline, or its HX711 stops
+delivering readings, the console shows **No scale connected** and sends
+nothing. A command the scale couldn't pick up within 15 s is dropped rather
+than applied later. The **Tare Scale** button the scale exposes to Home
+Assistant tares it directly.
+
+## How the firmware reads the load cell
+
+The `scale:` block in `espoolbuddy_scale.yaml` hands the HX711 sensor to
+`bambuddy_api`:
+
+```yaml
+bambuddy_api:
+  console_url: "http://espoolbuddy-console.local"
+  scale:
+    type: local
+    sensor: spool_weight
+```
+
+`bambuddy_api` applies tare and calibration, decides when the reading has
+settled (no move of `stable_band` or more for `stable_after`) and reports a
+dead or unplugged HX711 to the console. All options are in the
+[configuration reference](configuration.md#weight-source-scale).
+
+## Migrating from 2.x
+
+Firmware 3.0.0 removed `scale_mode`. The device's role now follows from its
+config: `console_url` means it pushes to a console, and `scale:` says where its
+weight comes from. An old scale YAML fails to compile with a message pointing
+here. To migrate your own copy of `espoolbuddy_scale.yaml`:
+
+1. In `bambuddy_api:`, delete `scale_mode: true` and add:
+   ```yaml
+     scale:
+       type: local
+       sensor: spool_weight
+   ```
+2. Delete the stability `globals:` (`scale_last_change_ms`, `scale_last_grams`,
+   `scale_is_stable`), the HX711 sensor's `on_value:` lambda, and the
+   `250ms` `interval:` that called `on_scale_reading()`. Keep the sensor's
+   filters as they are.
+3. Delete `- lambda: bambuddy->restart_scale_server();` from `wifi:` →
+   `on_connect:`. The scale no longer runs its own HTTP server on port 80
+   (`/weight`, `/tare`, `/calibrate`); tare and calibrate reach it through the
+   console.
+
+The tare and calibration stored on the scale are kept: same NVS keys.

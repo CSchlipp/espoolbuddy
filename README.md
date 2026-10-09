@@ -144,6 +144,9 @@ LEDs mean.
   to the official Raspberry Pi client, feature by feature and on cost
 - **[Setup & flashing](docs/setup.md)** — install ESPHome, secrets, first
   flash, OTA updates
+- **[Built-in load cell](docs/console-builtin-scale.md)** — optional,
+  untested: wire an HX711 straight to the console instead of building a
+  separate scale
 - **[Configuration reference](docs/configuration.md)** — every tunable
   setting, what it does, and its default
 - **[API reference](docs/api-reference.md)** — the Bambuddy endpoints this
