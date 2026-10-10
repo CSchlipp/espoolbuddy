@@ -241,10 +241,11 @@ class BambuddyNFCComponent : public Component {
   // Read 4 pages (16 bytes) from an activated NTAG starting at start_page.
   // Uses the same 0x30 READ command as Mifare Classic block reads.
   bool ntag_read_pages(uint8_t target_num, uint8_t start_page, uint8_t out[16]);
-  // Read and parse the first NDEF record in the NTAG data area (pages 4+).
-  // Returns "open_tag_3d" if the record type contains "opentag",
-  // "ndef" for any other valid NDEF, or "" if the tag is unreadable/blank.
-  std::string ntag_detect_ndef_format(uint8_t target_num);
+  // Read the NDEF message from the NTAG data area (pages 4+) and walk its
+  // records.  Returns "open_tag_3d" for an OpenTag3D record (decoded into
+  // `info` when it is the spec'd application/opentag3d MIME record), "ndef"
+  // for any other valid NDEF, or "" if the tag is unreadable/blank.
+  std::string ntag_read_ndef(uint8_t target_num, bambuddy_api::TagFilamentInfo &info);
   // If the API has a pending NDEF write and the activated tag is an NTAG,
   // perform it.  Returns true if a write was attempted (success or failure),
   // false if there was nothing to do.  Fully logged for diagnosis.
@@ -263,8 +264,11 @@ class BambuddyNFCComponent : public Component {
   // Decodes material, colour and temperature data from the Bambu blocks read
   // by read_bambu_blocks().  Purely additive: the tray-UUID extraction above
   // is left untouched so spool matching behaves exactly as before.
-  static bambuddy_api::BambuTagInfo parse_bambu_tag(
+  static bambuddy_api::TagFilamentInfo parse_bambu_tag(
       const std::vector<std::pair<uint8_t, std::array<uint8_t, 16>>> &blocks);
+
+  // Decodes an OpenTag3D record payload (fixed offsets, see opentag3d.info/spec).
+  static bambuddy_api::TagFilamentInfo parse_opentag3d(const uint8_t *payload, size_t len);
 
   static std::string extract_tray_uuid(
       const std::vector<std::pair<uint8_t, std::array<uint8_t, 16>>> &blocks);

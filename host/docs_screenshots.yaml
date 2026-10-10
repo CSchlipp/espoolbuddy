@@ -61,6 +61,43 @@ esphome:
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: nfc-unlinked}
 
+        # Unknown Bambu Lab tag -> unlinked panel previews the decoded spool
+        - lambda: |-
+            bambuddy_api::TagFilamentInfo tf;
+            tf.valid         = true;
+            tf.format        = "bambu_lab";
+            tf.brand         = "Bambu Lab";
+            tf.material      = "PLA";
+            tf.detailed_type = "PLA Matte";
+            tf.subtype       = "Matte";
+            tf.color_hex     = "E4BD68FF";
+            tf.color_name    = "Desert Tan";
+            tf.spool_weight  = 1000;
+            tf.diameter      = 1.75f;
+            bambuddy->on_tag_scanned("5A3F9C21", "B2C4E6F80A1C3E5F7092B4D6F8A0C2E4",
+                                     0x08, "mifare_classic", &tf);
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: nfc-unlinked-bambu}
+
+        # Unknown OpenTag3D tag -> unlinked panel previews the decoded spool
+        - lambda: |-
+            bambuddy_api::TagFilamentInfo tf;
+            tf.valid           = true;
+            tf.format          = "open_tag_3d";
+            tf.brand           = "eSUN";
+            tf.material        = "PETG";
+            tf.subtype         = "CF";
+            tf.detailed_type   = "PETG CF";
+            tf.color_hex       = "2B5BA8";
+            tf.color_name      = "Ocean Blue";
+            tf.spool_weight    = 1000;
+            tf.diameter        = 1.75f;
+            tf.nozzle_temp_min = 240;
+            tf.nozzle_temp_max = 260;
+            bambuddy->on_tag_scanned("04B7E2A91C3D80", "", 0x00, "ntag", &tf);
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: nfc-unlinked-opentag3d}
+
         # "Assign Spool" -> spool picker
         - lambda: 'lv_obj_send_event(id(btn_assign_spool), LV_EVENT_CLICKED, nullptr);'
         - delay: 1200ms

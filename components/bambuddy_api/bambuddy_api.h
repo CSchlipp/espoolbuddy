@@ -165,21 +165,26 @@ enum class TagSource {
 
 /** Filament information decoded from NFC tag / backend response */
 // ---------------------------------------------------------------------------
-// Decoded Bambu Lab MIFARE Classic tag payload.
+// Filament payload decoded from the tag itself.
 //
-// The bambuddy_nfc component already reads the encrypted Bambu blocks in order
-// to derive the tray UUID; this struct carries the *rest* of that payload
-// (material, colour, temperatures) over to the API component so that
-// "Add to Inventory" can create a fully populated spool instead of a generic
-// PLA / 1000 g placeholder.  Field layout per the Bambu tag format:
-//   block 1 -> variant id (8B) + material id (8B)
-//   block 2 -> base material     e.g. "PLA"
-//   block 4 -> detailed type     e.g. "PLA Matte"
-//   block 5 -> colour RGBA (4B) + spool weight (2B) + pad (2B) + diameter (4B)
-//   block 6 -> drying temp/time (4B) + pad (2B) + bed temp (2B) + hotend max/min
+// Carries both tag formats that store filament data on the tag:
+//   * Bambu Lab MIFARE Classic tags — the bambuddy_nfc component already reads
+//     the encrypted blocks to derive the tray UUID.  Field layout:
+//       block 1 -> variant id (8B) + material id (8B)
+//       block 2 -> base material     e.g. "PLA"
+//       block 4 -> detailed type     e.g. "PLA Matte"
+//       block 5 -> colour RGBA (4B) + spool weight (2B) + pad (2B) + diameter (4B)
+//       block 6 -> drying temp/time (4B) + pad (2B) + bed temp (2B) + hotend max/min
+//   * OpenTag3D NTAGs — the payload of the first NDEF record of MIME type
+//     application/opentag3d (https://opentag3d.info/spec).
+// It travels with the scan to the UI (unlinked-tag preview), the scale ->
+// console push and "Add to Inventory", so that a fully populated spool is
+// created instead of a generic PLA / 1000 g placeholder.
 // ---------------------------------------------------------------------------
-struct BambuTagInfo {
+struct TagFilamentInfo {
   bool valid{false};
+  std::string format;          // "bambu_lab" | "open_tag_3d" (same values as FilamentInfo::tag_format)
+  std::string brand;           // "Bambu Lab", or the OpenTag3D manufacturer
   std::string material;        // "PLA"          -> material
   std::string detailed_type;   // "PLA Matte"
   std::string subtype;         // "Matte"        -> subtype
@@ -188,6 +193,7 @@ struct BambuTagInfo {
   std::string color_hex;       // "1A1A1A" (no leading #)
   std::string color_name;      // "Charcoal" (falls back to the hex string)
   uint16_t spool_weight{0};    // grams of filament on a full spool
+  uint16_t core_weight{0};     // grams of the empty spool (OpenTag3D only, 0 = unknown)
   float diameter{0.0f};        // mm
   uint16_t nozzle_temp_min{0};
   uint16_t nozzle_temp_max{0};
@@ -356,6 +362,14 @@ struct DisplayState {
   // Deadline (millis) for the unlinked-tag sticky panel. Mirrored from the
   // private unlinked_tag_expiry_ms_ so the YAML can show a countdown.
   uint32_t unlinked_tag_expiry_ms{0};
+
+  // Filament payload decoded from the current tag (Bambu Lab or OpenTag3D;
+  // valid == false for any other tag).  Shown on the unlinked-tag panel so the user sees what
+  // "Add to Inventory" will create, and sent along by create_spool_from_tag().
+  // Replaced on every new scan by on_tag_scanned() so a stale payload can
+  // never be attached to another tag; survives tag removal so the sticky
+  // unlinked panel keeps showing it.
+  TagFilamentInfo tag_filament;
 
   // True while the TAG_SCANNED HTTP call to the backend is in flight.
   // Suppresses the "unlinked tag" panel so it does not flash up before the
@@ -609,15 +623,15 @@ class BambuddyAPIComponent : public Component {
     unlock_state();
   }
 
-  // Attach a decoded Bambu payload to the tag that was already reported via
-  // on_tag_scanned().  Superseded by on_tag_scanned()'s `bambu` parameter,
+  // Attach a decoded filament payload to the tag that was already reported via
+  // on_tag_scanned().  Superseded by on_tag_scanned()'s `filament` parameter,
   // which is what the NFC component uses: passing the payload with the scan is
   // the only way it reaches a scale device's push to the console, because that
   // push is queued from inside on_tag_scanned().  Kept for callers that decode
   // a tag out of band.  Runs on the NFC poll task, so keep it brief.
-  void set_bambu_tag_info(const BambuTagInfo &info) {
+  void set_tag_filament(const TagFilamentInfo &info) {
     lock_state();
-    bambu_tag_info_ = info;
+    display_state_.tag_filament = info;
     unlock_state();
   }
 
@@ -640,13 +654,13 @@ class BambuddyAPIComponent : public Component {
   }
 
   // ---- Callbacks from NFC component ----
-  // `bambu` carries the payload decoded from a Bambu Lab tag, or nullptr when
-  // the tag is not a Bambu tag / the decode failed.  Passing it in (rather than
+  // `filament` carries the payload decoded from a Bambu Lab or OpenTag3D tag,
+  // or nullptr when the tag carries none / the decode failed.  Passing it in (rather than
   // a separate setter afterwards) keeps the scale push race-free: the value is
   // snapshotted into the queued job while the caller still owns it.
   void on_tag_scanned(const std::string &uid, const std::string &tray_uuid,
                       int sak, const std::string &tag_type,
-                      const BambuTagInfo *bambu = nullptr);
+                      const TagFilamentInfo *filament = nullptr);
   void on_tag_removed(const std::string &uid);
 
   // ---- Callbacks from scale sensor ----
@@ -758,10 +772,6 @@ class BambuddyAPIComponent : public Component {
   bool     create_spool_issued_{false};
   uint32_t create_spool_issued_gen_{0};
 
-  // Last successfully decoded Bambu tag payload; cleared on every new scan by
-  // on_tag_scanned() so a stale payload can never be attached to another tag.
-  BambuTagInfo bambu_tag_info_{};
-
   // ------------------------------------------------------------------
   // Background HTTP task — keeps all blocking network I/O off the main
   // loop so LVGL / touch stay responsive.
@@ -803,10 +813,11 @@ class BambuddyAPIComponent : public Component {
     float f1{0.0f};
     float f2{0.0f};  // second float param (e.g. measured_g for UPDATE_CALIBRATION)
     bool b1{false};
-    // Decoded Bambu payload for SCALE_PUSH_NFC_SCANNED.  Snapshotted at
-    // enqueue time so the HTTP task never reads a bambu_tag_info_ that a
-    // later scan has already overwritten.
-    BambuTagInfo bambu{};
+    // Decoded filament payload for SCALE_PUSH_NFC_SCANNED and
+    // CREATE_SPOOL_FROM_TAG.  Snapshotted at enqueue time so the HTTP task
+    // never reads a display_state_.tag_filament that a later scan has already
+    // overwritten.
+    TagFilamentInfo filament{};
   };
 
   static void http_task_trampoline(void *arg);
@@ -910,7 +921,7 @@ class BambuddyAPIComponent : public Component {
   void api_scale_push_nfc_scanned(const std::string &uid,
                                    const std::string &tray_uuid,
                                    int sak, const std::string &tag_type,
-                                   const BambuTagInfo &bambu);
+                                   const TagFilamentInfo &filament);
   void api_scale_push_nfc_removed(const std::string &uid);
   void api_scale_push_write_result(int spool_id, const std::string &uid,
                                     bool success, const std::string &msg);
@@ -987,20 +998,20 @@ class BambuddyAPIComponent : public Component {
   // POST /api/v1/printers/{id}/clear-plate — notifies the backend the build
   // plate has been physically cleared.
   void api_clear_plate(const std::string &printer_id);
-  // Create a spool from the scanned tag (decoded Bambu payload when available,
+  // Create a spool from the scanned tag (decoded filament payload when available,
   // otherwise a generic PLA placeholder) and link the tag to it.
   // Internal: single POST /inventory/spools with tag_uid in the body.
   // Spoolman: POST /spoolman/inventory/spools has no tag field, so this does
   // a create POST followed by a PATCH .../tag to link the new spool. The
   // Spoolman body carries material/subtype/brand/colour/label weight/slicer
   // preset; nozzle temperatures, tag type and data origin are not accepted there.
-  // uid / tray_uuid / bambu are snapshotted when the user presses the button,
+  // uid / tray_uuid / filament are snapshotted when the user presses the button,
   // not re-read here: a re-scan landing between the press and this call would
   // otherwise swap the payload out from under it (observed in the field as a
   // second entry created with an empty tray_uuid).
   void api_create_spool_from_tag(const std::string &uid,
                                   const std::string &tray_uuid,
-                                  const BambuTagInfo &bambu);
+                                  const TagFilamentInfo &filament);
 
   // Storage locations.
   // Fetch GET /api/v1/inventory/locations, fill display_state_.storage_locations.
@@ -1059,13 +1070,13 @@ class BambuddyAPIComponent : public Component {
   // JSON helpers
   static std::string json_string(const std::string &s);
 
-  // Serialise the decoded Bambu payload as JSON object members (each one
-  // followed by a comma, empty when the payload is invalid) and parse it back
-  // on the console side.  Used for the scale -> console tag-scanned push so a
+  // Serialise the decoded filament payload as JSON object members (empty when
+  // the payload is invalid) and parse it back on the console side.  Sent as
+  // "filament_*" keys; the parser also accepts the older "bambu_*" keys.  Used for the scale -> console tag-scanned push so a
   // tag scanned on the scale reaches the inventory with the same detail as one
   // scanned on the console itself.
-  static std::string bambu_tag_json_fields(const BambuTagInfo &bt);
-  static BambuTagInfo parse_bambu_tag_json(const std::string &json);
+  static std::string tag_filament_json_fields(const TagFilamentInfo &tf);
+  static TagFilamentInfo parse_tag_filament_json(const std::string &json);
   static std::string bool_str(bool v) { return v ? "true" : "false"; }
   // Parse a specific string field from a minimal JSON response
   static std::string parse_json_string(const std::string &json,
