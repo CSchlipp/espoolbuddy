@@ -1580,7 +1580,10 @@ script:
               const auto &u = s.ams_units[ui];
               sig ^= ((uint32_t)u.id * 40503u) ^ ((uint32_t)u.trays.size() * 6700417u)
                    ^ ((uint32_t)(u.nozzle + 2) * 2860486313u)  // nozzle label changes
-                   ^ ((uint32_t)u.drying * (2654435761u + (uint32_t)ui));  // drying tint
+                   ^ ((uint32_t)u.drying * (2654435761u + (uint32_t)ui))  // drying tint
+                   // temp/humidity label, at the "%.0f°" precision it's shown with
+                   ^ ((uint32_t)lroundf(u.temp) * (2246822519u + (uint32_t)ui))
+                   ^ ((uint32_t)u.humidity * (3266489917u + (uint32_t)ui));
               for (const auto &t : u.trays)
                 sig ^= ((uint32_t)t.present * 2246822519u)
                      ^ ((uint32_t)(t.color_hex.empty() ? 0u : (uint8_t)t.color_hex[0]) * 3266489917u);
