@@ -251,6 +251,7 @@ struct AMSUnit {
   int nozzle{-1};         // -1 unknown, 0 = right (R), 1 = left (L)
   bool is_ht{false};      // true for the single-slot AMS HT (high-temp) dryer
   bool is_vt{false};      // true for an external vt_tray slot (single-spool bypass)
+  bool drying{false};     // a drying cycle is running (dry_time > 0, countdown not stalled)
   std::vector<AMSTray> trays;
 };
 

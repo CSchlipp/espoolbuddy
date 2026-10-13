@@ -1579,7 +1579,11 @@ script:
             for (int ui = 0; ui < n_ams; ui++) {
               const auto &u = s.ams_units[ui];
               sig ^= ((uint32_t)u.id * 40503u) ^ ((uint32_t)u.trays.size() * 6700417u)
-                   ^ ((uint32_t)(u.nozzle + 2) * 2860486313u);  // nozzle label changes
+                   ^ ((uint32_t)(u.nozzle + 2) * 2860486313u)  // nozzle label changes
+                   ^ ((uint32_t)u.drying * (2654435761u + (uint32_t)ui))  // drying tint
+                   // temp/humidity label, at the "%.0f°" precision it's shown with
+                   ^ ((uint32_t)lroundf(u.temp) * (2246822519u + (uint32_t)ui))
+                   ^ ((uint32_t)u.humidity * (3266489917u + (uint32_t)ui));
               for (const auto &t : u.trays)
                 sig ^= ((uint32_t)t.present * 2246822519u)
                      ^ ((uint32_t)(t.color_hex.empty() ? 0u : (uint8_t)t.color_hex[0]) * 3266489917u);
@@ -2073,13 +2077,16 @@ script:
                   } else {
                     snprintf(nb, sizeof(nb), "AMS-%c", 'A' + (int)(unit.id % 26));
                   }
-                  lv_label_set_text(p_nm, nb); }
+                  lv_label_set_text(p_nm, nb);
+                  lv_obj_set_style_text_color(p_nm, lv_color_hex(unit.drying ? 0xFF9E6E : 0x7B9EFF), LV_PART_MAIN); }
                 if (unit.is_vt) {
                   lv_label_set_text(p_th, "");
                 } else {
                   char tb[24];
                   snprintf(tb, sizeof(tb), "%.0f\u00B0\n%d%%", unit.temp, unit.humidity);
                   lv_label_set_text(p_th, tb);
+                  lv_obj_set_style_text_color(p_th, lv_color_hex(unit.drying ? 0xFF9E6E : 0xCCCCDD), LV_PART_MAIN);
+                  lv_obj_set_style_img_recolor(p_ht, lv_color_hex(unit.drying ? 0xFF9E6E : 0x7B9EFF), LV_PART_MAIN);
                 }
                 lv_label_set_text(p_nz, nz);
                 bool present = !unit.trays.empty() && unit.trays[0].present;
@@ -2200,9 +2207,13 @@ script:
                     { char nb[40];
                       if (!unit.custom_name.empty()) snprintf(nb, sizeof(nb), "%s", unit.custom_name.c_str());
                       else                           snprintf(nb, sizeof(nb), "AMS-%c", 'A' + (int)(unit.id % 26));
-                      lv_label_set_text(rnm[k], nb); }
+                      lv_label_set_text(rnm[k], nb);
+                      lv_obj_set_style_text_color(rnm[k], lv_color_hex(unit.drying ? 0xFF9E6E : 0x7B9EFF), LV_PART_MAIN); }
                     { char tb[24]; snprintf(tb, sizeof(tb), "%.0f\u00B0\n%d%%", unit.temp, unit.humidity);
-                      lv_label_set_text(rth[k], tb); }
+                      lv_label_set_text(rth[k], tb);
+                      // Icon, name and temp/humidity turn orange while the AMS is drying.
+                      lv_obj_set_style_text_color(rth[k], lv_color_hex(unit.drying ? 0xFF9E6E : 0xCCCCDD), LV_PART_MAIN);
+                      lv_obj_set_style_img_recolor(ric[k], lv_color_hex(unit.drying ? 0xFF9E6E : 0x7B9EFF), LV_PART_MAIN); }
                     lv_label_set_text(rnz[k], nz);
                     lv_obj_clear_flag(ric[k], LV_OBJ_FLAG_HIDDEN);
                     lv_obj_add_flag(rht[k], LV_OBJ_FLAG_HIDDEN);
