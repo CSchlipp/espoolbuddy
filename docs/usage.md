@@ -95,7 +95,9 @@ Panda Touch shows the same screens at 800×480.
 - **AMS / printer status**: the console's AMS tab shows live slot/filament
   state polled from Bambuddy, along with each AMS unit's temperature,
   humidity, and its custom name if one was set in Bambuddy (falls back to a
-  default label otherwise). The currently selected printer's name also
+  default label otherwise). The unit's icon, name, temperature and humidity turn
+  orange while it is running a drying cycle. The currently selected
+  printer's name also
   shows in the header next to the clock; it only scrolls if the text is too
   long to fit, otherwise it just sits centered. Tap a slot to see its
   spool's details (brand, material, colour, temperatures, remaining weight)

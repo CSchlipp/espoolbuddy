@@ -3439,6 +3439,17 @@ void BambuddyAPIComponent::parse_ams_data(const std::string &json,
     unit.id = parse_json_int(uobj, "id", 0);
     unit.temp = parse_json_float(uobj, "temp", 0.0f);
     unit.humidity = parse_json_int(uobj, "humidity", 0);
+    // Drying: dry_time is minutes remaining (>0 = timer set). Bambuddy flags
+    // dry_countdown_stalled when a timer is set but not ticking (never
+    // started / paused), which must not count as drying. dry_status (bits of
+    // the firmware info word) is only filled on Bambuddy's websocket, not on
+    // this REST payload, so it is still honoured but usually reads 0.
+    {
+      int dry_status = parse_json_int(uobj, "dry_status", 0);
+      unit.drying = !parse_json_bool(uobj, "dry_countdown_stalled", false) &&
+                    (parse_json_int(uobj, "dry_time", 0) > 0 ||
+                     (dry_status >= 1 && dry_status <= 3));  // Checking/Drying/Cooling
+    }
     // Nozzle assignment is NOT in the per-unit JSON object; it comes from the
     // top-level ams_extruder_map dict parsed in api_get_ams() after this call.
     // Default to -1 (unknown); api_get_ams() will overwrite it.

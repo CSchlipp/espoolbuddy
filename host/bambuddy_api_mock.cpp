@@ -64,6 +64,20 @@ AMSTray demo_tray(int slot, const DemoSpool *s) {
   return t;
 }
 
+// A spool the AMS reports (material/colour/temps from its RFID tag or the
+// slicer) that isn't in the Bambuddy inventory: present, but spool_id 0 and
+// none of the inventory-enriched fields.
+AMSTray demo_untracked_tray(int slot, const char *material, const char *color_hex) {
+  AMSTray t;
+  t.slot = slot;
+  t.present = true;
+  t.material_type = material;
+  t.color_hex = color_hex;
+  t.nozzle_temp_min = 190;
+  t.nozzle_temp_max = 230;
+  return t;
+}
+
 AMSUnit demo_unit(int id, const char *name, int humidity, float temp, int nozzle) {
   AMSUnit u;
   u.id = id;
@@ -85,13 +99,14 @@ void fill_demo_ams(int printer_idx, DisplayState &ds) {
     ds.dual_nozzle = true;
     ds.tray_now = 1;
     AMSUnit a = demo_unit(0, "AMS A", 3, 26.5f, 0);
-    a.custom_name = "Daily";
+    a.custom_name = "Drawer";
     a.trays = {demo_tray(0, find_demo_spool(42)), demo_tray(1, find_demo_spool(41)),
                demo_tray(2, find_demo_spool(40)), demo_tray(3, nullptr)};
-    AMSUnit b = demo_unit(1, "AMS B", 2, 25.0f, 1);
+    AMSUnit b = demo_unit(1, "AMS B", 2, 45.0f, 1);
+    b.drying = true;  // shows the drying tint on the icon, name and temp/humidity
     b.trays = {demo_tray(0, find_demo_spool(39)), demo_tray(1, find_demo_spool(38)),
-               demo_tray(2, nullptr), demo_tray(3, find_demo_spool(36))};
-    AMSUnit ht = demo_unit(128, "AMS HT", 1, 55.0f, 1);
+               demo_untracked_tray(2, "PLA", "00AE42"), demo_tray(3, find_demo_spool(36))};
+    AMSUnit ht = demo_unit(128, "AMS HT", 1, 27.0f, 1);
     ht.is_ht = true;
     ht.trays = {demo_tray(0, find_demo_spool(35))};
     AMSUnit vt = demo_unit(255, "Ext", 0, 0.0f, 0);
