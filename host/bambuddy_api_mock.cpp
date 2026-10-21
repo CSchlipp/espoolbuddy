@@ -12,6 +12,8 @@
 #ifdef USE_HOST
 #include "esphome/core/hal.h"
 
+#include <deque>
+
 namespace esphome {
 namespace bambuddy_api {
 
@@ -40,7 +42,22 @@ const DemoSpool DEMO_SPOOLS[] = {
     {34, "PETG", "Translucent", "Sunlu", "7FDBFF", "Ice Blue", 1000, 50},
 };
 
+// Spools created from tags ("Add to Inventory"), appended after the demo set.
+// std::deque keeps element addresses stable, so the DemoSpool pointers and
+// the interned strings they point into stay valid as more are added.
+std::deque<DemoSpool> &created_spools() {
+  static std::deque<DemoSpool> spools;
+  return spools;
+}
+const char *intern(const std::string &s) {
+  static std::deque<std::string> pool;
+  pool.push_back(s);
+  return pool.back().c_str();
+}
+
 const DemoSpool *find_demo_spool(int id) {
+  for (const auto &s : created_spools())
+    if (s.id == id) return &s;
   for (const auto &s : DEMO_SPOOLS)
     if (s.id == id) return &s;
   return nullptr;
@@ -144,7 +161,7 @@ FilamentInfo filament_from_spool(const DemoSpool &s) {
   fi.spool_id = s.id;
   fi.material_type = s.material;
   fi.color_hex = s.color_hex;
-  fi.spool_name = std::string(s.brand) + " " + s.material;
+  fi.spool_name = s.brand[0] ? std::string(s.brand) + " " + s.material : std::string(s.material);
   fi.brand = s.brand;
   fi.subtype = s.subtype;
   fi.color_name = s.color_name;
@@ -317,12 +334,51 @@ void BambuddyAPIComponent::unlink_current_tag() {
   ds.status_message = "Tag unlinked";
 }
 
+// Same as the real api_create_spool_from_tag(): a new spool is created from
+// the tag's decoded Bambu Lab / OpenTag3D data (a generic 1000 g PLA for a
+// plain tag), the tag is linked to it, and it is shown like a scanned spool —
+// spool details, auto-assign window, Quick Weight.
 void BambuddyAPIComponent::create_spool_from_tag() {
   auto &ds = display_state_;
   if (ds.last_tag_uid.empty()) return;
-  // Reuse the first demo spool as the "new" entry — enough to drive the UI.
-  link_tag_to_spool(DEMO_SPOOLS[0].id);
-  ds.status_message = "Spool created";
+  const TagFilamentInfo &tf = ds.tag_filament;
+  const bool decoded = tf.valid && !tf.material.empty();
+  const float label = decoded && tf.spool_weight > 0 && tf.spool_weight <= 5000 ? tf.spool_weight : 1000;
+  std::string brand = !decoded ? "" : !tf.brand.empty() ? tf.brand
+                    : tf.format != "open_tag_3d" ? "Bambu Lab" : "";
+  DemoSpool ns{};
+  ns.id = DEMO_SPOOLS[0].id + 1 + (int) created_spools().size();
+  ns.material = intern(decoded ? tf.material : "PLA");
+  ns.subtype = intern(decoded ? tf.subtype : "");
+  ns.brand = intern(brand);
+  ns.color_hex = intern(decoded ? tf.color_hex.substr(0, 6) : "");
+  ns.color_name = intern(decoded ? tf.color_name : "");
+  ns.label_weight_g = label;
+  ns.remaining_g = label;
+  created_spools().push_back(ns);
+  const DemoSpool &s = created_spools().back();
+  tag_links()[ds.last_tag_uid] = s.id;
+  ds.recent_spools.insert(ds.recent_spools.begin(), {s.id, s.material, s.brand, s.color_hex});
+  ds.recent_spools_generation++;
+
+  FilamentInfo fi = filament_from_spool(s);
+  fi.tray_uuid = ds.current_filament.tray_uuid;
+  fi.sak = ds.current_filament.sak;
+  fi.tag_type = ds.current_filament.tag_type;
+  fi.tag_format = ds.current_filament.tag_format;
+  ds.current_filament = fi;
+  ds.spool_selected = true;
+  ds.nfc_state = NFCTagState::PRESENT;
+  ds.propose_archive = false;
+  ds.assign_success = false;
+  ds.assign_slot_desc.clear();
+  unlinked_tag_expiry_ms_ = 0;
+  ds.unlinked_tag_expiry_ms = 0;
+  pending_assign_spool_id_ = s.id;
+  pending_assign_expiry_ms_ = millis() + ASSIGN_TTL_MS;
+  ds.spool_assign_expiry_ms = pending_assign_expiry_ms_;
+  assign_clear_ms_ = 0;
+  ds.status_message = "Created spool #" + std::to_string(s.id);
 }
 
 void BambuddyAPIComponent::record_scale_weight(int spool_id, float total_grams) {
