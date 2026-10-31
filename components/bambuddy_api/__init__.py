@@ -1,11 +1,15 @@
 """ESPHome component schema for BambuddyAPI (SpoolBuddy backend client)."""
 
+import logging
+
 import esphome.codegen as cg
 import esphome.config_validation as cv
 import esphome.final_validate as fv
 from esphome.components.light import LightState
 from esphome.const import CONF_ID
 from esphome.core import CORE
+
+_LOGGER = logging.getLogger(__name__)
 
 CODEOWNERS = ["@CSchlipp"]
 MULTI_CONF = False
@@ -64,6 +68,19 @@ def _validate_backlight_required(config):
     return config
 
 
+def _deprecated_sleep_timeout(value):
+    # The console UI (app.yaml) sets the sleep timeout from
+    # its Settings screen on every refresh, so a YAML value never took
+    # effect. Accepted (and ignored) so existing configs keep building.
+    # TODO(next major release): replace with cv.invalid.
+    _LOGGER.warning(
+        "bambuddy_api: 'sleep_timeout' is deprecated and ignored. Consoles "
+        "take the sleep timeout from their Settings screen. Remove it from "
+        "your YAML."
+    )
+    return cv.positive_int(value)
+
+
 def _final_validate(config):
     if CORE.is_esp32 and "wifi" not in fv.full_config.get():
         raise cv.Invalid("bambuddy_api requires the wifi component on ESP32")
@@ -106,9 +123,10 @@ CONFIG_SCHEMA = cv.All(
             # LED) while the rest are push-only observers. The port (CONSOLE_PUSH_PORT)
             # is applied automatically in the component. Requires scale_mode: true.
             cv.Optional(CONF_CONSOLE_URL, default=[]): cv.ensure_list(cv.string),
-            # Sleep / deep-idle (console only): seconds of UI inactivity before the
-            # backlight is switched off and the backend cadence is reduced. 0 = off.
-            cv.Optional(CONF_SLEEP_TIMEOUT, default=600): cv.positive_int,
+            # Deprecated, ignored: the sleep timeout is a Settings-screen value
+            # (sleep_timeout_min in app.yaml). See
+            # _deprecated_sleep_timeout above.
+            cv.Optional(CONF_SLEEP_TIMEOUT): _deprecated_sleep_timeout,
             # Multiplier applied to the heartbeat and printer-poll intervals while
             # asleep (e.g. 6 turns a 10 s heartbeat into 60 s).
             cv.Optional(CONF_SLEEP_FACTOR, default=6): cv.int_range(min=1),
@@ -141,7 +159,6 @@ async def to_code(config):
     cg.add(var.set_scale_mode(config[CONF_SCALE_MODE]))
     for url in config[CONF_CONSOLE_URL]:
         cg.add(var.add_console_url(url))
-    cg.add(var.set_sleep_timeout(config[CONF_SLEEP_TIMEOUT]))
     cg.add(var.set_sleep_factor(config[CONF_SLEEP_FACTOR]))
     if CONF_SPEAKER_ID in config:
         speaker = await cg.get_variable(config[CONF_SPEAKER_ID])

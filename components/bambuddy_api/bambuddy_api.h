@@ -514,7 +514,9 @@ class BambuddyAPIComponent : public Component {
   // Sleep / low-power mode. After sleep_timeout of UI inactivity the YAML sleep
   // state machine turns the backlight off and calls set_low_power(true), which
   // multiplies the heartbeat and printer-poll cadence by sleep_factor to cut
-  // backend traffic. set_sleep_timeout takes seconds (0 = feature disabled).
+  // backend traffic. set_sleep_timeout takes seconds (0 = feature disabled);
+  // the UI calls it on every refresh with its Settings value, so the 600 s
+  // default below only covers the moments after boot.
   void set_sleep_timeout(uint32_t s) { sleep_timeout_ms_ = s * 1000; }
   void set_sleep_factor(uint32_t f) { low_power_factor_ = (f < 1) ? 1 : f; }
   uint32_t sleep_timeout_ms() const { return sleep_timeout_ms_; }
