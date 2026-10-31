@@ -1451,8 +1451,8 @@ script:
             lv_obj_add_flag(id(nfc_picker_panel),            LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(id(nfc_write_banner),   LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(id(nfc_waiting),      LV_OBJ_FLAG_HIDDEN);
-            lv_label_set_text(id(nfc_waiting),
-                s.tag_resolving ? "Identifying tag..." : "Waiting for tag...");
+            lv_label_set_text(id(nfc_waiting_text),
+                s.tag_resolving ? "Identifying tag..." : "Place spool tag on reader");
           }
 
           // ---- NFC episode end → restore the pre-scan tab ----
