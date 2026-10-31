@@ -29,6 +29,8 @@ on:
       - 'espoolbuddy_scale.yaml'
       - 'secrets.yaml.example'
       - '.github/workflows/esphome-compile.yml'
+      - '.github/scripts/use_local_components.py'
+      - '.github/legacy/**'
   pull_request:
     branches: [main]
     paths: *config_paths
@@ -43,7 +45,7 @@ permissions:
 
 jobs:
   compile:
-    name: Compile ${{ matrix.config }}
+    name: Compile ${{ matrix.config }}${{ matrix.legacy && ' (copied pre-bundle config)' || '' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -59,11 +61,20 @@ jobs:
         # Scale            = HX711 + status LED + bambuddy_api (console_url + scale: local) + bambuddy_nfc (SPI).
         # Together they cover both build modes of the shared components and
         # both bambuddy_nfc host interfaces.
+        #
+        # The legacy entry builds .github/legacy/espoolbuddy_console.yaml, a
+        # frozen console config from before the bundle files (four-file
+        # package list, boot hooks and buttons inline) — what existing users'
+        # copied configs still look like — so they can't silently break.
         config:
           - espoolbuddy_console.yaml
           - espoolbuddy_console_pandatouch.yaml
           - espoolbuddy_console_scale.yaml
           - espoolbuddy_scale.yaml
+        legacy: [false]
+        include:
+          - config: espoolbuddy_console_legacy.yaml
+            legacy: true
 
     steps:
       - name: Checkout
@@ -76,6 +87,10 @@ jobs:
 
       - name: Install latest ESPHome
         run: pip install -U esphome
+
+      - name: Put the frozen pre-bundle config next to the packages
+        if: matrix.legacy
+        run: cp .github/legacy/espoolbuddy_console.yaml ${{ matrix.config }}
 
       - name: Build local components + packages + images instead of the GitHub main source
         run: python .github/scripts/use_local_components.py ${{ matrix.config }}

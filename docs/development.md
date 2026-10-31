@@ -11,9 +11,13 @@ espoolbuddy/
 ├── espoolbuddy_console_scale.yaml      # Alternate console entry point (WT32-SC01 Plus + NAU7802, SpoolmanScale wiring)
 ├── espoolbuddy_scale.yaml              # Scale entry point (HX711 + NFC, headless)
 ├── secrets.yaml.example               # Template — copy to secrets.yaml (git-ignored)
-├── espoolbuddy/                       # Console-only packages, shared by all console entry points
+├── espoolbuddy/                       # Packages the entry points include
+│   ├── bundles/                       #   The one file each entry point lists in packages: files:
+│   │   ├── console_full.yaml          #     Console bundle: version + app + assets + lvgl
+│   │   └── scale.yaml                 #     Scale bundle: version + app_scale
 │   ├── version.yaml                   #   Single SemVer version shared by every device variant
 │   ├── app.yaml                       #   UI logic, sleep state machine, NFC/scale wiring, sensors
+│   ├── app_scale.yaml                 #   Scale logic: status LED
 │   ├── lvgl.yaml                      #   LVGL screen/widget layout (resolution-independent)
 │   ├── assets.yaml                    #   Fonts (MDI webfont) and image declarations
 │   ├── images/                        #   PNG icons (spool fill/shine/empty, AMS icons)
