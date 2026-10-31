@@ -26,6 +26,7 @@ on:
       - 'espoolbuddy_console.yaml'
       - 'espoolbuddy_console_pandatouch.yaml'
       - 'espoolbuddy_console_scale.yaml'
+      - 'espoolbuddy_console_lite.yaml'
       - 'espoolbuddy_scale.yaml'
       - 'secrets.yaml.example'
       - '.github/workflows/esphome-compile.yml'
@@ -58,6 +59,9 @@ jobs:
         #                    bambuddy_nfc's I2C transport.
         # Console/Scale    = WT32-SC01 Plus on SpoolmanScale wiring: NAU7802 + PN532
         #                    sharing one I2C bus, scale: local on a console.
+        # Console/Lite     = Lite UI bundle (bundles/console_lite.yaml), 172x320
+        #                    Waveshare ESP32-S3-Touch-LCD-1.47 — mipi_spi display, external
+        #                    axs5106 touch component, bambuddy_nfc over I2C.
         # Scale            = HX711 + status LED + bambuddy_api (console_url + scale: local) + bambuddy_nfc (SPI).
         # Together they cover both build modes of the shared components and
         # both bambuddy_nfc host interfaces.
@@ -70,6 +74,7 @@ jobs:
           - espoolbuddy_console.yaml
           - espoolbuddy_console_pandatouch.yaml
           - espoolbuddy_console_scale.yaml
+          - espoolbuddy_console_lite.yaml
           - espoolbuddy_scale.yaml
         legacy: [false]
         include:
@@ -99,7 +104,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: platformio-${{ runner.os }}-${{ hashFiles('espoolbuddy_console.yaml', 'espoolbuddy_console_pandatouch.yaml', 'espoolbuddy_console_scale.yaml', 'espoolbuddy_scale.yaml') }}
+          key: platformio-${{ runner.os }}-${{ hashFiles('espoolbuddy_console.yaml', 'espoolbuddy_console_pandatouch.yaml', 'espoolbuddy_console_scale.yaml', 'espoolbuddy_console_lite.yaml', 'espoolbuddy_scale.yaml') }}
           restore-keys: |
             platformio-${{ runner.os }}-
 

@@ -12,6 +12,7 @@ you're flashing:
 | Console — WT32-SC01 Plus | [`espoolbuddy_console.yaml`](../espoolbuddy_console.yaml) |
 | Console — Panda Touch | [`espoolbuddy_console_pandatouch.yaml`](../espoolbuddy_console_pandatouch.yaml) |
 | Console with built-in scale — [SpoolmanScale hardware](console-builtin-scale.md#spoolmanscale-hardware-nau7802) | [`espoolbuddy_console_scale.yaml`](../espoolbuddy_console_scale.yaml) |
+| Console — Lite (Waveshare ESP32-S3-Touch-LCD-1.47) | [`espoolbuddy_console_lite.yaml`](../espoolbuddy_console_lite.yaml) |
 | Scale | [`espoolbuddy_scale.yaml`](../espoolbuddy_scale.yaml) |
 
 ## 1. Get Bambuddy running first
@@ -77,6 +78,23 @@ substitutions:
 That one value covers the components, the shared UI packages and the images
 alike — see [releases](https://github.com/CSchlipp/espoolbuddy/releases) for
 what's available.
+
+### Full or Lite UI
+
+Each console YAML picks its UI with a single file in its `packages:` block:
+
+```yaml
+packages:
+  espoolbuddy:
+    ...
+    files: [bundles/console_full.yaml]   # tabbed UI: AMS, NFC, Scale, Settings
+```
+
+`bundles/console_lite.yaml` is the single-screen [Lite UI](console-lite.md)
+for small panels. Each config already names the right one for its screen.
+Configs copied before the bundles existed list
+`[version.yaml, app.yaml, assets.yaml, lvgl.yaml]` instead and carry the
+Tare/Restart buttons and boot hooks themselves. They keep working unchanged.
 
 Planning to modify the firmware itself rather than just flash it? Clone the
 repo and see the [development guide](development.md) for the layout.

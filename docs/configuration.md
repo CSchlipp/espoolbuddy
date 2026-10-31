@@ -6,7 +6,8 @@ Edit the top of your device's entry-point YAML to change these —
 [`espoolbuddy_console.yaml`](../espoolbuddy_console.yaml),
 [`espoolbuddy_console_pandatouch.yaml`](../espoolbuddy_console_pandatouch.yaml),
 [`espoolbuddy_console_scale.yaml`](../espoolbuddy_console_scale.yaml),
-or [`espoolbuddy_scale.yaml`](../espoolbuddy_scale.yaml). All four share the
+[`espoolbuddy_console_lite.yaml`](../espoolbuddy_console_lite.yaml),
+or [`espoolbuddy_scale.yaml`](../espoolbuddy_scale.yaml). All of them share the
 same `bambuddy_api` component; several options only apply to one mode.
 
 | Key | Applies to | Default | Description |
@@ -84,8 +85,22 @@ matching mode.
 | `reset_pin` | ✅ | ✅ | Optional; drives the PN532's RSTPDN line, which can recover a hung chip. Must be an open-drain output (`mode: {output: true, open_drain: true}`). Pulsed at every PN532 init and checked once per boot; left unused if the pulse has no effect |
 | `poll_interval`, `miss_threshold` | ✅ | ✅ | See the table above |
 
-The WT32-SC01 Plus console and the Scale use SPI with IRQ; the Panda Touch
-uses I²C without IRQ (see [its wiring](console-pandatouch.md#wiring-the-nfc-reader)).
+The WT32-SC01 Plus console and the Scale use SPI with IRQ, the Lite console
+uses I²C with IRQ, and the Panda Touch uses I²C without IRQ, because its port
+has only SDA/SCL (see the
+[Panda Touch](console-pandatouch.md#wiring-the-nfc-reader) and
+[Lite](console-lite.md#wiring-the-nfc-reader) wiring). Give the PN532 its own
+I²C bus rather than sharing the touch controller's: the reader is polled from
+its own task, without locking against other users of the bus.
+
+## UI bundle
+
+A console's `packages:` block names one UI bundle:
+`files: [bundles/console_full.yaml]` for the tabbed UI or
+`files: [bundles/console_lite.yaml]` for the [Lite UI](console-lite.md).
+Don't include both. Configs copied before the bundles existed list
+`[version.yaml, app.yaml, assets.yaml, lvgl.yaml]` and still work. See
+[Full or Lite UI](setup.md#full-or-lite-ui).
 
 The `espoolbuddy_ref` substitution at the very top of each file is a
 different kind of knob: it decides which version of this repo the build

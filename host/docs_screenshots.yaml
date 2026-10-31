@@ -1,14 +1,20 @@
 ################################################################################
-# Documentation screenshots — scripted run of the desktop simulator
+# Documentation screenshots — scripted run of the desktop simulator (full UI)
 #
 # Don't run this directly; use host/update_screenshots.py, which compiles it
 # at both console resolutions, runs it and copies the results into
-# docs/images/ui/.
+# docs/images/ui/full/.
 #
 # Builds espoolbuddy_console_host.yaml unchanged and adds a boot sequence
 # that walks the UI through each documented screen (simulated taps via
-# lv_obj_send_event, simulated NFC scans via the mock), saves a snapshot of
-# each to .esphome/snapshots/espoolbuddy-docs/<name>.bmp, then exits.
+# lv_obj_send_event, simulated scans / scale readings / AMS changes via the
+# mock), saves a snapshot of each to .esphome/snapshots/espoolbuddy-docs/
+# <name>.bmp, then exits.
+#
+# The screens both UIs have use the same names, steps and demo data as
+# docs_screenshots_lite.yaml (SHARED in update_screenshots.py), so the full
+# and Lite screenshots of a screen always show the same situation — keep the
+# two files in step.
 #
 # To add a screen: add a step below that gets the UI into that state, then
 # `- delay: 1200ms` + `- snapshot.take`, and list the name in
@@ -23,12 +29,13 @@ esphome:
   # Separate build dir and snapshot folder from the interactive simulator.
   name: espoolbuddy-docs
   on_boot:
-    # After the host config's own priority -100 apply_tab.
+    # After the console bundle's priority -100 apply_tab.
     - priority: -200
       then:
         - delay: 3s  # first full draw + boot-time apply_tab
+        - lambda: 'bambuddy->on_scale_reading(1023.4f, true);'
 
-        # ---- AMS tab ----
+        # ==== AMS tab (full UI only) ====
         - lambda: |-
             bambuddy->set_selected_printer(0);
             id(active_tab) = 0;
@@ -48,38 +55,90 @@ esphome:
         - snapshot.take: {id: main_display, filename: quick-settings}
         - script.execute: qs_close
 
-        # ---- NFC tab ----
+        # ==== Weighing (Scale tab) ====
+        - lambda: 'id(active_tab) = 2;'
+        - script.execute: apply_tab
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: scale}
+
+        - lambda: 'bambuddy->on_scale_reading(1019.8f, false);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: scale-settling}
+
+        - lambda: 'bambuddy->sim_scale_offline();'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: scale-no-scale}
+        - lambda: 'bambuddy->on_scale_reading(1023.4f, true);'
+
+        # ==== Scan + auto-assign (NFC tab) ====
         - lambda: 'id(active_tab) = 1;'
         - script.execute: apply_tab
-        # Tag linked to a demo spool by the mock
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: nfc-waiting}
+
         - lambda: 'bambuddy->on_tag_scanned("04A1B2C3D4E5F6", "", 0x00, "ntag");'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: nfc-spool}
 
-        # Tag the mock doesn't know -> unlinked panel
+        # Quick Weight, stable reading: recorded directly
+        - lambda: 'lv_obj_send_event(id(btn_nfc_weight), LV_EVENT_CLICKED, nullptr);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: quick-weight}
+
+        # Quick Weight, reading not stable yet: "Update Spool Weight" popup
+        - lambda: 'bambuddy->on_scale_reading(1020.1f, false);'
+        - delay: 500ms
+        - lambda: 'lv_obj_send_event(id(btn_nfc_weight), LV_EVENT_CLICKED, nullptr);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: weight-popup}
+        - lambda: 'lv_obj_send_event(id(btn_nfc_wp_cancel), LV_EVENT_CLICKED, nullptr);'
+        - lambda: 'bambuddy->on_scale_reading(1023.4f, true);'
+
+        # Storage-location tag while the spool is shown
+        - lambda: 'bambuddy->on_tag_scanned("04AABBCCDDEE01", "", 0x00, "ntag");'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: location}
+
+        # Unlink Tag → confirm (cancelled)
+        - lambda: 'lv_obj_send_event(id(btn_nfc_unlink), LV_EVENT_CLICKED, nullptr);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: unlink-confirm}
+        - lambda: 'lv_obj_send_event(id(confirm_cancel_btn), LV_EVENT_CLICKED, nullptr);'
+
+        # Loaded into the AMS → assigned
+        - lambda: 'bambuddy->sim_ams_insert();'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: assigned}
+        - delay: 4s  # component clears the spool 4 s after the assignment
+
+        # A spool taken out of the AMS is staged like a scan
+        - lambda: 'bambuddy->sim_ams_remove();'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: ams-removed}
+
+        # It's empty: Quick Weight records it, then the archive proposal (kept)
+        - lambda: 'bambuddy->on_scale_reading(240.0f, true);'
+        - delay: 600ms
+        - lambda: 'lv_obj_send_event(id(btn_nfc_weight), LV_EVENT_CLICKED, nullptr);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: archive}
+        - lambda: |-
+            // "Keep" (the button has no id)
+            lv_obj_add_flag(id(nfc_archive_proposal_popup), LV_OBJ_FLAG_HIDDEN);
+            bambuddy->dismiss_archive_proposal();
+        - lambda: 'bambuddy->on_scale_reading(1023.4f, true);'
+
+        # Never put back → the assignment window times out
+        - lambda: 'bambuddy->sim_assign_timeout();'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: timeout}
+
+        # ==== Unlinked tags ====
         - lambda: 'bambuddy->on_tag_scanned("04DEADBEEF0001", "", 0x00, "ntag");'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: nfc-unlinked}
 
-        # Unknown Bambu Lab tag -> unlinked panel previews the decoded spool
-        - lambda: |-
-            bambuddy_api::TagFilamentInfo tf;
-            tf.valid         = true;
-            tf.format        = "bambu_lab";
-            tf.brand         = "Bambu Lab";
-            tf.material      = "PLA";
-            tf.detailed_type = "PLA Matte";
-            tf.subtype       = "Matte";
-            tf.color_hex     = "E4BD68FF";
-            tf.color_name    = "Desert Tan";
-            tf.spool_weight  = 1000;
-            tf.diameter      = 1.75f;
-            bambuddy->on_tag_scanned("5A3F9C21", "B2C4E6F80A1C3E5F7092B4D6F8A0C2E4",
-                                     0x08, "mifare_classic", &tf);
-        - delay: 1200ms
-        - snapshot.take: {id: main_display, filename: nfc-unlinked-bambu}
-
-        # Unknown OpenTag3D tag -> unlinked panel previews the decoded spool
+        # Unlinked OpenTag3D tag -> preview of the decoded spool
         - lambda: |-
             bambuddy_api::TagFilamentInfo tf;
             tf.valid           = true;
@@ -98,19 +157,51 @@ esphome:
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: nfc-unlinked-opentag3d}
 
-        # "Assign Spool" -> spool picker
+        # "Assign Spool" -> spool picker (full UI only)
         - lambda: 'lv_obj_send_event(id(btn_assign_spool), LV_EVENT_CLICKED, nullptr);'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: nfc-picker}
         - lambda: 'lv_obj_send_event(id(btn_picker_cancel), LV_EVENT_CLICKED, nullptr);'
 
-        # ---- Scale tab ----
+        # Unlinked Bambu Lab tag -> preview, then Add to Inventory
+        - lambda: |-
+            bambuddy_api::TagFilamentInfo tf;
+            tf.valid         = true;
+            tf.format        = "bambu_lab";
+            tf.brand         = "Bambu Lab";
+            tf.material      = "PLA";
+            tf.detailed_type = "PLA Matte";
+            tf.subtype       = "Matte";
+            tf.color_hex     = "E4BD68FF";
+            tf.color_name    = "Desert Tan";
+            tf.spool_weight  = 1000;
+            tf.diameter      = 1.75f;
+            bambuddy->on_tag_scanned("5A3F9C21", "B2C4E6F80A1C3E5F7092B4D6F8A0C2E4",
+                                     0x08, "mifare_classic", &tf);
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: nfc-unlinked-bambu}
+
+        - lambda: 'lv_obj_send_event(id(btn_add_to_inventory), LV_EVENT_CLICKED, nullptr);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: created}
+        - lambda: 'bambuddy->sim_assign_timeout();'
+        - delay: 1s
+
+        # ==== Build plate clear ====
+        - lambda: 'bambuddy->sim_plate_clear();'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: plate-clear}
+        - lambda: 'lv_obj_send_event(id(btn_plateclear_confirm), LV_EVENT_CLICKED, nullptr);'
+
+        # ==== Calibration (Scale tab) ====
         - lambda: 'id(active_tab) = 2;'
         - script.execute: apply_tab
+        - lambda: 'lv_obj_send_event(id(btn_calibrate), LV_EVENT_CLICKED, nullptr);'
         - delay: 1200ms
-        - snapshot.take: {id: main_display, filename: scale}
+        - snapshot.take: {id: main_display, filename: calibrate}
+        - lambda: 'lv_obj_send_event(id(btn_cal_cancel), LV_EVENT_CLICKED, nullptr);'
 
-        # ---- Settings sub-pages ----
+        # ==== Settings sub-pages (full UI only) ====
         - lambda: 'id(active_tab) = 3;'
         - script.execute: apply_tab
         - lambda: 'lv_obj_clear_flag(id(content_features), LV_OBJ_FLAG_HIDDEN);'

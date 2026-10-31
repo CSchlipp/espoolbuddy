@@ -1,0 +1,691 @@
+# ============================================================================
+# ESPoolBuddy Lite — UI logic for lvgl_lite.yaml
+#
+# The Lite renders the same bambuddy_api state as the full console UI and
+# copies its rules, texts and colours from app.yaml / lvgl.yaml /
+# lvgl/tab_nfc.yaml (see the "full UI:" notes). Differences are only where the
+# 172x320 screen forces them.
+#
+#   on_loop        weight labels (get_weight(), cheap, every main-loop pass)
+#   lite_refresh   everything else from one snapshot() every 400 ms: header
+#                  (printer icon, clock / status), spool / unlinked / waiting
+#                  view, action area, popups (plate clear, archive, Quick
+#                  Weight), settings, dim / sleep / wake
+#
+# Globals that also exist in app.yaml keep the same ids (selected_printer_idx,
+# printer_count, backlight_brightness_pct, sleep_timeout_min, nfc_sleep_mode,
+# clear_location_on_ams_load, cal_ref_weight, plate_clear_*), so a board moved
+# between the full and the lite UI keeps its stored settings.
+# ============================================================================
+esphome:
+  on_boot:
+    # Late priority: LVGL widgets exist and globals are restored from flash.
+    - priority: -100
+      then:
+        - lambda: |-
+            bambuddy->set_selected_printer(id(selected_printer_idx));
+            bambuddy->set_clear_location_on_ams_load(id(clear_location_on_ams_load));
+            lv_label_set_text(id(lite_version), "v" ESPHOME_PROJECT_VERSION);
+            int pct = id(backlight_brightness_pct);
+            if (pct < 25 || pct > 100) { pct = 100; id(backlight_brightness_pct) = pct; }
+            id(display_backlight).turn_on()
+              .set_brightness(pct / 100.0f)
+              .set_transition_length(0).perform();
+        - script.execute: lite_update_settings
+  # Weight display, every main-loop iteration (same as app.yaml's on_loop:
+  # a scale push lands in display_state_ from the HTTP server task and is
+  # picked up on the very next tick).
+  on_loop:
+    - lambda: |-
+        float grams; bool stable, ok;
+        bambuddy->get_weight(grams, stable, ok);
+
+        // Full UI (Scale tab): "%.1f g" + Stable / Settling, or no weight and
+        // "No scale connected". Labels only touched when the text changes.
+        static char prev_w[20] = "-";
+        static const char *prev_state = nullptr;
+        char buf[20];
+        const char *state;
+        if (ok) {
+          float w = grams;
+          if (w > -0.3f && w < 0.3f) w = 0.0f;  // treat ±0.3 g noise as zero
+          snprintf(buf, sizeof(buf), "%.1f g", w);
+          state = stable ? "Stable" : "Settling";
+        } else {
+          buf[0] = '\0';
+          state = "No scale connected";
+        }
+        if (strcmp(buf, prev_w) != 0) {
+          strcpy(prev_w, buf);
+          lv_label_set_text(id(lite_weight), buf);
+        }
+        if (state != prev_state) {
+          prev_state = state;
+          lv_label_set_text(id(lite_weight_stable), state);
+        }
+
+        // Putting a spool on (or taking it off) the scale counts as activity,
+        // so it wakes the screen without a touch.
+        static float activity_grams = 0.0f;
+        if (ok && fabsf(grams - activity_grams) >= 20.0f) {
+          activity_grams = grams;
+          lv_disp_trig_activity(NULL);
+        }
+
+# ============================================================================
+# Globals
+# ============================================================================
+globals:
+  # ---- Persistent settings (same ids and defaults as app.yaml) ----
+  - id: selected_printer_idx
+    type: int
+    restore_value: yes
+    initial_value: '0'
+  - id: backlight_brightness_pct  # awake backlight brightness, 25-100
+    type: int
+    restore_value: yes
+    initial_value: '100'
+  - id: sleep_timeout_min    # inactivity before sleep: 0 = Never, 5-60 in 5-min steps
+    type: int
+    restore_value: yes
+    initial_value: '10'
+  - id: nfc_sleep_mode       # NFC scanning while asleep: 0 = Off, 1 = Slow, 2 = On
+    type: int
+    restore_value: yes
+    initial_value: '1'
+  - id: clear_location_on_ams_load  # 1 = clear a spool's storage location when it's loaded into an AMS
+    type: int
+    restore_value: yes
+    initial_value: '1'
+  - id: cal_ref_weight       # calibration reference weight in grams
+    type: float
+    restore_value: yes
+    initial_value: '100.0'
+
+  # ---- Runtime state ----
+  - id: printer_count        # printers Bambuddy currently reports (printer tile cycle)
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: lite_is_sleeping     # true while asleep (backlight off)
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: plate_clear_popup_open  # 1 while the plate-clear popup is up (as app.yaml)
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: plate_clear_dismissed   # 1 after "Discard" — no re-prompt until the flag next goes false
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: lite_wp_open         # 1 while the Quick Weight popup is open (freezes the TTL, as app.yaml)
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: lite_confirm_action  # what lite_confirm asks: 0 = closed, 1 = unlink tag
+    type: int
+    restore_value: no
+    initial_value: '0'
+  # Tag that last resolved to a spool. Keeps the view from flipping to the
+  # unlinked-tag panel when the component clears the spool (auto-assigned,
+  # timed out, discarded) while that tag still lies on the reader. Cleared on
+  # every new scan and by Unlink (as the full UI's dismissed_known_uid).
+  - id: lite_known_uid
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+  # Unlinked tag the user discarded; hidden until the next scan (as the full
+  # UI's nfc_unlinked_dismissed).
+  - id: lite_dismissed_uid
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+# ============================================================================
+# Scripts
+# ============================================================================
+script:
+  # Quick Weight (full UI: btn_nfc_weight): a stable reading above 5 g is
+  # recorded directly; otherwise the "Update Spool Weight" popup opens.
+  - id: lite_quick_weight
+    then:
+      - lambda: |-
+          auto s = bambuddy->snapshot();
+          auto &fi = s.current_filament;
+          if (s.scale_ok && s.weight_stable && s.weight_grams > 5.0f) {
+            bambuddy->record_scale_weight(fi.spool_id, s.weight_grams);
+            return;
+          }
+          id(lite_wp_open) = 1;
+          char info[64];
+          if (!fi.material_type.empty() && !fi.color_name.empty())
+            snprintf(info, sizeof(info), "%s \xC2\xB7 %s", fi.material_type.c_str(), fi.color_name.c_str());
+          else if (!fi.material_type.empty())
+            snprintf(info, sizeof(info), "%s", fi.material_type.c_str());
+          else
+            snprintf(info, sizeof(info), "Spool #%d", fi.spool_id);
+          lv_label_set_text(id(lite_wp_material), info);
+          if (s.scale_ok) {
+            char wbuf[16];
+            snprintf(wbuf, sizeof(wbuf), "%.0f g", s.weight_grams);
+            lv_label_set_text(id(lite_wp_weight), wbuf);
+            lv_label_set_text(id(lite_wp_stable), s.weight_stable ? "Stable" : "");
+          } else {
+            lv_label_set_text(id(lite_wp_weight), "---");
+            lv_label_set_text(id(lite_wp_stable), "");
+          }
+          lv_obj_clear_flag(id(lite_weight_popup), LV_OBJ_FLAG_HIDDEN);
+
+  # "Update" in the Quick Weight popup (full UI: btn_nfc_wp_update).
+  - id: lite_wp_save
+    then:
+      - lambda: |-
+          auto s = bambuddy->snapshot();
+          int spool_id = s.current_filament.spool_id;
+          if (spool_id > 0 && s.scale_ok)
+            bambuddy->record_scale_weight(spool_id, s.weight_grams);
+          id(lite_wp_open) = 0;
+          lv_obj_add_flag(id(lite_weight_popup), LV_OBJ_FLAG_HIDDEN);
+
+  # Unlinked tag → new spool (full UI: btn_add_to_inventory). The component
+  # then shows the new spool like a scanned one.
+  - id: lite_add_to_inventory
+    then:
+      - lambda: 'bambuddy->create_spool_from_tag();'
+
+  # Tap on the spool / unlinked view: the actions the full UI shows as buttons.
+  - id: lite_open_actions
+    then:
+      - lambda: |-
+          auto s = bambuddy->snapshot();
+          // Unlink Tag only for a spool with an id (full UI: btn_nfc_unlink).
+          if (s.spool_selected && s.current_filament.spool_id > 0)
+            lv_obj_clear_flag(id(lite_act_unlink), LV_OBJ_FLAG_HIDDEN);
+          else
+            lv_obj_add_flag(id(lite_act_unlink), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_clear_flag(id(lite_actions), LV_OBJ_FLAG_HIDDEN);
+
+  # Unlink Tag → confirm (full UI: confirm_action 1).
+  - id: lite_ask_unlink
+    then:
+      - lambda: |-
+          lv_obj_add_flag(id(lite_actions), LV_OBJ_FLAG_HIDDEN);
+          id(lite_confirm_action) = 1;
+          lv_label_set_text(id(lite_confirm_msg), "Unlink this tag from its spool?");
+          lv_label_set_text(id(lite_confirm_ok_lbl), "Unlink");
+          lv_obj_clear_flag(id(lite_confirm), LV_OBJ_FLAG_HIDDEN);
+
+  - id: lite_confirm_accept
+    then:
+      - lambda: |-
+          if (id(lite_confirm_action) == 1) {
+            bambuddy->unlink_current_tag();
+            id(lite_known_uid) = "";  // a rescan of this tag now shows it as unlinked
+          }
+          id(lite_confirm_action) = 0;
+          lv_obj_add_flag(id(lite_confirm), LV_OBJ_FLAG_HIDDEN);
+      - script.execute: lite_refresh
+
+  # Discard (full UI: btn_dismiss / btn_nfc_discard_unlinked).
+  - id: lite_discard
+    then:
+      - lambda: |-
+          lv_obj_add_flag(id(lite_actions), LV_OBJ_FLAG_HIDDEN);
+          auto s = bambuddy->snapshot();
+          if (s.spool_selected) bambuddy->dismiss_spool();
+          else id(lite_dismissed_uid) = s.last_tag_uid;
+      - script.execute: lite_refresh
+
+  # ---- Settings ----
+  # Value labels of the compact settings rows (same values and texts as the
+  # full UI's settings: "%d%%", "Never" / "%d min", Off / Slow / On, Off / On).
+  - id: lite_update_settings
+    then:
+      - lambda: |-
+          char buf[16];
+          snprintf(buf, sizeof(buf), "%d%%", id(backlight_brightness_pct));
+          lv_label_set_text(id(lite_brightness_val), buf);
+          static const char *nfc_txt[3] = {"Off", "Slow", "On"};
+          int m = id(nfc_sleep_mode);
+          if (m < 0 || m > 2) m = 1;
+          lv_label_set_text(id(lite_nfc_sleep_lbl), nfc_txt[m]);
+          // Off in amber: a tag no longer wakes the screen.
+          lv_obj_set_style_text_color(id(lite_nfc_sleep_lbl),
+              lv_color_hex(m == 0 ? 0xFFB74D : 0x4ECDC4), LV_PART_MAIN);
+          bool cl = id(clear_location_on_ams_load) != 0;
+          lv_label_set_text(id(lite_clearloc_lbl), cl ? "On" : "Off");
+          lv_obj_set_style_text_color(id(lite_clearloc_lbl),
+              lv_color_hex(cl ? 0x4ECDC4 : 0xB4B4D0), LV_PART_MAIN);
+          if (id(sleep_timeout_min) == 0) snprintf(buf, sizeof(buf), "Never");
+          else snprintf(buf, sizeof(buf), "%d min", id(sleep_timeout_min));
+          lv_label_set_text(id(lite_sleep_lbl), buf);
+          snprintf(buf, sizeof(buf), "%.0f g", id(cal_ref_weight));
+          lv_label_set_text(id(lite_cal_weight), buf);
+
+  # Inactivity -/+ in 5-minute steps, 0 = Never (full UI: Sleep Settings).
+  - id: lite_sleep_step
+    parameters:
+      delta: int
+    then:
+      - lambda: |-
+          int m = id(sleep_timeout_min) + delta;
+          if (m < 0) m = 0;
+          if (m > 60) m = 60;
+          id(sleep_timeout_min) = m;
+      - script.execute: lite_update_settings
+
+  - id: lite_brightness_step
+    parameters:
+      delta: int
+    then:
+      - lambda: |-
+          int b = id(backlight_brightness_pct) + delta;
+          if (b < 25) b = 25;
+          if (b > 100) b = 100;
+          id(backlight_brightness_pct) = b;
+          id(display_backlight).turn_on()
+            .set_brightness(b / 100.0f)
+            .set_transition_length(50).perform();
+      - script.execute: lite_update_settings
+
+  - id: lite_nfc_sleep_cycle
+    then:
+      - lambda: 'id(nfc_sleep_mode) = (id(nfc_sleep_mode) + 1) % 3;'
+      - script.execute: lite_update_settings
+
+  - id: lite_clearloc_toggle
+    then:
+      - lambda: |-
+          id(clear_location_on_ams_load) = id(clear_location_on_ams_load) ? 0 : 1;
+          bambuddy->set_clear_location_on_ams_load(id(clear_location_on_ams_load) != 0);
+      - script.execute: lite_update_settings
+
+  - id: lite_cal_open
+    then:
+      - script.execute: lite_update_settings
+      - lambda: 'lv_obj_clear_flag(id(lite_cal), LV_OBJ_FLAG_HIDDEN);'
+
+  # Reference weight steps, clamped to 1-5000 g (full UI: cal_modal).
+  - id: lite_cal_step
+    parameters:
+      delta: int
+    then:
+      - lambda: |-
+          float v = id(cal_ref_weight) + delta;
+          if (v < 1.0f) v = 1.0f;
+          if (v > 5000.0f) v = 5000.0f;
+          id(cal_ref_weight) = v;
+      - script.execute: lite_update_settings
+
+  - id: lite_refresh
+    then:
+      - lambda: |-
+          const bambuddy_api::DisplayState s = bambuddy->snapshot();
+          const uint32_t now = millis();
+          const int np  = (int) s.printers.size();
+          const int sel = s.selected_printer_idx;
+          const bool has_sel = np > 0 && sel >= 0 && sel < np;
+          id(printer_count) = np;
+
+          // The settings own the sleep timeout (as in app.yaml).
+          bambuddy->set_sleep_timeout(id(sleep_timeout_min) * 60);
+
+          // A new scan wakes the screen and starts from scratch: the lookup
+          // decides again whether the tag is a known spool, and a discarded
+          // tag can show again.
+          static uint32_t prev_scan_gen = 0;
+          if (s.nfc_scan_generation != prev_scan_gen) {
+            prev_scan_gen = s.nfc_scan_generation;
+            id(lite_known_uid) = "";
+            id(lite_dismissed_uid) = "";
+            lv_disp_trig_activity(NULL);
+          }
+
+          // ---- Build-plate-clear popup (full UI: app.yaml) ----
+          // Before the sleep block so a finished print wakes the screen.
+          if (s.awaiting_plate_clear
+              && !id(plate_clear_popup_open) && !id(plate_clear_dismissed)) {
+            id(plate_clear_popup_open) = 1;
+            lv_disp_trig_activity(NULL);
+            lv_obj_clear_flag(id(lite_plate), LV_OBJ_FLAG_HIDDEN);
+          } else if (!s.awaiting_plate_clear) {
+            if (id(plate_clear_popup_open)) {
+              id(plate_clear_popup_open) = 0;
+              lv_obj_add_flag(id(lite_plate), LV_OBJ_FLAG_HIDDEN);
+            }
+            id(plate_clear_dismissed) = 0;
+          }
+
+          // ---- Dim / sleep / wake (full UI: app.yaml) ----
+          // Dim at 60 s comes from lvgl on_idle. Any activity (touch, scan,
+          // weight change, prompt) restores the brightness.
+          {
+            uint32_t sleep_after = bambuddy->sleep_timeout_ms();
+            uint32_t inactive = lv_disp_get_inactive_time(NULL);
+            if (!id(lite_is_sleeping) && sleep_after > 0 && inactive >= sleep_after) {
+              id(lite_is_sleeping) = true;
+              bambuddy->set_low_power(true);
+              // NFC in sleep: 0 = Off (stop scanning), 1 = Slow, 2 = On.
+              if (id(nfc_sleep_mode) == 0)      bambuddy->set_nfc_scan_enabled(false);
+              else if (id(nfc_sleep_mode) == 1) bambuddy->set_nfc_low_power(true);
+              lv_obj_add_flag(id(lite_settings), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(lite_actions), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(lite_cal), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_clear_flag(id(lite_wake_guard), LV_OBJ_FLAG_HIDDEN);
+              id(display_backlight).turn_on().set_brightness(0.0f)
+                .set_transition_length(800).perform();
+            } else if (id(lite_is_sleeping) && (sleep_after == 0 || inactive < sleep_after)) {
+              id(lite_is_sleeping) = false;
+              bambuddy->set_low_power(false);
+              bambuddy->set_nfc_scan_enabled(true);
+              bambuddy->set_nfc_low_power(false);
+              lv_obj_add_flag(id(lite_wake_guard), LV_OBJ_FLAG_HIDDEN);
+              id(display_backlight).turn_on()
+                .set_brightness(id(backlight_brightness_pct) / 100.0f)
+                .set_transition_length(150).perform();
+            } else if (!id(lite_is_sleeping) && inactive < 60000
+                       && !lv_obj_has_flag(id(lite_wake_guard), LV_OBJ_FLAG_HIDDEN)) {
+              // Dimmed, and a scan / the scale / a prompt was activity.
+              lv_obj_add_flag(id(lite_wake_guard), LV_OBJ_FLAG_HIDDEN);
+              id(display_backlight).turn_on()
+                .set_brightness(id(backlight_brightness_pct) / 100.0f)
+                .set_transition_length(150).perform();
+            }
+            if (id(lite_is_sleeping)) return;  // screen is off: skip all redraws
+          }
+
+          // ---- Header: printer icon, clock / status (full UI header) ----
+          // Lite-specific: the clock alone, without the full header's printer
+          // name (the printer is on the settings tile; the icon shows whether
+          // it's connected).
+          lv_obj_set_style_text_color(id(lite_ic_printer),
+              lv_color_hex(s.printer_connected ? 0x4CAF50 : 0xF44336), LV_PART_MAIN);
+          {
+            static int prev_clock_min = -2;
+            static bool prev_clock_24h = true;
+            auto now_t = id(sntp_time).now();
+            int cur_min = now_t.is_valid() ? (now_t.hour * 60 + now_t.minute) : -1;
+            bool cur_24h = bambuddy->clock_24h();
+            if (cur_min != prev_clock_min || cur_24h != prev_clock_24h) {
+              prev_clock_min = cur_min;
+              prev_clock_24h = cur_24h;
+              char cb[12];
+              if (now_t.is_valid()) {
+                if (cur_24h) {
+                  snprintf(cb, sizeof(cb), "%02d:%02d", now_t.hour, now_t.minute);
+                } else {
+                  int h12 = now_t.hour % 12;
+                  if (h12 == 0) h12 = 12;
+                  snprintf(cb, sizeof(cb), "%d:%02d %s", h12, now_t.minute,
+                           now_t.hour < 12 ? "AM" : "PM");
+                }
+              } else {
+                snprintf(cb, sizeof(cb), "--:--");
+              }
+              lv_label_set_text(id(lite_clock), cb);
+            }
+          }
+          {
+            // Status messages take the clock's place for 6 s.
+            static std::string last_status;
+            static uint32_t status_since = 0;
+            if (s.status_message != last_status) {
+              last_status = s.status_message;
+              status_since = now;
+              lv_label_set_text(id(lite_status), s.status_message.c_str());
+            }
+            bool show_msg = !s.status_message.empty() && (now - status_since) <= 6000;
+            if (show_msg) {
+              lv_obj_clear_flag(id(lite_status), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(lite_clock), LV_OBJ_FLAG_HIDDEN);
+            } else {
+              lv_obj_add_flag(id(lite_status), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_clear_flag(id(lite_clock), LV_OBJ_FLAG_HIDDEN);
+            }
+          }
+
+          // ---- Archive proposal (full UI: rising edge of propose_archive) ----
+          {
+            static bool prev_propose_archive = false;
+            if (s.propose_archive && !prev_propose_archive) {
+              const auto &fi = s.current_filament;
+              std::string info = fi.material_type.empty() ? "Spool" : fi.material_type;
+              if (!fi.subtype.empty()) info += " " + fi.subtype;
+              if (!fi.brand.empty()) info += " \xC2\xB7 " + fi.brand;
+              lv_label_set_text(id(lite_archive_info), info.c_str());
+              lv_obj_clear_flag(id(lite_archive), LV_OBJ_FLAG_HIDDEN);
+            } else if (!s.propose_archive) {
+              lv_obj_add_flag(id(lite_archive), LV_OBJ_FLAG_HIDDEN);
+            }
+            prev_propose_archive = s.propose_archive;
+          }
+
+          // ---- Body: spool / unlinked tag / waiting (full UI: NFC tab) ----
+          if (s.spool_selected) id(lite_known_uid) = s.last_tag_uid;
+          const bool unlinked = !s.spool_selected
+              && s.nfc_state == bambuddy_api::NFCTagState::PRESENT
+              && !s.tag_resolving && !s.last_tag_uid.empty()
+              && s.last_tag_uid != id(lite_known_uid)
+              && s.last_tag_uid != id(lite_dismissed_uid);
+
+          if (s.spool_selected) {
+            const auto &fi = s.current_filament;
+            lv_obj_add_flag(id(lite_waiting), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(lite_unlinked), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(lite_spool), LV_OBJ_FLAG_HIDDEN);
+
+            // Title: brand + material + subtype, e.g. "Bambu Lab PLA Matte"
+            std::string title;
+            if (!fi.brand.empty()) title = fi.brand + " ";
+            title += fi.material_type.empty() ? "Spool" : fi.material_type;
+            if (!fi.subtype.empty()) title += " " + fi.subtype;
+            lv_label_set_text(id(lite_material), title.c_str());
+            lv_label_set_text(id(lite_colorname),
+                !fi.color_name.empty() ? fi.color_name.c_str() : fi.spool_name.c_str());
+
+            if (!fi.storage_location.empty()) {
+              lv_label_set_text(id(lite_location_text), fi.storage_location.c_str());
+              lv_obj_clear_flag(id(lite_location_badge), LV_OBJ_FLAG_HIDDEN);
+            } else {
+              lv_obj_add_flag(id(lite_location_badge), LV_OBJ_FLAG_HIDDEN);
+            }
+
+            // "Xg (Y%)" + progress bar coloured by remaining level
+            if (fi.label_weight_g > 0) {
+              float remaining = fi.label_weight_g - fi.weight_used_g;
+              float pct = (remaining / fi.label_weight_g) * 100.0f;
+              if (pct < 0.0f) pct = 0.0f;
+              if (pct > 100.0f) pct = 100.0f;
+              char wb[32];
+              snprintf(wb, sizeof(wb), "%.0fg (%.0f%%)", remaining, pct);
+              lv_label_set_text(id(lite_spool_weight), wb);
+              int track_w = lv_obj_get_width(id(lite_progress_track));
+              lv_obj_set_width(id(lite_progress_fill), (int)(pct / 100.0f * track_w));
+              lv_obj_set_style_bg_color(id(lite_progress_fill),
+                  lv_color_hex(bambuddy_api::remaining_bar_color((int)(pct + 0.5f))), LV_PART_MAIN);
+              lv_obj_clear_flag(id(lite_progress_track), LV_OBJ_FLAG_HIDDEN);
+            } else {
+              lv_label_set_text(id(lite_spool_weight), "");
+              lv_obj_add_flag(id(lite_progress_track), LV_OBJ_FLAG_HIDDEN);
+            }
+
+            char idbuf[24] = "";
+            if (fi.spool_id > 0) snprintf(idbuf, sizeof(idbuf), "#%d", fi.spool_id);
+            lv_label_set_text(id(lite_spoolid), idbuf);
+
+            uint32_t cv = fi.color_hex.empty() ? 0x444466
+                        : (uint32_t) strtoul(fi.color_hex.substr(0, 6).c_str(), nullptr, 16);
+            lv_obj_set_style_img_recolor(id(lite_spool_fill), lv_color_hex(cv), LV_PART_MAIN);
+
+            // Tag format icon (top-left)
+            lv_obj_add_flag(id(lite_icon_bambu), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(lite_icon_opentag3d), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(lite_icon_nfc), LV_OBJ_FLAG_HIDDEN);
+            if (fi.tag_format == "bambu_lab")        lv_obj_clear_flag(id(lite_icon_bambu), LV_OBJ_FLAG_HIDDEN);
+            else if (fi.tag_format == "open_tag_3d") lv_obj_clear_flag(id(lite_icon_opentag3d), LV_OBJ_FLAG_HIDDEN);
+            else if (fi.tag_format == "ndef")        lv_obj_clear_flag(id(lite_icon_nfc), LV_OBJ_FLAG_HIDDEN);
+
+            // TTL countdown (frozen while the Quick Weight popup is open)
+            if (id(lite_wp_open) == 0) {
+              int ttl_s = (s.spool_assign_expiry_ms > now)
+                          ? (int)((s.spool_assign_expiry_ms - now + 999) / 1000) : 0;
+              if (s.spool_assign_expiry_ms > 0 && ttl_s > 0) {
+                char ttlbuf[16];
+                snprintf(ttlbuf, sizeof(ttlbuf), "%ds", ttl_s);
+                lv_label_set_text(id(lite_ttl), ttlbuf);
+                lv_obj_clear_flag(id(lite_ttl), LV_OBJ_FLAG_HIDDEN);
+              } else {
+                lv_obj_add_flag(id(lite_ttl), LV_OBJ_FLAG_HIDDEN);
+              }
+            }
+
+          } else if (unlinked) {
+            const auto &tf = s.tag_filament;
+            lv_obj_add_flag(id(lite_waiting), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(lite_spool), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(lite_unlinked), LV_OBJ_FLAG_HIDDEN);
+
+            const std::string &fmt = s.current_filament.tag_format;
+            lv_label_set_text(id(lite_unlinked_title),
+                fmt == "bambu_lab"    ? "New Bambu Lab Tag discovered" :
+                fmt == "open_tag_3d"  ? "New OpenTag3D discovered" :
+                                        "New generic NFC Tag discovered");
+            std::string uid_txt = "UID " + s.last_tag_uid;
+            lv_label_set_text(id(lite_unlinked_uid), uid_txt.c_str());
+
+            uint32_t tint = 0x444466;
+            if (tf.valid) {
+              std::string info = !tf.detailed_type.empty() ? tf.detailed_type : tf.material;
+              if (fmt == "open_tag_3d" && !tf.brand.empty()) info = tf.brand + " " + info;
+              if (!tf.color_name.empty()) info += " \xC2\xB7 " + tf.color_name;
+              if (tf.spool_weight > 0) {
+                char wb[16]; snprintf(wb, sizeof(wb), " \xC2\xB7 %u g", (unsigned) tf.spool_weight);
+                info += wb;
+              }
+              lv_label_set_text(id(lite_unlinked_info), info.c_str());
+              lv_obj_set_style_text_color(id(lite_unlinked_info), lv_color_hex(0xDDDDEE), LV_PART_MAIN);
+              if (tf.color_hex.size() >= 6)
+                tint = (uint32_t) strtoul(tf.color_hex.substr(0, 6).c_str(), nullptr, 16);
+            } else {
+              lv_label_set_text(id(lite_unlinked_info), "No filament info on tag");
+              lv_obj_set_style_text_color(id(lite_unlinked_info), lv_color_hex(0xB0B2E0), LV_PART_MAIN);
+            }
+            lv_obj_set_style_img_recolor(id(lite_unlinked_fill), lv_color_hex(tint), LV_PART_MAIN);
+
+            // Sticky panel after the tag was removed: "Discards in Ns"
+            if (s.unlinked_tag_expiry_ms > now) {
+              char tb[24];
+              snprintf(tb, sizeof(tb), "Discards in %ds",
+                       (int)((s.unlinked_tag_expiry_ms - now + 999) / 1000));
+              lv_label_set_text(id(lite_unlinked_ttl), tb);
+            } else {
+              lv_label_set_text(id(lite_unlinked_ttl), "");
+            }
+
+          } else {
+            lv_obj_add_flag(id(lite_spool), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(lite_unlinked), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(lite_waiting), LV_OBJ_FLAG_HIDDEN);
+            const char *w = s.tag_resolving ? "Identifying tag..." : "Place spool tag\non reader";
+            if (strcmp(lv_label_get_text(id(lite_waiting_text)), w) != 0)
+              lv_label_set_text(id(lite_waiting_text), w);
+          }
+
+          // ---- Action area (full UI: action row / assign banner) ----
+          {
+            const auto &fi = s.current_filament;
+            bool banner = s.spool_selected && s.assign_success;
+            bool qw  = s.spool_selected && !banner && fi.spool_id > 0 && s.scale_ok;
+            bool add = !s.spool_selected && unlinked;
+            if (banner) {
+              std::string msg = std::string("Assigned: ") + s.assign_slot_desc;
+              lv_label_set_text(id(lite_assign_text), msg.c_str());
+            }
+            if (qw) {
+              // Live label (full UI: lbl_nfc_weight_btn)
+              if (s.weight_stable && s.weight_grams > 5.0f) {
+                char wshort[48];
+                float net = std::max(0.0f, s.weight_grams - fi.core_weight_g);
+                if (fi.core_weight_g > 0.0f)
+                  snprintf(wshort, sizeof(wshort), "Quick Weight\n%.0fg (%.0fg)", net, s.weight_grams);
+                else
+                  snprintf(wshort, sizeof(wshort), "Quick Weight\n%.0f g", s.weight_grams);
+                lv_label_set_text(id(lite_weight_btn_lbl), wshort);
+                lv_obj_set_style_text_color(id(lite_weight_btn_lbl), lv_color_hex(0x4CAF50), LV_PART_MAIN);
+              } else {
+                lv_label_set_text(id(lite_weight_btn_lbl), "Quick Weight");
+                lv_obj_set_style_text_color(id(lite_weight_btn_lbl), lv_color_hex(0x4ECDC4), LV_PART_MAIN);
+              }
+            }
+            auto show = [](lv_obj_t *o, bool v) {
+              if (v) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+            };
+            show(id(lite_assign_banner), banner);
+            show(id(lite_btn_weight), qw);
+            show(id(lite_btn_add), add);
+            show(id(lite_action), banner || qw || add);
+          }
+
+          // ---- Quick Weight popup live update (full UI: app.yaml) ----
+          if (id(lite_wp_open)) {
+            if (s.scale_ok) {
+              char wbuf[16];
+              snprintf(wbuf, sizeof(wbuf), "%.0f g", s.weight_grams);
+              lv_label_set_text(id(lite_wp_weight), wbuf);
+              lv_label_set_text(id(lite_wp_stable), s.weight_stable ? "Stable" : "");
+              lv_obj_set_style_text_color(id(lite_wp_stable),
+                  lv_color_hex(s.weight_stable ? 0x4CAF50 : 0xB0B2E0), LV_PART_MAIN);
+            } else {
+              lv_label_set_text(id(lite_wp_weight), "---");
+              lv_label_set_text(id(lite_wp_stable), "");
+            }
+          }
+
+          // ---- Settings (only while open) ----
+          if (!lv_obj_has_flag(id(lite_settings), LV_OBJ_FLAG_HIDDEN)) {
+            // Printer tile (full UI: qs_tile_printer; name and "n / N" on
+            // their own lines here, as one line doesn't fit the narrow tile)
+            if (has_sel) {
+              lv_label_set_text(id(lite_printer_name), s.printers[sel].name.c_str());
+              char nb[16] = "";
+              if (np > 1) snprintf(nb, sizeof(nb), "%d / %d", sel + 1, np);
+              lv_label_set_text(id(lite_printer_sub), nb);
+              lv_obj_set_style_text_color(id(lite_printer_icon),
+                  lv_color_hex(s.printer_connected ? 0x4CAF50 : 0xF44336), LV_PART_MAIN);
+            } else {
+              lv_label_set_text(id(lite_printer_name), "No printers");
+              lv_label_set_text(id(lite_printer_sub), "");
+              lv_obj_set_style_text_color(id(lite_printer_icon), lv_color_hex(0x9A9AC0), LV_PART_MAIN);
+            }
+            // Power tile (full UI: qs_tile_plug). Shown only for the printer's
+            // power plug: the full UI's plug list doesn't fit the Lite.
+            if (s.power_plug_id > 0) {
+              bool plug_on = false;
+              for (const auto &p : s.plugs)
+                if (p.id == s.power_plug_id) { plug_on = p.on; break; }
+              lv_label_set_text(id(lite_plug_sub), plug_on ? "On" : "Off");
+              lv_obj_set_style_text_color(id(lite_plug_icon),
+                  lv_color_hex(plug_on ? 0x4CAF50 : 0x9A9AC0), LV_PART_MAIN);
+              lv_obj_clear_flag(id(lite_tile_plug), LV_OBJ_FLAG_HIDDEN);
+            } else {
+              lv_obj_add_flag(id(lite_tile_plug), LV_OBJ_FLAG_HIDDEN);
+            }
+            // Connectivity icons (full UI: header ic_wifi / ic_api / ic_scale)
+            bool wifi_up = s.backend_state == bambuddy_api::BackendState::REGISTERED
+                        || s.backend_state == bambuddy_api::BackendState::CONNECTING;
+            lv_label_set_text(id(lite_ic_wifi), wifi_up ? "\U000F05A9" : "\U000F05AA");
+            lv_obj_set_style_text_color(id(lite_ic_wifi),
+                lv_color_hex(wifi_up ? 0x4CAF50 : 0xB0B2E0), LV_PART_MAIN);
+            bool api_ok = s.backend_state == bambuddy_api::BackendState::REGISTERED;
+            lv_label_set_text(id(lite_ic_api), api_ok ? "\U000F0160" : "\U000F0164");
+            lv_obj_set_style_text_color(id(lite_ic_api),
+                lv_color_hex(api_ok ? 0x4CAF50 : 0xF44336), LV_PART_MAIN);
+            lv_obj_set_style_text_color(id(lite_ic_scale),
+                lv_color_hex(s.scale_ok ? 0x4CAF50 : 0xB0B2E0), LV_PART_MAIN);
+          }
+
+interval:
+  - interval: 400ms
+    then:
+      - script.execute: lite_refresh

@@ -13,7 +13,7 @@ just [ESPHome](https://esphome.io) firmware flashed straight onto the
 boards.
 
 <p align="center">
-  <img src="docs/images/ui/pandatouch-ams.png" alt="ESPoolBuddy console showing the AMS tab: each AMS unit of the selected printer with its spools' colours, materials and spool IDs, remaining-filament bars, temperature and humidity" width="640"><br>
+  <img src="docs/images/ui/full/pandatouch-ams.png" alt="ESPoolBuddy console showing the AMS tab: each AMS unit of the selected printer with its spools' colours, materials and spool IDs, remaining-filament bars, temperature and humidity" width="640"><br>
   <sub>The console's AMS view: every loaded spool with its material, Bambuddy spool ID and remaining filament.
   <a href="#using-it-day-to-day">More screens below.</a></sub>
 </p>
@@ -75,17 +75,19 @@ firmware talks to over the network — you'll need a
 
 ## Pick your console
 
-| | [WT32-SC01 Plus](docs/console-wt32sc01.md) ⭐ recommended | [Panda Touch](docs/console-pandatouch.md) |
-|---|---|---|
-| Screen | 3.5″, 480×320 | 5″, 800×480 |
-| NFC built in | ✅ | ✅ via an external PN532 on I²C (or use the [Scale](docs/scale.md)) |
-| Speaker built in | ✅ | ❌ |
-| 3D-printed case | [Handheld case](https://makerworld.com/en/models/3043887-nfc-handheld-case-bambuddy-spoolease-and-more#profileId-3423196) or any SpoolEase console case | [PandaTouch NFC cover](https://makerworld.com/en/models/3356046-pandatouch-nfc-cover#profileId-3815048) — holds the PN532 beside the screen, magnetic dock still usable |
-| Why pick it | Full feature set, smaller footprint | Bigger screen, one self-contained board, less to wire |
+| | [WT32-SC01 Plus](docs/console-wt32sc01.md) ⭐ recommended | [Panda Touch](docs/console-pandatouch.md) | [Lite](docs/console-lite.md) |
+|---|---|---|---|
+| Screen | 3.5″, 480×320 | 5″, 800×480 | 1.47″, 172×320 (Waveshare ESP32-S3-Touch-LCD-1.47) |
+| NFC built in | ✅ | ✅ via an external PN532 on I²C (or use the [Scale](docs/scale.md)) | ✅ via an external PN532 on I²C |
+| Speaker built in | ✅ | ❌ | ❌ |
+| 3D-printed case | [Handheld case](https://makerworld.com/en/models/3043887-nfc-handheld-case-bambuddy-spoolease-and-more#profileId-3423196) or any SpoolEase console case | [PandaTouch NFC cover](https://makerworld.com/en/models/3356046-pandatouch-nfc-cover#profileId-3815048) — holds the PN532 beside the screen, magnetic dock still usable | — |
+| Why pick it | Full feature set, smaller footprint | Bigger screen, one self-contained board, less to wire | Tiny and cheap; scan, load and Quick Weight with almost no tapping. No on-device spool management |
 
-Both run the identical UI and firmware logic — only the hardware pinout
-differs. Whichever you pick, you can add a [Scale](docs/scale.md) later for
-automatic weighing — it brings its own NFC reader too.
+The WT32-SC01 Plus and Panda Touch run the identical tabbed UI — only the
+hardware pinout differs. The Lite runs a compact single-screen UI on top of
+the same firmware logic. Whichever you pick, you can add a
+[Scale](docs/scale.md) later for automatic weighing — it brings its own NFC
+reader too, and it can feed several consoles at once.
 
 ---
 
@@ -111,22 +113,30 @@ just works without you thinking about it.
 <table>
   <tr>
     <td align="center" width="50%">
-      <img src="docs/images/ui/ams-slot.png" alt="AMS slot detail popup: spool brand and material, colour, temperature range, AMS and slot, remaining weight and a Clear Assignment button" width="380"><br>
+      <img src="docs/images/ui/full/ams-slot.png" alt="AMS slot detail popup: spool brand and material, colour, temperature range, AMS and slot, remaining weight and a Clear Assignment button" width="380"><br>
       <sub><b>AMS slot</b> — tap a slot for its spool's details</sub>
     </td>
     <td align="center" width="50%">
-      <img src="docs/images/ui/nfc-spool.png" alt="NFC tab after scanning a tag: spool name, colour, remaining weight and actions" width="380"><br>
+      <img src="docs/images/ui/full/nfc-spool.png" alt="NFC tab after scanning a tag: spool name, colour, remaining weight and actions" width="380"><br>
       <sub><b>NFC</b> — scanned spool, ready to load into the AMS</sub>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <img src="docs/images/ui/nfc-unlinked.png" alt="NFC tab for a tag that isn't linked to any spool, with Add to Inventory and Assign Spool buttons" width="380"><br>
+      <img src="docs/images/ui/full/nfc-unlinked.png" alt="NFC tab for a tag that isn't linked to any spool, with Add to Inventory and Assign Spool buttons" width="380"><br>
       <sub><b>Unknown tag</b> — add it to the inventory or link an existing spool</sub>
     </td>
     <td align="center">
-      <img src="docs/images/ui/quick-settings.png" alt="Quick settings drawer with smart plug power and printer tiles" width="380"><br>
+      <img src="docs/images/ui/full/quick-settings.png" alt="Quick settings drawer with smart plug power and printer tiles" width="380"><br>
       <sub><b>Quick settings</b> — swipe down for power plug and printer</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2">
+      <img src="docs/images/ui/lite/nfc-spool.png" alt="Lite console: weight, scanned PLA Silk Gold spool with an 'Insert into AMS' countdown and a Quick Weight button" width="172">
+      <img src="docs/images/ui/lite/assigned.png" alt="Lite console: the spool confirmed as loaded into AMS-A, slot 4" width="172">
+      <img src="docs/images/ui/lite/settings.png" alt="Lite console settings: printer and power tiles, tare, calibrate, brightness, sleep" width="172"><br>
+      <sub><b><a href="docs/console-lite.md">Lite console</a></b> — the same scan, load and weigh loop on a 1.47″ screen</sub>
     </td>
   </tr>
 </table>

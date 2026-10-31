@@ -217,8 +217,12 @@ void BambuddyAPIComponent::loop() {
     ds.nfc_state = NFCTagState::ABSENT;
   }
   if (pending_assign_spool_id_ != 0 && (int32_t)(now - pending_assign_expiry_ms_) >= 0) {
+    // Same as the real component's TTL expiry (bambuddy_api.cpp maintenance block).
     pending_assign_spool_id_ = 0;
     ds.spool_assign_expiry_ms = 0;
+    ds.spool_selected = false;
+    ds.current_filament = FilamentInfo{};
+    ds.status_message = "Timed out — rescan to assign";
   }
   if (unlinked_tag_expiry_ms_ != 0 && (int32_t)(now - unlinked_tag_expiry_ms_) >= 0) {
     unlinked_tag_expiry_ms_ = 0;
@@ -324,13 +328,19 @@ void BambuddyAPIComponent::link_tag_to_spool(int spool_id) {
   ds.status_message = "Tag linked to spool #" + std::to_string(spool_id);
 }
 
+// Same end state as a successful unlink in the real api_link_tag(): back to
+// idle, with the pending auto-assignment dropped.
 void BambuddyAPIComponent::unlink_current_tag() {
   auto &ds = display_state_;
   tag_links().erase(ds.last_tag_uid);
   ds.spool_selected = false;
-  ds.current_filament.spool_id = 0;
-  ds.current_filament.material_type.clear();
+  ds.current_filament = FilamentInfo{};
   ds.status_message = "Tag unlinked";
+  ds.nfc_state = NFCTagState::ABSENT;
+  ds.spool_assign_expiry_ms = 0;
+  unlinked_tag_expiry_ms_ = 0;
+  ds.unlinked_tag_expiry_ms = 0;
+  pending_assign_spool_id_ = 0;
 }
 
 // Same as the real api_create_spool_from_tag(): a new spool is created from
@@ -388,12 +398,18 @@ void BambuddyAPIComponent::record_scale_weight(int spool_id, float total_grams) 
     fi.weight_used_g = fi.label_weight_g - remaining;
     display_state_.propose_archive = remaining <= 0;
   }
+  // As in the real record_scale_weight(): weighing restarts the auto-assign
+  // window of the spool waiting for the AMS.
+  if (pending_assign_spool_id_ > 0 && pending_assign_spool_id_ == spool_id) {
+    pending_assign_expiry_ms_ = millis() + ASSIGN_TTL_MS;
+    display_state_.spool_assign_expiry_ms = pending_assign_expiry_ms_;
+  }
   set_status("Weight saved");
 }
 
 void BambuddyAPIComponent::archive_spool(int spool_id) {
   display_state_.propose_archive = false;
-  set_status("Spool #" + std::to_string(spool_id) + " archived");
+  set_status("Spool archived");  // same message as the real component
 }
 
 // ---- Storage locations ----
@@ -450,6 +466,19 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid, const std::str
     for (auto &l : ds.storage_locations)
       if (l.id == loc_id) l.identifier = uid;
     ds.storage_locations_generation++;
+    return;
+  }
+
+  // A storage-location tag: assign the staged spool to it, as the real
+  // on_tag_scanned() does, without disturbing the staged spool.
+  for (const auto &l : ds.storage_locations) {
+    if (l.identifier.empty() || l.identifier != uid) continue;
+    if (ds.spool_selected && ds.current_filament.spool_id > 0) {
+      ds.current_filament.storage_location = l.name;
+      set_status("Assigned to " + l.name);
+    } else {
+      set_status("Location tag: " + l.name);
+    }
     return;
   }
 
@@ -526,6 +555,84 @@ void BambuddyAPIComponent::request_calibration(float reference_weight_g) {
   if (reference_weight_g <= 0) return;
   display_state_.weight_grams = reference_weight_g;
   set_status("Scale calibrated");
+}
+
+// ---- Simulator-only hooks ----
+// What api_get_ams()'s auto-assign block does on a device when the AMS reports
+// a newly loaded, unassigned tray while a spool is pending.
+void BambuddyAPIComponent::sim_ams_insert() {
+  auto &ds = display_state_;
+  const DemoSpool *s = find_demo_spool(pending_assign_spool_id_);
+  if (pending_assign_spool_id_ == 0 || s == nullptr) {
+    set_status("No spool waiting to be assigned");
+    return;
+  }
+  for (auto &u : ds.ams_units) {
+    if (u.is_vt) continue;  // the real auto-assign skips external bypass trays
+    for (auto &t : u.trays) {
+      if (t.present) continue;
+      t = demo_tray(t.slot, s);
+      char desc[32];
+      snprintf(desc, sizeof(desc), "AMS-%c \xC2\xB7 Slot %d", 'A' + (char) (u.id % 26), t.slot + 1);
+      pending_assign_spool_id_ = 0;
+      ds.spool_assign_expiry_ms = 0;
+      ds.assign_success = true;
+      ds.assign_slot_desc = desc;
+      assign_clear_ms_ = millis() + 4000;
+      ESP_LOGI(TAG, "Mock: spool %d loaded into %s", s->id, desc);
+      return;
+    }
+  }
+  set_status("No empty AMS slot");
+}
+
+void BambuddyAPIComponent::sim_assign_timeout() {
+  if (pending_assign_spool_id_ == 0) return;
+  pending_assign_expiry_ms_ = millis();
+  display_state_.spool_assign_expiry_ms = pending_assign_expiry_ms_;
+}
+
+void BambuddyAPIComponent::sim_plate_clear() { display_state_.awaiting_plate_clear = true; }
+
+// What api_get_ams() does when a known spool disappears from its slot: the
+// spool is staged like a fresh scan (card, auto-assign window, scan
+// generation) and a "removed" note is shown for 5 s.
+void BambuddyAPIComponent::sim_ams_remove() {
+  auto &ds = display_state_;
+  for (auto &u : ds.ams_units) {
+    if (u.is_vt) continue;
+    for (auto &t : u.trays) {
+      if (!t.present || t.spool_id == 0) continue;
+      const DemoSpool *s = find_demo_spool(t.spool_id);
+      if (s == nullptr) continue;
+      t = demo_tray(t.slot, nullptr);
+      FilamentInfo fi = filament_from_spool(*s);
+      ds.current_filament = fi;
+      ds.spool_selected = true;
+      ds.nfc_state = NFCTagState::PRESENT;
+      ds.last_tag_uid = "ams:" + std::to_string(s->id);
+      ds.assign_success = false;
+      ds.assign_slot_desc.clear();
+      ds.propose_archive = false;
+      pending_assign_spool_id_ = s->id;
+      pending_assign_expiry_ms_ = millis() + ASSIGN_TTL_MS;
+      ds.spool_assign_expiry_ms = pending_assign_expiry_ms_;
+      assign_clear_ms_ = 0;
+      ds.nfc_scan_generation++;
+      ds.ams_removed_spool_desc = std::string(s->material) + " " + s->subtype + " #" +
+                                  std::to_string(s->id) + " removed - ready for weighing";
+      ds.ams_removed_toast_expiry_ms = millis() + 5000;
+      ESP_LOGI(TAG, "Mock: spool %d removed from %s slot %d", s->id, u.name.c_str(), t.slot + 1);
+      return;
+    }
+  }
+  set_status("No assigned spool in the AMS");
+}
+
+void BambuddyAPIComponent::sim_scale_offline() {
+  display_state_.scale_ok = false;
+  display_state_.weight_stable = false;
+  display_state_.weight_grams = 0.0f;
 }
 
 }  // namespace bambuddy_api
