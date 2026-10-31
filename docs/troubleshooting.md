@@ -2,7 +2,7 @@
 
 # Troubleshooting
 
-- **Scale never turns green (console unreachable)**: confirm `console_url`
+- **Scale never turns green (a console unreachable)**: confirm `console_url`
   in `espoolbuddy_scale.yaml` matches the console's `esphome.name`, and that
   your router/network allows mDNS (`.local`) resolution between the two
   devices. As a fallback, replace the hostname with the console's static

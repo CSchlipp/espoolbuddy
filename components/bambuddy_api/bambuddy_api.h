@@ -128,6 +128,15 @@ static constexpr uint32_t SCALE_HEARTBEAT_FAST_MS = 200;
 // How long (ms) after the last scale push the console still reports the scale
 // as connected (scale_ok).
 static constexpr uint32_t SCALE_LIVE_TIMEOUT_MS = 10000;
+// Scale push: after CONSOLE_BACKOFF_AFTER consecutive failures a console is
+// skipped for CONSOLE_BACKOFF_MIN_MS, doubling per further failure up to
+// CONSOLE_BACKOFF_MAX_MS. A single failure (a dropped packet) is not skipped,
+// so a console that is online doesn't miss pushes over one hiccup.
+static constexpr uint8_t  CONSOLE_BACKOFF_AFTER = 2;
+static constexpr uint32_t CONSOLE_BACKOFF_MIN_MS = 5000;
+static constexpr uint32_t CONSOLE_BACKOFF_MAX_MS = 60000;
+// Scale push: most NFC/write-result events queued per console (oldest dropped).
+static constexpr size_t   CONSOLE_EVENT_QUEUE_MAX = 16;
 
 // How often the console re-checks which inventory Bambuddy uses (ms), in case
 // it is switched in Bambuddy's settings. Each check makes Bambuddy ping Spoolman,
@@ -475,7 +484,7 @@ class BambuddyAPIComponent : public Component {
   // automatically when building push request URLs and starting the receive server.
   // Called once per configured console_url entry; the first call's console
   // drives connectivity, but every console's commands are still honored
-  // (see push_to_consoles()).
+  // (see post_to_consoles()).
   void add_console_url(const std::string &url) { console_urls_.push_back(url); }
 
   // ---- Optional hardware this device may not have ----
@@ -686,12 +695,17 @@ class BambuddyAPIComponent : public Component {
   void clear_pending_write() { pending_write_active_ = false; }
 
   // ---- Scale server status (scale_mode_ only) ----
-  // True when the last push from this scale to the console succeeded within
-  // timeout_ms. Drives the scale's status LED (green = connected, blue =
-  // console absent). Safe to call from any task (uint32_t read is atomic).
-  bool is_console_connected(uint32_t timeout_ms = 5000) const {
-    return last_push_ok_ms_ > 0 &&
-           (millis() - last_push_ok_ms_) < timeout_ms;
+  // Number of consoles a push from this scale succeeded to within timeout_ms,
+  // out of console_count(). Drives the scale's status LED (green = all,
+  // blue = some, red = none). Safe to call from any task: console_workers_
+  // is only resized in setup(), and the uint32_t reads are atomic.
+  size_t console_count() const { return console_workers_.size(); }
+  size_t consoles_connected(uint32_t timeout_ms = 5000) const {
+    uint32_t now = millis();
+    size_t n = 0;
+    for (const auto &w : console_workers_)
+      if (w->last_ok_ms > 0 && (now - w->last_ok_ms) < timeout_ms) n++;
+    return n;
   }
 
   // Thread-safe copy of the display state for the LVGL render lambda.
@@ -833,6 +847,7 @@ class BambuddyAPIComponent : public Component {
   };
 
   static void http_task_trampoline(void *arg);
+  static void console_worker_trampoline(void *arg);
   void http_task_loop();
   void enqueue_job(const HttpJob &job);
   bool dequeue_job(HttpJob &job);
@@ -937,18 +952,21 @@ class BambuddyAPIComponent : public Component {
   void api_scale_push_nfc_removed(const std::string &uid);
   void api_scale_push_write_result(int spool_id, const std::string &uid,
                                     bool success, const std::string &msg);
-  // POSTs `body` to `path` on every configured console. The first (primary)
-  // console's success/response is returned via `primary_resp` — it alone
-  // drives the connectivity LED (is_console_connected()) and the
-  // first-heartbeat force-push. If `all_resps` is non-null, every console's
-  // response is also appended to it (successful ones only) so callers that
-  // care about commands — e.g. api_scale_push_heartbeat() — can honor a
-  // pending tare/calibrate/write_tag from ANY reachable console, not just
-  // the primary: a human can tap Tare on any console, and that single press
-  // is never ambiguous, so there's no duplication risk in acting on it.
-  bool push_to_consoles(const std::string &path, const std::string &body,
-                         std::string &primary_resp,
-                         std::vector<std::string> *all_resps = nullptr);
+  // Queues `body` for every configured console and returns at once; each
+  // console has its own ConsoleWorker task that sends it, so consoles never
+  // wait for each other and the push task never waits for any of them.
+  // WEIGHT and HEARTBEAT are coalesced per console (only the newest is
+  // sent); EVENT messages (NFC scanned/removed, write result) are queued in
+  // order. A tare/calibrate/write_tag command in ANY console's heartbeat
+  // response is handed back via console_cmd_resp_ and run by the push task
+  // (handle_scale_command()) — a human can tap Tare on any console, and that
+  // single press is never ambiguous.
+  enum class ConsolePush { EVENT, WEIGHT, HEARTBEAT };
+  struct ConsoleWorker;
+  void post_to_consoles(ConsolePush kind, const char *path, const std::string &body);
+  void drain_console(ConsoleWorker *w);
+  void note_console_result(ConsoleWorker *w, bool ok);
+  void handle_scale_command(const std::string &resp);
   // Fetch inventory assignments for the given printer and populate spool_id
   // fields in display_state_.ams_units.  Called from api_get_ams() only when
   // the AMS content changed, so it does not fire every poll cycle.
@@ -1191,15 +1209,43 @@ class BambuddyAPIComponent : public Component {
   // Scale server / push mode
   bool scale_mode_{false};
   // Base URLs of the console(s), no port (scale push mode only). The first
-  // entry drives connectivity (last_push_ok_ms_) and the LED; commands
+  // entry drives the initial weight push (last_push_ok_ms_); every entry
+  // counts towards the LED (consoles_connected()); commands
   // (tare/calibrate/write_tag) are honored from any console's response —
-  // see push_to_consoles() in bambuddy_api.cpp.
+  // see post_to_consoles() in bambuddy_api.cpp.
   std::vector<std::string> console_urls_;
+  // One sender per console, parallel to console_urls_ (scale push mode).
+  // The mailbox (events/weight/hb) is guarded by `lock`; everything else is
+  // only touched by drain_console(), which runs on the worker's own task
+  // (or on the push task if the worker couldn't be created).
+  struct ConsoleMsg {
+    std::string path, body;
+  };
+  struct ConsoleWorker {
+    BambuddyAPIComponent *self{nullptr};
+    size_t idx{0};
+    std::string base;                  // console URL + ":8080"
+    TaskHandle_t task{nullptr};
+    StaticTask_t tcb{};
+    SemaphoreHandle_t lock{nullptr};
+    std::deque<ConsoleMsg> events;     // NFC / write-result, sent in order
+    std::string weight_body;           // newest weight, if weight_pending
+    bool weight_pending{false};
+    std::string hb_body;               // newest heartbeat, if hb_pending
+    bool hb_pending{false};
+    uint8_t fails{0};                  // consecutive failed sends
+    uint32_t retry_at_ms{0};           // skipped (backoff) until millis() reaches this
+    volatile uint32_t last_ok_ms{0};   // last successful send (read by consoles_connected())
+  };
+  std::vector<std::unique_ptr<ConsoleWorker>> console_workers_;
+  // First command-carrying heartbeat response from any console, waiting for
+  // the push task (guarded by job_mutex_; empty = none).
+  std::string console_cmd_resp_;
   httpd_handle_t scale_server_handle_{nullptr};
   httpd_handle_t console_server_handle_{nullptr};
   // Scale push mode: millis() of the last successful push to the console.
-  // Written by api_scale_push_heartbeat() and the NFC push helpers; read by
-  // is_console_connected() for the status LED.  Atomic uint32 read — no lock.
+  // Written by the primary console's sender (drain_console()); only used to
+  // force the initial weight push.  Atomic uint32 read — no lock.
   volatile uint32_t last_push_ok_ms_{0};
   uint32_t last_heartbeat_push_ms_{0};  // when the last heartbeat was sent (push task only)
 
@@ -1284,8 +1330,8 @@ class BambuddyAPIComponent : public Component {
   // reading that hasn't been pushed to the console(s) yet. Set (idempotent,
   // just a flag write) by on_scale_reading() and the force-push call sites
   // below on core-0/1; cleared by the scale push task right before it reads
-  // display_state_ to build the outgoing push. Pushing multiple consoles is
-  // sequential and can block for seconds (see push_to_consoles()), so a
+  // display_state_ to build the outgoing push. A console can take
+  // seconds to answer (see post_to_consoles()), so a
   // "snapshot one job at enqueue time, drop if one's already pending" design
   // was silently losing readings — including stable transitions — that
   // arrived during that window. Reading display_state_ fresh at send time
