@@ -85,7 +85,7 @@ Both cover the core workflow:
   while the console lives next to the printer. You can run a console with no
   scale at all, or feed [one scale into several consoles](scale.md#point-it-at-the-console).
   If you'd rather have one box, a console can also read a
-  [load cell wired to it](console-builtin-scale.md) (untested).
+  [load cell wired to it](console-builtin-scale.md).
 - **Fits into ESPHome / Home Assistant.** If you already run ESPHome, the
   devices show up in your existing dashboard and get OTA updates like
   everything else.

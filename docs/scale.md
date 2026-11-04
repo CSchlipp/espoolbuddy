@@ -8,7 +8,7 @@ Firmware: [`espoolbuddy_scale.yaml`](../espoolbuddy_scale.yaml).
 
 Works with either console build. It's what the console uses by default
 (`scale: type: remote`). A console can instead read a
-[load cell wired to itself](console-builtin-scale.md) (optional, untested).
+[load cell wired to itself](console-builtin-scale.md) (optional).
 
 Just want a scale in Home Assistant, without a console? Then you don't need
 `bambuddy_api` at all: delete its block and the `bambuddy_nfc` block, and the

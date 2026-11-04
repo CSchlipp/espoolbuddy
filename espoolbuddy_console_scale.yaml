@@ -1,0 +1,436 @@
+################################################################################
+# SpoolBuddy Console — all-in-one on SpoolmanScale hardware
+#
+# Same board as espoolbuddy_console.yaml, wired like a SpoolmanScale
+# (https://github.com/Niko11111/SpoolmanScale): one box with the screen, NFC
+# reader and load cell, and no separate scale device. Only the NFC transport
+# and the local load cell differ from the SPI console. See
+# docs/console-builtin-scale.md.
+#
+# Hardware:
+#   Board:    WT32-SC01 Plus (ESP32-S3, 16 MB flash)
+#   Display:  ST7796S 480×320, 8080 parallel via LCD_CAM
+#             WR=GPIO47, D0-D7=GPIO9/46/3/8/18/17/16/15
+#   Touch:    FT6336U (FT5x06-compat) I2C SDA=GPIO6 SCL=GPIO5 INT=GPIO7
+#   Backlight:GPIO45
+#   I/O connector I2C bus (SDA=GPIO10 SCL=GPIO11), shared by:
+#     NFC:    PN532 in I2C mode, address 0x24. IRQ not wired, so it polls.
+#     Scale:  NAU7802 24-bit ADC + load cell, address 0x2A.
+#   GPIO14:   PN532 RSTPDN, for a hardware reset of the reader.
+################################################################################
+
+substitutions:
+  # Branch/tag/commit fetched for the components + espoolbuddy packages
+  # below. Pin to a release tag instead of tracking main if you want
+  # reproducible builds.
+  espoolbuddy_ref: main
+  # Screen geometry consumed by espoolbuddy/lvgl.yaml's root page and
+  # lvgl: rotation — everything below the root sizes itself relative to its
+  # parent (flex/grid/pct), so these are the only resolution-specific values
+  # that need to change per console variant.
+  screen_width: "480"
+  screen_height: "320"
+  screen_rotation: "90"
+
+esphome:
+  name: espoolbuddy-console-scale
+  friendly_name: ESPoolBuddy Console Scale
+  project:
+    name: espoolbuddy.console_scale
+  on_boot:
+    # Until the first sound, nothing configures the I2S clock pins, and they
+    # stay on their reset pin function. With BCLK left like that, the amplifier
+    # makes noise. Same state ESPHome parks the data pin in; I2S takes them over.
+    - priority: 800
+      then:
+        - lambda: |-
+            for (gpio_num_t pin : {GPIO_NUM_35, GPIO_NUM_36}) {
+              gpio_reset_pin(pin);
+              gpio_pullup_dis(pin);
+              gpio_set_direction(pin, GPIO_MODE_OUTPUT);
+              gpio_set_level(pin, 0);
+            }
+    - priority: 600
+      then:
+        - logger.log: "SpoolBuddy booting..."
+        - lambda: bambuddy->configure_pm(false);  # lock min 80 MHz (APB stable) before display starts
+    # Apply initial tab state after NVS is up (restores printer selection + tab visibility)
+    - priority: -100
+      then:
+        - script.execute: apply_tab
+    # ESPHome's nau7802 driver doesn't run the chip's internal offset
+    # calibration itself. Wait out its 600 ms power-up in setup() first. The
+    # sensor below publishes nothing until this has finished, so nothing acts
+    # on a reading from before the baseline moved.
+    - priority: -100
+      then:
+        - delay: 2s
+        - nau7802.calibrate_internal_offset: spool_weight
+        - delay: 1s
+        - globals.set:
+            id: nau_offset_calibrated
+            value: "true"
+
+globals:
+  - id: nau_offset_calibrated
+    type: bool
+    initial_value: "false"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  variant: ESP32S3
+  framework:
+    type: esp-idf
+    version: recommended
+    sdkconfig_options:
+      # Run the CPU at the full 240 MHz for smooth LVGL rendering and fast HTTP/JSON.
+      CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240: "y"
+      # Larger 64 KB data cache with 64-byte lines — improves PSRAM throughput,
+      # which matters because the LVGL frame buffer lives in PSRAM.
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      # Extend the task watchdog — HTTP calls can stack up to ~9 s per loop cycle.
+      CONFIG_ESP_TASK_WDT_TIMEOUT_S: "30"
+      # ESP-IDF 5.x enables TLS 1.3 by default. Uncomment to fall back to TLS 1.2
+      #CONFIG_MBEDTLS_SSL_PROTO_TLS1_3: "n"
+      # Power management: CPU frequency scaling + automatic light sleep between
+      # FreeRTOS ticks (configure_pm() switches the profile on sleep/wake).
+      CONFIG_PM_ENABLE: "y"
+      # Required for light sleep — lets the idle task skip ticks while asleep.
+      CONFIG_FREERTOS_USE_TICKLESS_IDLE: "1"
+      # -O2 instead of -Os: faster LVGL rendering and JSON parsing at the cost
+      # of a larger binary (plenty of room in 16 MB flash).
+      CONFIG_COMPILER_OPTIMIZATION_PERF: "y"
+    advanced:
+      # ESPHome's own "loopTask" (esp32/core.cpp) runs setup()/App.loop() —
+      # including lv_timer_handler() and every interval lambda — on a
+      # statically-sized stack independent of ESP-IDF's main-task stack
+      # (CONFIG_ESP_MAIN_TASK_STACK_SIZE does NOT apply to it, confirmed via a
+      # real "stack overflow in task loopTask" crash). Default is 8192 B. The
+      # flex/grid UI conversion added several more nested layout: containers
+      # (AMS row -> slot -> icon stack, NFC action row, header sub-rows,
+      # settings rows), deepening LVGL's recursive layout/style recalculation
+      # on every lv_timer_handler() call enough to overflow the default.
+      loop_task_stack_size: 16384
+
+psram:
+  mode: quad
+  speed: 80MHz
+
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/CSchlipp/espoolbuddy.git
+      ref: ${espoolbuddy_ref}
+      path: components
+    components: [bambuddy_api, bambuddy_nfc]
+    refresh: always
+
+packages:
+  espoolbuddy:
+    url: https://github.com/CSchlipp/espoolbuddy.git
+    ref: ${espoolbuddy_ref}
+    path: espoolbuddy
+    files: [version.yaml, app.yaml, assets.yaml, lvgl.yaml]
+    refresh: always
+
+logger:
+  # Global level must be DEBUG so the Bambuddy components can emit DEBUG (a
+  # per-tag level may only be RAISED above the global level, never lowered).
+  # The noisy framework tags are raised back to INFO to keep the log readable
+  # while still tracing all Bambuddy HTTP requests/responses and NFC detail.
+  # Change to DEBUG if required
+  level: INFO
+  baud_rate: 115200
+  logs:
+    scheduler: INFO
+    component: INFO
+    sensor: INFO
+    light: INFO
+    lvgl: INFO
+    touchscreen: INFO
+    wifi: INFO
+    api: INFO
+    ota: INFO
+    mdns: INFO
+    # ESP-IDF TLS/HTTP internals: expected errors when backend is temporarily
+    # unreachable (select timeout, connection refused). Raising to WARN keeps
+    # the log clean without hiding our own bambuddy_* DEBUG traces.
+    esp-tls: WARN
+    transport_base: WARN
+    HTTP_CLIENT: WARN
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # AWAKE WiFi power-save mode. Sleep mode dynamically bumps this to MAX_MODEM
+  # (most aggressive) while idle and restores this value on wake (see
+  # set_low_power). `light` keeps decent awake battery + responsiveness; set
+  # `none` for snappiest awake (scale pushes / API) at higher awake current.
+  # (The old sleep crashes were an unfed task watchdog, since fixed — not WiFi.)
+  power_save_mode: light
+  # Fallback hotspot: if the configured SSID can't be joined, the console comes
+  # up as its own AP so captive_portal below can serve the WiFi setup page —
+  # without this the portal is compiled in but unreachable.
+  ap:
+    ssid: "ESPoolBuddy Console Scale"
+    password: !secret ap_fallback_password
+  on_connect:
+    - logger.log: "WiFi connected"
+  on_disconnect:
+    - logger.log: "WiFi disconnected"
+
+captive_portal:
+
+ota:
+  - platform: esphome
+    # No password: a bare encryption block inherits the api encryption key
+    # below, which both authenticates the uploader and encrypts the upload.
+    # Cheaper than the password handshake (~3.5 KB flash, 60 B RAM).
+    encryption:
+
+# reboot_timeout: 0s — device runs standalone; we must not reboot just because
+# Home Assistant isn't reachable.
+api:
+  encryption:
+    key: !secret api_encryption_key
+  reboot_timeout: 0s
+
+# ============================================================================
+# Time — SNTP (NTP) clock shown in the header. Non-Home-Assistant source; kept
+# on the ESP32-S3 internal RTC between syncs (not battery-backed, so the header
+# shows --:-- until the first sync after boot). Default servers: pool.ntp.org.
+# The timezone is detected from the build host — see below.
+# ============================================================================
+time:
+  - platform: sntp
+    id: sntp_time
+    # timezone is deliberately omitted: ESPHome bakes in the zone of the machine
+    # running the compile (tzlocal, e.g. /etc/localtime). Set it explicitly here
+    # — timezone: Europe/Berlin — when the build host is in a different zone
+    # than the console, or when building somewhere with no host zone to detect
+    # (a bare container will silently give you UTC).
+
+
+# ============================================================================
+# I2C buses
+# ============================================================================
+i2c:
+  # FT6336U touch controller (onboard)
+  - id: i2c_bus
+    sda: GPIO6
+    scl: GPIO5
+    frequency: 400000
+
+  # I/O connector: PN532 NFC + NAU7802 scale ADC
+  - id: ext_i2c
+    sda: GPIO10
+    scl: GPIO11
+    frequency: 100kHz   # safe over the external cable, and what SpoolmanScale uses
+    timeout: 10ms       # PN532 stretches SCL while preparing a response
+
+# ============================================================================
+# SPI bus
+# ============================================================================
+spi:
+  # ST7796S display — 8-bit 8080 parallel via LCD_CAM (octal SPI)
+  - id: octal_spi
+    type: octal
+    clk_pin: GPIO47           # WR strobe
+    data_pins:
+      - GPIO9
+      - number: GPIO46
+        ignore_strapping_warning: true
+      - number: GPIO3
+        ignore_strapping_warning: true
+      - GPIO8
+      - GPIO18
+      - GPIO17
+      - GPIO16
+      - GPIO15
+
+
+# ============================================================================
+# BambuddyNFC — PN532 via I2C (shares ext_i2c with the NAU7802)
+# ============================================================================
+bambuddy_nfc:
+  id: nfc_reader
+  api_id: bambuddy     # id of the bambuddy_api: component above (required link)
+  interface: i2c
+  i2c_id: ext_i2c
+  # address: 0x24      # PN532 default
+  # No irq_pin: IRQ isn't wired, so ready-detection polls the status byte.
+  # A stuck PN532 can hold the shared bus and take the scale down with it.
+  reset_pin:
+    number: GPIO14
+    mode:
+      output: true
+      open_drain: true
+  poll_interval: 300   # ms between detect cycles (no IRQ, so this is always used)
+  miss_threshold: 3    # consecutive no-tag responses before declaring tag removed
+
+
+# ============================================================================
+# Sensors
+# ============================================================================
+sensor:
+  # Load cell. Publishes raw ADC counts: bambuddy_api applies tare and
+  # calibration itself, and stays in counts because Bambuddy stores the tare as
+  # an integer. About 1,160 counts/g measured on a 2 kg cell at these settings.
+  - platform: nau7802
+    id: spool_weight
+    name: "Load Cell Raw"
+    i2c_id: ext_i2c
+    gain: 128
+    ldo_voltage: "3.0V"
+    samples_per_second: 10
+    # Slower than the 100 ms conversion time, or update() logs
+    # "No measurements ready!" whenever it polls ahead of the ADC.
+    update_interval: 200ms
+    filters:
+      - lambda: |-
+          if (!id(nau_offset_calibrated)) return {};
+          return x;
+      # Also rejects a lone bad sample: the driver ignores I2C read errors.
+      - median:
+          window_size: 5
+          send_every: 1
+      - sliding_window_moving_average:
+          window_size: 8
+          send_every: 1
+      # If readings fall under load, swap A+/A- or add `multiply: -1` here.
+      # Tare and calibrate use the last value that passed this filter, so it
+      # stays small: about 0.09 g, just above the settled noise.
+      - delta: 100
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    id: wifi_signal_sensor
+    update_interval: 300s
+
+  - platform: uptime
+    name: "Uptime"
+    id: uptime_sensor
+    update_interval: 300s
+
+# ============================================================================
+# Buttons
+# ============================================================================
+button:
+  - platform: template
+    name: "Tare Scale"
+    id: tare_button
+    on_press:
+      then:
+        - lambda: bambuddy->request_tare();
+
+  - platform: restart
+    name: "Restart"
+    id: restart_button
+
+# ============================================================================
+# Backlight
+# ============================================================================
+output:
+  - platform: ledc
+    pin:
+      number: GPIO45
+      # GPIO45 is the VDD_SPI voltage strapping pin, but on the WT32-SC01-PLUS
+      # it is hardwired to the backlight driver and only read at reset — LEDC
+      # drives it long after that, so the strapping warning does not apply.
+      ignore_strapping_warning: true
+    id: backlight_pwm
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    name: "Display Backlight"
+    id: display_backlight
+    restore_mode: ALWAYS_ON
+    default_transition_length: 0ms
+
+# ============================================================================
+# Display — ST7796S 480×320 via WT32-SC01-PLUS model
+# ============================================================================
+display:
+  - platform: mipi_spi
+    model: WT32-SC01-PLUS
+    id: main_display
+    spi_id: octal_spi
+    data_rate: 40MHz
+    reset_pin: GPIO4
+    auto_clear_enabled: false
+    update_interval: never
+
+# ============================================================================
+# Touch — FT6336U (FT5x06-compatible)
+# ============================================================================
+touchscreen:
+  - platform: ft5x06
+    id: touch_screen
+    i2c_id: i2c_bus
+    address: 0x38
+    interrupt_pin: GPIO7
+    update_interval: 16ms
+    on_touch:
+      - lambda: |-
+          id(display_backlight).turn_on()
+            .set_brightness(id(backlight_brightness_pct) / 100.0f)
+            .set_transition_length(0).perform();
+
+
+# ============================================================================
+# Audio — onboard I2S class-D amplifier ("speaker out")
+#   LRCLK/WS = GPIO35   BCLK = GPIO36   DOUT/DIN = GPIO37
+#   (these three are free only because we run the PSRAM in quad mode)
+# Short RTTTL chimes are fired from the UI interval lambda in
+# espoolbuddy/app.yaml: one when a tag is scanned (console PN532 *or*
+# a scale-pushed scan), and one when the scale settles on a real load.
+# ============================================================================
+i2s_audio:
+  - id: i2s_audio_bus
+    i2s_lrclk_pin: GPIO35
+    i2s_bclk_pin: GPIO36
+
+speaker:
+  - platform: i2s_audio
+    id: chime_speaker
+    i2s_audio_id: i2s_audio_bus
+    dac_type: external
+    i2s_dout_pin: GPIO37
+    channel: mono
+
+rtttl:
+  id: rtttl_player
+  speaker: chime_speaker
+  gain: 70%
+  on_finished_playback:
+    then:
+      - speaker.stop:
+          id: chime_speaker
+
+
+# ============================================================================
+# BambuddyAPI — backend connection
+# ============================================================================
+bambuddy_api:
+  id: bambuddy
+  backend_url: !secret bambuddy_backend_url   # Bambuddy server base URL, e.g. http://192.168.1.50:5000
+  api_key: !secret bambuddy_api_key           # from Bambuddy → Settings → Devices → this device's API key
+  hostname: "SpoolBuddy-Console-Scale"              # display name for this device in Bambuddy's device list (not the network/mDNS hostname)
+  backlight_id: display_backlight             # id of the `light:` below — dimmed/turned off by the sleep state machine
+  scale:
+    type: local                 # weight from the NAU7802 above; tare/cal kept in NVS
+    sensor: spool_weight
+    stable_band: 500            # counts, about 0.43 g
+    # The default 750ms can count a pause mid-placement as settled, at a partial load.
+    stable_after: 2s            # reading counts as settled after this long without a move
+    # timeout: 5s               # no reading for this long → "No scale connected"
+  speaker_id: rtttl_player       # optional — omit for no speaker (no-ops + hides Settings UI)
+  heartbeat_interval: 10        # seconds — tag scan triggers an extra immediate heartbeat
+  # heartbeat_fail_threshold: 3   # consecutive failed heartbeats before cloud/WiFi icons go red (default: 3)
+  printer_poll_interval: 15     # seconds between AMS/printer status polls to Bambuddy
+  sleep_factor: 12               # heartbeat/poll multiplier while asleep (×12: 10s→120s, 15s→180s); sleep_timeout set at runtime in app.yaml
