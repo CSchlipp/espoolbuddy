@@ -30,6 +30,18 @@ esphome:
   project:
     name: espoolbuddy.console
   on_boot:
+    # Until the first sound, nothing configures the I2S clock pins, and they
+    # stay on their reset pin function. With BCLK left like that, the amplifier
+    # makes noise. Same state ESPHome parks the data pin in; I2S takes them over.
+    - priority: 800
+      then:
+        - lambda: |-
+            for (gpio_num_t pin : {GPIO_NUM_35, GPIO_NUM_36}) {
+              gpio_reset_pin(pin);
+              gpio_pullup_dis(pin);
+              gpio_set_direction(pin, GPIO_MODE_OUTPUT);
+              gpio_set_level(pin, 0);
+            }
     - priority: 600
       then:
         - logger.log: "SpoolBuddy booting..."
