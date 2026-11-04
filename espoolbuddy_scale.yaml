@@ -153,8 +153,8 @@ button:
   - platform: template
     name: "Tare Scale"
     id: tare_button
-    # local_tare() reads the current ADC reading as the new zero-point and saves
-    # it to NVS immediately.  No network call needed.
+    # local_tare() waits for a settled ADC reading, uses it as the new zero-point
+    # and saves it to NVS.  No network call needed.
     on_press:
       then:
         - lambda: bambuddy->local_tare();

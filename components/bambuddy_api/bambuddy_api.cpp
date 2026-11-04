@@ -1131,6 +1131,7 @@ void BambuddyAPIComponent::local_tare() {
   if (scale_source_ != ScaleSource::LOCAL) return;
   if (!local_have_value_) {
     ESP_LOGW(TAG, "Tare ignored: no reading from the load-cell sensor yet");
+    report_capture_error(CAPTURE_ERROR_NOT_SETTLED);
     return;
   }
   start_local_capture(LocalCapture::TARE, 0.0f);
@@ -1156,10 +1157,7 @@ void BambuddyAPIComponent::run_local_capture() {
   if (age >= LOCAL_CAPTURE_TIMEOUT_MS) {
     local_capture_.store(LocalCapture::NONE);
     set_status("Scale not settling, try again");
-    if (satellite()) {
-      capture_error_ = CAPTURE_ERROR_NOT_SETTLED;
-      weight_push_dirty_ = true;
-    }
+    report_capture_error(CAPTURE_ERROR_NOT_SETTLED);
     ESP_LOGW(TAG, "%s cancelled: reading did not settle within %lu ms",
              kind == LocalCapture::TARE ? "Tare" : "Calibrate",
              (unsigned long) LOCAL_CAPTURE_TIMEOUT_MS);
@@ -1176,9 +1174,12 @@ void BambuddyAPIComponent::run_local_capture() {
 
 void BambuddyAPIComponent::apply_local_tare() {
   lock_state();
+  // Hold off the heartbeat's calibration sync from before the value changes.
+  cal_report_jobs_++;
   tare_offset_ = local_gross_;
   unlock_state();
   save_calibration_nvs();
+  if (satellite()) capture_done_ = true;
   // Show the zeroed reading at once (and, on a satellite, force a push of it).
   republish_local_reading();
   if (!satellite()) {
@@ -1188,11 +1189,36 @@ void BambuddyAPIComponent::apply_local_tare() {
     job.f1   = tare_offset_;
     enqueue_cal_report_job(job);
   }
+  cal_report_jobs_--;
+}
+
+void BambuddyAPIComponent::report_capture_error(int error) {
+  if (!satellite()) return;
+  capture_error_ = error;
+  weight_push_dirty_ = true;
 }
 
 void BambuddyAPIComponent::enqueue_cal_report_job(const HttpJob &job) {
   cal_report_jobs_++;
-  if (!enqueue_job(job)) cal_report_jobs_--;
+  if (!enqueue_job(job)) {
+    // Dropped, so the backend stays stale: re-send rather than sync from it.
+    cal_report_jobs_--;
+    cal_unsynced_ = true;
+  }
+}
+
+void BambuddyAPIComponent::enqueue_factor_report(float factor) {
+  if (factor <= 0.0f) return;
+  // Bambuddy's set-factor endpoint computes known / (raw - tare) and only takes
+  // integer raw readings, so report a synthetic pair that reproduces the factor.
+  // 10000 / factor (>= 10000 units for a sensor with at least one unit per gram)
+  // keeps the rounding error below 1e-4, well inside the heartbeat sync's
+  // threshold, so the echo can't ping-pong.
+  HttpJob job;
+  job.kind = HttpJob::UPDATE_CALIBRATION;
+  job.f1   = 10000.0f;
+  job.f2   = 10000.0f / factor;
+  enqueue_cal_report_job(job);
 }
 
 // ---------------------------------------------------------------------------
@@ -1230,7 +1256,19 @@ bool BambuddyAPIComponent::api_register_device() {
   // Parse server-side calibration if provided
   float cal = parse_json_float(resp, "calibration_factor", calibration_factor_);
   float tare = parse_json_float(resp, "tare_offset", tare_offset_);
-  if (scale_source_ == ScaleSource::LOCAL) {
+  if (scale_source_ == ScaleSource::LOCAL && !local_cal_in_nvs_) {
+    // NVS was empty, so the local values are only defaults. Restore the
+    // backend's copy instead of overwriting the only calibration left.
+    lock_state();
+    if (cal > 0.0f) calibration_factor_ = cal;
+    tare_offset_ = tare;
+    display_state_.calibration_factor = calibration_factor_;
+    unlock_state();
+    save_calibration_nvs();
+    republish_local_reading();
+    ESP_LOGI(TAG, "No stored calibration, restored from backend: tare=%.2f factor=%.6f",
+             tare_offset_, calibration_factor_);
+  } else if (scale_source_ == ScaleSource::LOCAL) {
     // The load cell is ours and its tare/factor come from NVS, which may hold
     // a calibration made while the backend was unreachable. Bring the backend
     // in line instead of adopting its (possibly stale) copy — otherwise the
@@ -1244,11 +1282,7 @@ bool BambuddyAPIComponent::api_register_device() {
     }
     if (calibration_factor_ > 0.0f &&
         fabsf(cal - calibration_factor_) > calibration_factor_ * 1e-3f) {
-      HttpJob cj;
-      cj.kind = HttpJob::UPDATE_CALIBRATION;
-      cj.f1   = 10000.0f;  // synthetic pair, see request_calibration()
-      cj.f2   = 10000.0f / calibration_factor_;
-      enqueue_cal_report_job(cj);
+      enqueue_factor_report(calibration_factor_);
     }
   } else if (cal != calibration_factor_ || tare != tare_offset_) {
     calibration_factor_ = cal;
@@ -1382,16 +1416,13 @@ void BambuddyAPIComponent::api_heartbeat() {
     tj.kind = HttpJob::UPDATE_TARE;
     tj.f1   = tare_offset_;
     enqueue_cal_report_job(tj);
-    HttpJob cj;
-    cj.kind = HttpJob::UPDATE_CALIBRATION;
-    cj.f1   = 10000.0f;  // synthetic pair, see request_calibration()
-    cj.f2   = 10000.0f / calibration_factor_;
-    enqueue_cal_report_job(cj);
+    enqueue_factor_report(calibration_factor_);
   }
   if (cmd != "tare" && cmd != "calibrate_with_weight" && !tare_in_flight &&
-      cal_report_jobs_.load() == 0) {
+      !cal_unsynced_ && cal_report_jobs_.load() == 0) {
     float cal  = parse_json_float(resp, "calibration_factor", calibration_factor_);
     float tare = parse_json_float(resp, "tare_offset",        tare_offset_);
+    lock_state();
     // Thresholds absorb the backend's integer tare rounding and the
     // set-factor quantisation, so values settled via the scale-report path
     // don't ping-pong between the scale and backend copies.
@@ -1399,12 +1430,16 @@ void BambuddyAPIComponent::api_heartbeat() {
     bool cal_changed  = cal > 0.0f &&
                         fabsf(cal - calibration_factor_) >
                             calibration_factor_ * 1e-3f;
-    if (tare_changed || cal_changed) {
+    // Re-check under the lock: a tare or calibration may have started since the
+    // check above, and these values predate it.
+    bool apply = (tare_changed || cal_changed) && cal_report_jobs_.load() == 0;
+    if (apply) {
       if (cal > 0.0f) calibration_factor_ = cal;
       tare_offset_ = tare;
-      lock_state();
       display_state_.calibration_factor = calibration_factor_;
-      unlock_state();
+    }
+    unlock_state();
+    if (apply) {
       ESP_LOGI(TAG, "Calibration from backend: tare=%.2f factor=%.6f",
                tare_offset_, calibration_factor_);
       if (scale_source_ == ScaleSource::LOCAL) {
@@ -1748,6 +1783,7 @@ void BambuddyAPIComponent::request_calibration(float reference_weight_g) {
 bool BambuddyAPIComponent::local_calibrate(float reference_weight_g) {
   if (scale_source_ != ScaleSource::LOCAL || !local_have_value_) {
     ESP_LOGW(TAG, "Calibrate ignored: no reading from the load-cell sensor yet");
+    report_capture_error(CAPTURE_ERROR_NOT_SETTLED);
     return false;
   }
   start_local_capture(LocalCapture::CALIBRATE, reference_weight_g);
@@ -1758,38 +1794,32 @@ void BambuddyAPIComponent::apply_local_calibration(float reference_weight_g) {
   lock_state();
   float raw_net = local_gross_ - tare_offset_;
   unlock_state();
-  if (raw_net <= 0.0f) {
+  // A net this small is drift or noise on an empty pad, and dividing by it
+  // would save a wildly wrong factor. Units match stable_band on any sensor.
+  if (raw_net < CALIBRATE_MIN_NET_BANDS * local_stable_band_) {
     set_status("Place the reference weight first");
-    ESP_LOGW(TAG, "Calibrate ignored: reading at or below tare (net %.2f)", raw_net);
-    if (satellite()) {
-      capture_error_ = CAPTURE_ERROR_NO_LOAD;
-      weight_push_dirty_ = true;
-    }
+    ESP_LOGW(TAG, "Calibrate ignored: reading too close to tare (net %.2f)", raw_net);
+    report_capture_error(CAPTURE_ERROR_NO_LOAD);
     return;
   }
   lock_state();
+  // Hold off the heartbeat's calibration sync from before the value changes.
+  cal_report_jobs_++;
   calibration_factor_ = reference_weight_g / raw_net;
   display_state_.calibration_factor = calibration_factor_;
   unlock_state();
   save_calibration_nvs();
   ESP_LOGI(TAG, "Calibrated: ref=%.1f g net=%.2f → factor=%.6f",
            reference_weight_g, raw_net, calibration_factor_);
+  if (satellite()) capture_done_ = true;
   republish_local_reading();
   if (!satellite()) {
     char msg[64];
     snprintf(msg, sizeof(msg), "Calibration applied (factor %.4f)", calibration_factor_);
     set_status(msg);
-    // Report to Bambuddy as a synthetic reference/measured pair that
-    // reproduces the factor: its set-factor endpoint only takes integer
-    // raw readings, and 10000 / factor (>= 10000 units for a sensor with at
-    // least one unit per gram) keeps the rounding error below 1e-4, well
-    // inside the heartbeat sync's threshold — so the echo can't ping-pong.
-    HttpJob job;
-    job.kind = HttpJob::UPDATE_CALIBRATION;
-    job.f1   = 10000.0f;
-    job.f2   = 10000.0f / calibration_factor_;
-    enqueue_cal_report_job(job);
+    enqueue_factor_report(calibration_factor_);
   }
+  cal_report_jobs_--;
 }
 
 bool BambuddyAPIComponent::api_write_tag_result(int spool_id,
@@ -3027,17 +3057,18 @@ bool BambuddyAPIComponent::api_scale_push_weight(float grams, bool stable) {
   // Apply tare and calibration before pushing so the console receives net grams.
   float net = (grams - tare_offset_) * calibration_factor_;
 
-  // capturing: a tare/calibrate is still waiting for a settled reading, so
-  // these values aren't its result yet. capture_error: why one was given up on.
+  // capture_done: a tare/calibrate finished, and these values are its result.
+  // capture_error: why one was given up on. Each is reported in one push.
   const int capture_error = capture_error_.load();
+  const bool capture_done = capture_done_.load();
   char body[300];
   snprintf(body, sizeof(body),
            "{\"weight_grams\":%.2f,\"stable\":%s,\"hostname\":\"%s\","
            "\"tare_offset\":%.2f,\"calibration_factor\":%.6f,"
-           "\"capturing\":%s,\"capture_error\":%d}",
+           "\"capture_done\":%s,\"capture_error\":%d}",
            net, stable ? "true" : "false", esc(hostname_).c_str(),
            tare_offset_, calibration_factor_,
-           local_capture_.load() != LocalCapture::NONE ? "true" : "false", capture_error);
+           capture_done ? "true" : "false", capture_error);
 
   std::string resp;
   bool ok = push_to_consoles("/scale/weight", body, resp);
@@ -3046,6 +3077,7 @@ bool BambuddyAPIComponent::api_scale_push_weight(float grams, bool stable) {
     return false;
   }
   if (capture_error != CAPTURE_ERROR_NONE) capture_error_ = CAPTURE_ERROR_NONE;
+  if (capture_done) capture_done_ = false;
   return true;
   // Commands (tare/calibrate/write_tag) are delivered via heartbeat response,
   // not piggybacked here, so weight push stays a pure data channel.
@@ -3279,19 +3311,23 @@ esp_err_t BambuddyAPIComponent::console_http_scale_weight(httpd_req_t *req) {
   float new_cal  = parse_json_float(json, "calibration_factor", kAbsent);
 
   // Absent on a scale running older firmware, which applied commands at once.
-  bool capturing    = parse_json_bool(json, "capturing", false);
+  bool capture_done = parse_json_bool(json, "capture_done", true);
   int capture_error = (int) parse_json_float(json, "capture_error", 0.0f);
 
   self->lock_state();
+  // Hold off the heartbeat's calibration sync until these values are reported.
+  self->cal_report_jobs_++;
   // A tare/calibrate command was delivered to the scale and this push carries
-  // its result — consume the ack flags. A push sent while the scale is still
-  // waiting to capture only carries the old values.
+  // its result — consume the ack flags. Any other push only carries the old
+  // values, and a scale that never answers must not be credited with a result.
   bool ack_tare = false;
   bool ack_calibrate = false;
-  if (capture_error != CAPTURE_ERROR_NONE) {
+  const bool ack_expired =
+      millis() - self->scale_cmd_delivered_ms_ >= PENDING_SCALE_CMD_TTL_MS;
+  if (capture_error != CAPTURE_ERROR_NONE || ack_expired) {
     self->tare_ack_pending_ = false;
     self->calibrate_ack_pending_ = false;
-  } else if (!capturing && new_tare != kAbsent) {
+  } else if (capture_done && new_tare != kAbsent) {
     ack_tare = self->tare_ack_pending_;
     ack_calibrate = self->calibrate_ack_pending_;
     self->tare_ack_pending_ = false;
@@ -3325,24 +3361,19 @@ esp_err_t BambuddyAPIComponent::console_http_scale_weight(httpd_req_t *req) {
              new_tare, ack_tare ? " (tare command ack)" : "");
   }
   if (new_cal != kAbsent && new_cal > 0.0f &&
-      fabsf(new_cal - self->calibration_factor_) >
-          self->calibration_factor_ * 1e-4f) {
+      (ack_calibrate || fabsf(new_cal - self->calibration_factor_) >
+                            self->calibration_factor_ * 1e-4f)) {
     self->calibration_factor_ = new_cal;
     self->lock_state();
     self->display_state_.calibration_factor = new_cal;
     self->unlock_state();
     // Report the scale's new factor to the backend so the next heartbeat
     // response doesn't carry the stale value back and revert it on the scale.
-    // The backend only has set-factor (known / (raw - tare)); send a synthetic
-    // pair that reproduces the factor: net = 10000 / factor.
-    HttpJob cj;
-    cj.kind = HttpJob::UPDATE_CALIBRATION;
-    cj.f1   = 10000.0f;
-    cj.f2   = 10000.0f / new_cal;
-    self->enqueue_cal_report_job(cj);
+    self->enqueue_factor_report(new_cal);
     ESP_LOGI(TAG, "Console: scale calibration_factor changed to %.6f — notifying backend",
              new_cal);
   }
+  self->cal_report_jobs_--;
 
   // Reconstruct the scale's raw (pre-tare, pre-factor) reading so the backend
   // receives a usable raw_adc — its calibration UI computes
@@ -3541,11 +3572,13 @@ void BambuddyAPIComponent::load_calibration_nvs() {
   if (nvs_get_u32(h, NVS_TARE, &tare_bits) == ESP_OK) {
     float f; memcpy(&f, &tare_bits, sizeof(f));
     tare_offset_ = f;
+    local_cal_in_nvs_ = true;
   }
   uint32_t cal_bits = 0;
   if (nvs_get_u32(h, NVS_CAL, &cal_bits) == ESP_OK) {
     float f; memcpy(&f, &cal_bits, sizeof(f));
     if (f > 0.0f) calibration_factor_ = f;
+    local_cal_in_nvs_ = true;
   }
   nvs_close(h);
   ESP_LOGI(TAG, "Calibration loaded from NVS: tare=%.2f factor=%.6f",
@@ -3553,6 +3586,7 @@ void BambuddyAPIComponent::load_calibration_nvs() {
 }
 
 void BambuddyAPIComponent::save_calibration_nvs() {
+  local_cal_in_nvs_ = true;
   nvs_handle_t h;
   if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
     ESP_LOGW(TAG, "NVS open (rw) failed");
