@@ -11,7 +11,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import i2c, spi
 from esphome import pins
-from esphome.const import CONF_ID
+from esphome.const import CONF_ID, CONF_MODE, CONF_OPEN_DRAIN
 
 CODEOWNERS = ["@CSchlipp"]
 MULTI_CONF = False
@@ -42,6 +42,17 @@ CONF_INTERFACE = "interface"
 CONF_POLL_INTERVAL = "poll_interval"
 CONF_MISS_THRESHOLD = "miss_threshold"
 CONF_IRQ_PIN = "irq_pin"
+CONF_RESET_PIN = "reset_pin"
+
+
+def _validate_reset_pin(value):
+    # Open drain only sinks, so it never drives the line high against whatever
+    # the wire turns out to be connected to on the module.
+    if not value[CONF_MODE][CONF_OPEN_DRAIN]:
+        raise cv.Invalid("reset_pin must be open drain: mode: {output: true, open_drain: true}")
+    return value
+
+
 
 INTERFACE_SPI = "spi"
 INTERFACE_I2C = "i2c"
@@ -55,6 +66,10 @@ BASE_SCHEMA = cv.Schema(
         cv.Optional(CONF_POLL_INTERVAL, default=300): cv.positive_int,
         cv.Optional(CONF_MISS_THRESHOLD, default=3): cv.positive_int,
         cv.Optional(CONF_IRQ_PIN): pins.gpio_input_pin_schema,
+        # Optional GPIO wired to the PN532's RSTPDN, for a hardware reset when
+        # the reader stops responding. Checked at every boot and left alone if
+        # it turns out not to reset the reader.
+        cv.Optional(CONF_RESET_PIN): cv.All(pins.gpio_output_pin_schema, _validate_reset_pin),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -116,3 +131,7 @@ async def to_code(config):
     if CONF_IRQ_PIN in config:
         irq = await cg.gpio_pin_expression(config[CONF_IRQ_PIN])
         cg.add(var.set_irq_pin(irq))
+
+    if CONF_RESET_PIN in config:
+        reset = await cg.gpio_pin_expression(config[CONF_RESET_PIN])
+        cg.add(var.set_reset_pin(reset))

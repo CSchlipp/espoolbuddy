@@ -145,6 +145,10 @@ class BambuddyNFCComponent : public Component {
   // status byte over the bus — eliminates ~100 bus transactions per no-tag
   // cycle.
   void set_irq_pin(GPIOPin *pin) { irq_pin_ = pin; }
+  // Optional reset line to the PN532's RSTPDN (open drain, active-LOW). Pulsed
+  // by every pn532_init(), so recovery also works on a reader that no longer
+  // listens to commands. On a shared I2C bus that can bring the bus back too.
+  void set_reset_pin(GPIOPin *pin) { reset_pin_ = pin; }
   // Low-power mode: widen the detect cadence while the console sleeps (called by
   // the UI sleep state machine). The RF field is energized for most of each
   // detect cycle, so a longer inter-cycle gap markedly cuts RF power and lets
@@ -209,6 +213,13 @@ class BambuddyNFCComponent : public Component {
 
   // ---- PN532 high-level ----
   bool pn532_init();
+  // Pulse RSTPDN, unless the boot check found that it does nothing.
+  void pn532_hard_reset();
+  // Once per boot, after the first successful pn532_init(): hold RSTPDN low and
+  // check that the reader goes silent. If it still answers, the wire doesn't
+  // reach RSTPDN, and the line is left alone from then on. Returns false only
+  // if the reader didn't come back afterwards.
+  bool pn532_check_reset_line();
   // Detect a single ISO 14443A tag; fills uid + sak on success
   bool pn532_detect_tag(std::vector<uint8_t> &uid, uint8_t &sak);
   // Switch the RF field off. The PN532 leaves it on after every command
@@ -275,6 +286,9 @@ class BambuddyNFCComponent : public Component {
 
   // ---- State ----
   GPIOPin *irq_pin_{nullptr};
+  GPIOPin *reset_pin_{nullptr};
+  bool reset_checked_{false};    // pn532_check_reset_line() has run this boot
+  bool reset_no_effect_{false};  // reader ignored the line: never drive it again
   bambuddy_api::BambuddyAPIComponent *api_{nullptr};
   NFCState state_{NFCState::IDLE};
   std::vector<uint8_t> current_uid_;

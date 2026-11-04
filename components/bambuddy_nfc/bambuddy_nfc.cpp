@@ -236,7 +236,47 @@ bool BambuddyNFCComponent::pn532_recover() {
 // PN532 high-level
 // ============================================================================
 
+void BambuddyNFCComponent::pn532_hard_reset() {
+  if (reset_pin_ == nullptr || reset_no_effect_) return;
+  ESP_LOGD(NFC_TAG, "PN532: pulsing reset line");
+  reset_pin_->digital_write(false);
+  delay(10);
+  reset_pin_->digital_write(true);
+  delay(5);
+  rf_off_ = false;  // the sleep path must switch the field off again if needed
+}
+
+bool BambuddyNFCComponent::pn532_check_reset_line() {
+  if (reset_pin_ == nullptr || reset_checked_) return true;
+  reset_checked_ = true;
+
+  reset_pin_->digital_write(false);
+  delay(5);
+  std::vector<uint8_t> cmd = {PN532_CMD_GETFIRMWAREVERSION};
+  std::vector<uint8_t> resp;
+  const bool answered = pn532_send_receive(cmd, resp, 50);
+  reset_pin_->digital_write(true);
+  delay(100);
+  link_failures_ = 0;  // the silence was the point
+
+  if (answered) {
+    reset_no_effect_ = true;
+    ESP_LOGW(NFC_TAG,
+             "PN532 still answered with reset_pin held low: the line isn't "
+             "reaching RSTPDN, so it won't be used. Check the wiring.");
+    return true;
+  }
+  if (!pn532_init()) {
+    ESP_LOGE(NFC_TAG, "PN532 did not come back after the reset line check");
+    return false;
+  }
+  ESP_LOGI(NFC_TAG, "PN532 reset line OK");
+  return true;
+}
+
 bool BambuddyNFCComponent::pn532_init() {
+  pn532_hard_reset();
+
   // Wake the PN532 from H_0 (power-down) or any unknown state after power-on /
   // ESP32 reset — how that is done depends on the host interface.
   transport_wakeup();
@@ -642,6 +682,10 @@ std::string BambuddyNFCComponent::extract_tray_uuid(
 
 void BambuddyNFCComponent::setup() {
   transport_setup();
+  if (reset_pin_ != nullptr) {
+    reset_pin_->setup();
+    reset_pin_->digital_write(true);  // released; the module pulls it high
+  }
   if (irq_pin_ != nullptr) {
     irq_pin_->setup();  // configure as input (pull-up set by ESPHome pin schema)
     ESP_LOGI(NFC_TAG, "BambuddyNFC setup (PN532 via %s, IRQ-driven)",
@@ -657,7 +701,7 @@ void BambuddyNFCComponent::setup() {
 
   init_attempts_ = 1;
   last_init_ms_ = millis();
-  if (pn532_init()) {
+  if (pn532_init() && pn532_check_reset_line()) {
     nfc_ok_ = true;
     if (api_) api_->set_nfc_ok(true);
     ESP_LOGI(NFC_TAG, "PN532 initialized");
@@ -700,6 +744,12 @@ void BambuddyNFCComponent::dump_config() {
     ESP_LOGCONFIG(NFC_TAG, "  Ready detection: polling (no IRQ pin), poll interval %u ms",
                   (unsigned) poll_interval_ms_);
   }
+  if (reset_pin_ != nullptr) {
+    log_pin(NFC_TAG, "  Reset Pin: ", reset_pin_);
+    ESP_LOGCONFIG(NFC_TAG, "  Reset line: %s",
+                  reset_no_effect_ ? "NO EFFECT, not used (check wiring)"
+                                   : (reset_checked_ ? "OK" : "not checked yet"));
+  }
   ESP_LOGCONFIG(NFC_TAG, "  Miss threshold: %u", miss_threshold_);
   if (nfc_ok_) {
     ESP_LOGCONFIG(NFC_TAG, "  Reader: OK (IC 0x%02X, firmware %u.%u)", fw_ic_,
@@ -733,7 +783,7 @@ void BambuddyNFCComponent::poll_task_loop() {
       if (millis() - last_init_ms_ >= PN532_INIT_RETRY_MS) {
         last_init_ms_ = millis();
         init_attempts_++;
-        if (pn532_init()) {
+        if (pn532_init() && pn532_check_reset_line()) {
           link_failures_ = 0;
           nfc_ok_ = true;
           if (api_) api_->set_nfc_ok(true);
