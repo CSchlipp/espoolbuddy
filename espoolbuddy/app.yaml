@@ -1351,6 +1351,47 @@ script:
               lv_obj_clear_flag(id(nfc_unlinked_panel), LV_OBJ_FLAG_HIDDEN);
               lv_label_set_text(id(nfc_unlinked_uid),
                   s.last_tag_uid.empty() ? "" : ("UID " + s.last_tag_uid).c_str());
+              // Decoded Bambu Lab / OpenTag3D tag → show what "Add to Inventory"
+              // will create: spool icon in the tag's colour plus material, colour
+              // name and weight (and the brand for OpenTag3D — Bambu's is implied
+              // by the title).  Any other tag keeps the same layout with a grey
+              // spool and a "no info" line.
+              const bambuddy_api::TagFilamentInfo &tf = s.tag_filament;
+              uint32_t tint = 0x444466;
+              if (tf.valid) {
+                std::string info = !tf.detailed_type.empty() ? tf.detailed_type : tf.material;
+                if (tf.format == "open_tag_3d" && !tf.brand.empty())
+                  info = tf.brand + " " + info;
+                if (!tf.color_name.empty()) {
+                  if (!info.empty()) info += " \xC2\xB7 ";
+                  info += tf.color_name;
+                }
+                if (tf.spool_weight > 0) {
+                  char wb[16];
+                  snprintf(wb, sizeof(wb), "%u g", (unsigned) tf.spool_weight);
+                  if (!info.empty()) info += " \xC2\xB7 ";
+                  info += wb;
+                }
+                lv_label_set_text(id(nfc_unlinked_info), info.c_str());
+                lv_obj_set_style_text_color(id(nfc_unlinked_info), lv_color_hex(0xDDDDEE), LV_PART_MAIN);
+                if (!tf.color_hex.empty())
+                  tint = (uint32_t) strtoul(tf.color_hex.substr(0, 6).c_str(), nullptr, 16);
+              } else {
+                lv_label_set_text(id(nfc_unlinked_info), "No filament info on tag");
+                lv_obj_set_style_text_color(id(nfc_unlinked_info), lv_color_hex(0x8585B8), LV_PART_MAIN);
+              }
+              lv_obj_set_style_img_recolor(id(nfc_unlinked_spool_fill), lv_color_hex(tint), LV_PART_MAIN);
+              // Title names the tag type.  Anything that is neither Bambu Lab
+              // nor OpenTag3D counts as a plain NFC tag (e.g. a blank NTAG,
+              // whose tag_format stays empty).
+              {
+                const std::string &fmt = (tf.valid && !tf.format.empty())
+                                         ? tf.format : s.current_filament.tag_format;
+                const char *title = (fmt == "bambu_lab")             ? "New Bambu Lab Tag discovered"
+                                  : (fmt == "open_tag_3d")           ? "New OpenTag3D discovered"
+                                                                     : "New generic NFC Tag discovered";
+                lv_label_set_text(id(nfc_unlinked_title), title);
+              }
               // TTL countdown (only shown while the tag has been removed but panel is sticky)
               if (s.unlinked_tag_expiry_ms > 0) {
                 uint32_t now_ms = millis();
@@ -1538,7 +1579,11 @@ script:
             for (int ui = 0; ui < n_ams; ui++) {
               const auto &u = s.ams_units[ui];
               sig ^= ((uint32_t)u.id * 40503u) ^ ((uint32_t)u.trays.size() * 6700417u)
-                   ^ ((uint32_t)(u.nozzle + 2) * 2860486313u);  // nozzle label changes
+                   ^ ((uint32_t)(u.nozzle + 2) * 2860486313u)  // nozzle label changes
+                   ^ ((uint32_t)u.drying * (2654435761u + (uint32_t)ui))  // drying tint
+                   // temp/humidity label, at the "%.0f°" precision it's shown with
+                   ^ ((uint32_t)lroundf(u.temp) * (2246822519u + (uint32_t)ui))
+                   ^ ((uint32_t)u.humidity * (3266489917u + (uint32_t)ui));
               for (const auto &t : u.trays)
                 sig ^= ((uint32_t)t.present * 2246822519u)
                      ^ ((uint32_t)(t.color_hex.empty() ? 0u : (uint8_t)t.color_hex[0]) * 3266489917u);
@@ -2032,13 +2077,16 @@ script:
                   } else {
                     snprintf(nb, sizeof(nb), "AMS-%c", 'A' + (int)(unit.id % 26));
                   }
-                  lv_label_set_text(p_nm, nb); }
+                  lv_label_set_text(p_nm, nb);
+                  lv_obj_set_style_text_color(p_nm, lv_color_hex(unit.drying ? 0xFF9E6E : 0x7B9EFF), LV_PART_MAIN); }
                 if (unit.is_vt) {
                   lv_label_set_text(p_th, "");
                 } else {
                   char tb[24];
                   snprintf(tb, sizeof(tb), "%.0f\u00B0\n%d%%", unit.temp, unit.humidity);
                   lv_label_set_text(p_th, tb);
+                  lv_obj_set_style_text_color(p_th, lv_color_hex(unit.drying ? 0xFF9E6E : 0xCCCCDD), LV_PART_MAIN);
+                  lv_obj_set_style_img_recolor(p_ht, lv_color_hex(unit.drying ? 0xFF9E6E : 0x7B9EFF), LV_PART_MAIN);
                 }
                 lv_label_set_text(p_nz, nz);
                 bool present = !unit.trays.empty() && unit.trays[0].present;
@@ -2159,9 +2207,13 @@ script:
                     { char nb[40];
                       if (!unit.custom_name.empty()) snprintf(nb, sizeof(nb), "%s", unit.custom_name.c_str());
                       else                           snprintf(nb, sizeof(nb), "AMS-%c", 'A' + (int)(unit.id % 26));
-                      lv_label_set_text(rnm[k], nb); }
+                      lv_label_set_text(rnm[k], nb);
+                      lv_obj_set_style_text_color(rnm[k], lv_color_hex(unit.drying ? 0xFF9E6E : 0x7B9EFF), LV_PART_MAIN); }
                     { char tb[24]; snprintf(tb, sizeof(tb), "%.0f\u00B0\n%d%%", unit.temp, unit.humidity);
-                      lv_label_set_text(rth[k], tb); }
+                      lv_label_set_text(rth[k], tb);
+                      // Icon, name and temp/humidity turn orange while the AMS is drying.
+                      lv_obj_set_style_text_color(rth[k], lv_color_hex(unit.drying ? 0xFF9E6E : 0xCCCCDD), LV_PART_MAIN);
+                      lv_obj_set_style_img_recolor(ric[k], lv_color_hex(unit.drying ? 0xFF9E6E : 0x7B9EFF), LV_PART_MAIN); }
                     lv_label_set_text(rnz[k], nz);
                     lv_obj_clear_flag(ric[k], LV_OBJ_FLAG_HIDDEN);
                     lv_obj_add_flag(rht[k], LV_OBJ_FLAG_HIDDEN);

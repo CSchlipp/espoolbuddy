@@ -96,10 +96,11 @@ obj:
                           border_width: 0
                           pad_all: 0
                           scrollbar_mode: "OFF"
+                          scrollable: false
                           widgets:
                             - image: {id: ams0_icon, src: img_ams_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER}
-                            - image: {id: ams0_hticon, src: img_ht_sm, x: 6, y: 2, image_recolor: 0xFF9E6E, image_recolor_opa: COVER, hidden: true}
-                            - image: {id: ams0_vticon, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7EC8A0, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: ams0_hticon, src: img_ht_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: ams0_vticon, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
                             - label: {id: ams0_name, x: 30, y: 4, width: 94, height: 30, text: "", text_font: roboto_12, text_color: 0x7B9EFF, long_mode: DOT, align: TOP_LEFT}
                             - label: {id: ams0_th, x: 30, y: 36, width: 94, height: 30, text: "", text_font: roboto_12, text_color: 0xCCCCDD, align: TOP_LEFT}
                             - label: {id: ams0_noz, x: 128, y: 4, width: 16, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
@@ -122,6 +123,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams0_0_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams0_0_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -161,6 +163,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams0_1_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams0_1_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -200,6 +203,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams0_2_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams0_2_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -239,6 +243,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams0_3_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams0_3_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -279,10 +284,11 @@ obj:
                           border_width: 0
                           pad_all: 0
                           scrollbar_mode: "OFF"
+                          scrollable: false
                           widgets:
                             - image: {id: ams1_icon, src: img_ams_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER}
-                            - image: {id: ams1_hticon, src: img_ht_sm, x: 6, y: 2, image_recolor: 0xFF9E6E, image_recolor_opa: COVER, hidden: true}
-                            - image: {id: ams1_vticon, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7EC8A0, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: ams1_hticon, src: img_ht_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: ams1_vticon, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
                             - label: {id: ams1_name, x: 30, y: 4, width: 94, height: 30, text: "", text_font: roboto_12, text_color: 0x7B9EFF, long_mode: DOT, align: TOP_LEFT}
                             - label: {id: ams1_th, x: 30, y: 36, width: 94, height: 30, text: "", text_font: roboto_12, text_color: 0xCCCCDD, align: TOP_LEFT}
                             - label: {id: ams1_noz, x: 128, y: 4, width: 16, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
@@ -305,6 +311,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams1_0_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams1_0_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -344,6 +351,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams1_1_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams1_1_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -383,6 +391,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams1_2_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams1_2_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -422,6 +431,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams1_3_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams1_3_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -462,10 +472,11 @@ obj:
                           border_width: 0
                           pad_all: 0
                           scrollbar_mode: "OFF"
+                          scrollable: false
                           widgets:
                             - image: {id: ams2_icon, src: img_ams_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER}
-                            - image: {id: ams2_hticon, src: img_ht_sm, x: 6, y: 2, image_recolor: 0xFF9E6E, image_recolor_opa: COVER, hidden: true}
-                            - image: {id: ams2_vticon, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7EC8A0, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: ams2_hticon, src: img_ht_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: ams2_vticon, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
                             - label: {id: ams2_name, x: 30, y: 4, width: 94, height: 30, text: "", text_font: roboto_12, text_color: 0x7B9EFF, long_mode: DOT, align: TOP_LEFT}
                             - label: {id: ams2_th, x: 30, y: 36, width: 94, height: 30, text: "", text_font: roboto_12, text_color: 0xCCCCDD, align: TOP_LEFT}
                             - label: {id: ams2_noz, x: 128, y: 4, width: 16, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
@@ -488,6 +499,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams2_0_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams2_0_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -527,6 +539,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams2_1_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams2_1_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -566,6 +579,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams2_2_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams2_2_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -605,6 +619,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams2_3_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams2_3_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -645,10 +660,11 @@ obj:
                           border_width: 0
                           pad_all: 0
                           scrollbar_mode: "OFF"
+                          scrollable: false
                           widgets:
                             - image: {id: ams3_icon, src: img_ams_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER}
-                            - image: {id: ams3_hticon, src: img_ht_sm, x: 6, y: 2, image_recolor: 0xFF9E6E, image_recolor_opa: COVER, hidden: true}
-                            - image: {id: ams3_vticon, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7EC8A0, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: ams3_hticon, src: img_ht_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: ams3_vticon, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
                             - label: {id: ams3_name, x: 30, y: 4, width: 94, height: 30, text: "", text_font: roboto_12, text_color: 0x7B9EFF, long_mode: DOT, align: TOP_LEFT}
                             - label: {id: ams3_th, x: 30, y: 36, width: 94, height: 30, text: "", text_font: roboto_12, text_color: 0xCCCCDD, align: TOP_LEFT}
                             - label: {id: ams3_noz, x: 128, y: 4, width: 16, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
@@ -671,6 +687,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams3_0_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams3_0_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -710,6 +727,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams3_1_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams3_1_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -749,6 +767,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams3_2_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams3_2_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -788,6 +807,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams3_3_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams3_3_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -828,10 +848,11 @@ obj:
                           border_width: 0
                           pad_all: 0
                           scrollbar_mode: "OFF"
+                          scrollable: false
                           widgets:
                             - image: {id: ams4_icon, src: img_ams_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER}
-                            - image: {id: ams4_hticon, src: img_ht_sm, x: 6, y: 2, image_recolor: 0xFF9E6E, image_recolor_opa: COVER, hidden: true}
-                            - image: {id: ams4_vticon, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7EC8A0, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: ams4_hticon, src: img_ht_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: ams4_vticon, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
                             - label: {id: ams4_name, x: 30, y: 4, width: 94, height: 30, text: "", text_font: roboto_12, text_color: 0x7B9EFF, long_mode: DOT, align: TOP_LEFT}
                             - label: {id: ams4_th, x: 30, y: 36, width: 94, height: 30, text: "", text_font: roboto_12, text_color: 0xCCCCDD, align: TOP_LEFT}
                             - label: {id: ams4_noz, x: 128, y: 4, width: 16, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
@@ -854,6 +875,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams4_0_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams4_0_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -893,6 +915,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams4_1_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams4_1_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -932,6 +955,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams4_2_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams4_2_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -971,6 +995,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams4_3_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams4_3_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1012,10 +1037,11 @@ obj:
                           border_width: 0
                           pad_all: 0
                           scrollbar_mode: "OFF"
+                          scrollable: false
                           widgets:
                             - image: {id: ams5_icon, src: img_ams_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER}
-                            - image: {id: ams5_hticon, src: img_ht_sm, x: 6, y: 2, image_recolor: 0xFF9E6E, image_recolor_opa: COVER, hidden: true}
-                            - image: {id: ams5_vticon, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7EC8A0, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: ams5_hticon, src: img_ht_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: ams5_vticon, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
                             - label: {id: ams5_name, x: 30, y: 4, width: 94, height: 30, text: "", text_font: roboto_12, text_color: 0x7B9EFF, long_mode: DOT, align: TOP_LEFT}
                             - label: {id: ams5_th, x: 30, y: 36, width: 94, height: 30, text: "", text_font: roboto_12, text_color: 0xCCCCDD, align: TOP_LEFT}
                             - label: {id: ams5_noz, x: 128, y: 4, width: 16, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
@@ -1038,6 +1064,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams5_0_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams5_0_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1077,6 +1104,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams5_1_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams5_1_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1116,6 +1144,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams5_2_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams5_2_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1155,6 +1184,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams5_3_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams5_3_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1195,10 +1225,11 @@ obj:
                           border_width: 0
                           pad_all: 0
                           scrollbar_mode: "OFF"
+                          scrollable: false
                           widgets:
                             - image: {id: ams6_icon, src: img_ams_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER}
-                            - image: {id: ams6_hticon, src: img_ht_sm, x: 6, y: 2, image_recolor: 0xFF9E6E, image_recolor_opa: COVER, hidden: true}
-                            - image: {id: ams6_vticon, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7EC8A0, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: ams6_hticon, src: img_ht_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: ams6_vticon, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
                             - label: {id: ams6_name, x: 30, y: 4, width: 94, height: 30, text: "", text_font: roboto_12, text_color: 0x7B9EFF, long_mode: DOT, align: TOP_LEFT}
                             - label: {id: ams6_th, x: 30, y: 36, width: 94, height: 30, text: "", text_font: roboto_12, text_color: 0xCCCCDD, align: TOP_LEFT}
                             - label: {id: ams6_noz, x: 128, y: 4, width: 16, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
@@ -1221,6 +1252,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams6_0_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams6_0_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1260,6 +1292,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams6_1_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams6_1_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1299,6 +1332,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams6_2_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams6_2_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1338,6 +1372,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams6_3_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams6_3_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1378,10 +1413,11 @@ obj:
                           border_width: 0
                           pad_all: 0
                           scrollbar_mode: "OFF"
+                          scrollable: false
                           widgets:
                             - image: {id: ams7_icon, src: img_ams_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER}
-                            - image: {id: ams7_hticon, src: img_ht_sm, x: 6, y: 2, image_recolor: 0xFF9E6E, image_recolor_opa: COVER, hidden: true}
-                            - image: {id: ams7_vticon, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7EC8A0, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: ams7_hticon, src: img_ht_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: ams7_vticon, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
                             - label: {id: ams7_name, x: 30, y: 4, width: 94, height: 30, text: "", text_font: roboto_12, text_color: 0x7B9EFF, long_mode: DOT, align: TOP_LEFT}
                             - label: {id: ams7_th, x: 30, y: 36, width: 94, height: 30, text: "", text_font: roboto_12, text_color: 0xCCCCDD, align: TOP_LEFT}
                             - label: {id: ams7_noz, x: 128, y: 4, width: 16, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
@@ -1404,6 +1440,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams7_0_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams7_0_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1443,6 +1480,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams7_1_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams7_1_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1482,6 +1520,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams7_2_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams7_2_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1521,6 +1560,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: ams7_3_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: ams7_3_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1556,6 +1596,7 @@ obj:
                     height: 70
                     styles: sty_ams_row
                     scrollbar_mode: "OFF"
+                    scrollable: false
                     hidden: true
                     layout: {type: FLEX, flex_flow: ROW}
                     widgets:
@@ -1567,9 +1608,10 @@ obj:
                           border_width: 0
                           pad_all: 0
                           scrollbar_mode: "OFF"
+                          scrollable: false
                           widgets:
-                            - image: {id: pair0_a_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0xFF9E6E, image_recolor_opa: COVER, hidden: true}
-                            - image: {id: pair0_a_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7EC8A0, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair0_a_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair0_a_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
                             - label: {id: pair0_a_name, x: 30, y: 4, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0x7B9EFF, long_mode: DOT, align: TOP_LEFT}
                             - label: {id: pair0_a_th, x: 30, y: 36, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0xCCCCDD, align: TOP_LEFT}
                             - label: {id: pair0_a_noz, x: 122, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
@@ -1583,6 +1625,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: pair0_a_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: pair0_a_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1592,7 +1635,7 @@ obj:
                                   - obj: {id: pair0_a_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair0_a_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair0_a_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
-                      - obj: {width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, align: CENTER}
+                      - obj: {width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
                       - obj:
                           id: pair0_b_side
                           flex_grow: 1
@@ -1601,9 +1644,10 @@ obj:
                           border_width: 0
                           pad_all: 0
                           scrollbar_mode: "OFF"
+                          scrollable: false
                           widgets:
-                            - image: {id: pair0_b_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0xFF9E6E, image_recolor_opa: COVER, hidden: true}
-                            - image: {id: pair0_b_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7EC8A0, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair0_b_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair0_b_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
                             - label: {id: pair0_b_name, x: 30, y: 4, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0x7B9EFF, long_mode: DOT, align: TOP_LEFT}
                             - label: {id: pair0_b_th, x: 30, y: 36, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0xCCCCDD, align: TOP_LEFT}
                             - label: {id: pair0_b_noz, x: 122, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
@@ -1617,6 +1661,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: pair0_b_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: pair0_b_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1634,6 +1679,7 @@ obj:
                     height: 70
                     styles: sty_ams_row
                     scrollbar_mode: "OFF"
+                    scrollable: false
                     hidden: true
                     layout: {type: FLEX, flex_flow: ROW}
                     widgets:
@@ -1645,9 +1691,10 @@ obj:
                           border_width: 0
                           pad_all: 0
                           scrollbar_mode: "OFF"
+                          scrollable: false
                           widgets:
-                            - image: {id: pair1_a_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0xFF9E6E, image_recolor_opa: COVER, hidden: true}
-                            - image: {id: pair1_a_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7EC8A0, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair1_a_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair1_a_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
                             - label: {id: pair1_a_name, x: 30, y: 4, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0x7B9EFF, long_mode: DOT, align: TOP_LEFT}
                             - label: {id: pair1_a_th, x: 30, y: 36, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0xCCCCDD, align: TOP_LEFT}
                             - label: {id: pair1_a_noz, x: 122, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
@@ -1661,6 +1708,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: pair1_a_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: pair1_a_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1670,7 +1718,7 @@ obj:
                                   - obj: {id: pair1_a_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair1_a_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair1_a_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
-                      - obj: {width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, align: CENTER}
+                      - obj: {width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
                       - obj:
                           id: pair1_b_side
                           flex_grow: 1
@@ -1679,9 +1727,10 @@ obj:
                           border_width: 0
                           pad_all: 0
                           scrollbar_mode: "OFF"
+                          scrollable: false
                           widgets:
-                            - image: {id: pair1_b_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0xFF9E6E, image_recolor_opa: COVER, hidden: true}
-                            - image: {id: pair1_b_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7EC8A0, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair1_b_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair1_b_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
                             - label: {id: pair1_b_name, x: 30, y: 4, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0x7B9EFF, long_mode: DOT, align: TOP_LEFT}
                             - label: {id: pair1_b_th, x: 30, y: 36, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0xCCCCDD, align: TOP_LEFT}
                             - label: {id: pair1_b_noz, x: 122, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
@@ -1695,6 +1744,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: pair1_b_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: pair1_b_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1712,6 +1762,7 @@ obj:
                     height: 70
                     styles: sty_ams_row
                     scrollbar_mode: "OFF"
+                    scrollable: false
                     hidden: true
                     layout: {type: FLEX, flex_flow: ROW}
                     widgets:
@@ -1723,9 +1774,10 @@ obj:
                           border_width: 0
                           pad_all: 0
                           scrollbar_mode: "OFF"
+                          scrollable: false
                           widgets:
-                            - image: {id: pair2_a_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0xFF9E6E, image_recolor_opa: COVER, hidden: true}
-                            - image: {id: pair2_a_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7EC8A0, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair2_a_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair2_a_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
                             - label: {id: pair2_a_name, x: 30, y: 4, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0x7B9EFF, long_mode: DOT, align: TOP_LEFT}
                             - label: {id: pair2_a_th, x: 30, y: 36, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0xCCCCDD, align: TOP_LEFT}
                             - label: {id: pair2_a_noz, x: 122, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
@@ -1739,6 +1791,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: pair2_a_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: pair2_a_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1748,7 +1801,7 @@ obj:
                                   - obj: {id: pair2_a_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair2_a_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair2_a_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
-                      - obj: {width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, align: CENTER}
+                      - obj: {width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
                       - obj:
                           id: pair2_b_side
                           flex_grow: 1
@@ -1757,9 +1810,10 @@ obj:
                           border_width: 0
                           pad_all: 0
                           scrollbar_mode: "OFF"
+                          scrollable: false
                           widgets:
-                            - image: {id: pair2_b_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0xFF9E6E, image_recolor_opa: COVER, hidden: true}
-                            - image: {id: pair2_b_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7EC8A0, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair2_b_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair2_b_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
                             - label: {id: pair2_b_name, x: 30, y: 4, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0x7B9EFF, long_mode: DOT, align: TOP_LEFT}
                             - label: {id: pair2_b_th, x: 30, y: 36, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0xCCCCDD, align: TOP_LEFT}
                             - label: {id: pair2_b_noz, x: 122, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
@@ -1773,6 +1827,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: pair2_b_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: pair2_b_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1790,6 +1845,7 @@ obj:
                     height: 70
                     styles: sty_ams_row
                     scrollbar_mode: "OFF"
+                    scrollable: false
                     hidden: true
                     layout: {type: FLEX, flex_flow: ROW}
                     widgets:
@@ -1801,9 +1857,10 @@ obj:
                           border_width: 0
                           pad_all: 0
                           scrollbar_mode: "OFF"
+                          scrollable: false
                           widgets:
-                            - image: {id: pair3_a_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0xFF9E6E, image_recolor_opa: COVER, hidden: true}
-                            - image: {id: pair3_a_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7EC8A0, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair3_a_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair3_a_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
                             - label: {id: pair3_a_name, x: 30, y: 4, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0x7B9EFF, long_mode: DOT, align: TOP_LEFT}
                             - label: {id: pair3_a_th, x: 30, y: 36, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0xCCCCDD, align: TOP_LEFT}
                             - label: {id: pair3_a_noz, x: 122, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
@@ -1817,6 +1874,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: pair3_a_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: pair3_a_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1826,7 +1884,7 @@ obj:
                                   - obj: {id: pair3_a_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair3_a_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair3_a_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
-                      - obj: {width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, align: CENTER}
+                      - obj: {width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
                       - obj:
                           id: pair3_b_side
                           flex_grow: 1
@@ -1835,9 +1893,10 @@ obj:
                           border_width: 0
                           pad_all: 0
                           scrollbar_mode: "OFF"
+                          scrollable: false
                           widgets:
-                            - image: {id: pair3_b_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0xFF9E6E, image_recolor_opa: COVER, hidden: true}
-                            - image: {id: pair3_b_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7EC8A0, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair3_b_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair3_b_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
                             - label: {id: pair3_b_name, x: 30, y: 4, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0x7B9EFF, long_mode: DOT, align: TOP_LEFT}
                             - label: {id: pair3_b_th, x: 30, y: 36, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0xCCCCDD, align: TOP_LEFT}
                             - label: {id: pair3_b_noz, x: 122, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
@@ -1851,6 +1910,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: pair3_b_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: pair3_b_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1868,6 +1928,7 @@ obj:
                     height: 70
                     styles: sty_ams_row
                     scrollbar_mode: "OFF"
+                    scrollable: false
                     hidden: true
                     layout: {type: FLEX, flex_flow: ROW}
                     widgets:
@@ -1879,9 +1940,10 @@ obj:
                           border_width: 0
                           pad_all: 0
                           scrollbar_mode: "OFF"
+                          scrollable: false
                           widgets:
-                            - image: {id: pair4_a_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0xFF9E6E, image_recolor_opa: COVER, hidden: true}
-                            - image: {id: pair4_a_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7EC8A0, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair4_a_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair4_a_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
                             - label: {id: pair4_a_name, x: 30, y: 4, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0x7B9EFF, long_mode: DOT, align: TOP_LEFT}
                             - label: {id: pair4_a_th, x: 30, y: 36, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0xCCCCDD, align: TOP_LEFT}
                             - label: {id: pair4_a_noz, x: 122, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
@@ -1895,6 +1957,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: pair4_a_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: pair4_a_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
@@ -1904,7 +1967,7 @@ obj:
                                   - obj: {id: pair4_a_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair4_a_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair4_a_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
-                      - obj: {width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, align: CENTER}
+                      - obj: {width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
                       - obj:
                           id: pair4_b_side
                           flex_grow: 1
@@ -1913,9 +1976,10 @@ obj:
                           border_width: 0
                           pad_all: 0
                           scrollbar_mode: "OFF"
+                          scrollable: false
                           widgets:
-                            - image: {id: pair4_b_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0xFF9E6E, image_recolor_opa: COVER, hidden: true}
-                            - image: {id: pair4_b_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7EC8A0, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair4_b_ht, src: img_ht_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
+                            - image: {id: pair4_b_vt, src: img_vt_sm, x: 6, y: 2, image_recolor: 0x7B9EFF, image_recolor_opa: COVER, hidden: true}
                             - label: {id: pair4_b_name, x: 30, y: 4, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0x7B9EFF, long_mode: DOT, align: TOP_LEFT}
                             - label: {id: pair4_b_th, x: 30, y: 36, width: 90, height: 30, text: "", text_font: roboto_12, text_color: 0xCCCCDD, align: TOP_LEFT}
                             - label: {id: pair4_b_noz, x: 122, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
@@ -1929,6 +1993,7 @@ obj:
                                 border_width: 0
                                 pad_all: 0
                                 scrollbar_mode: "OFF"
+                                scrollable: false
                                 widgets:
                                   - image: {id: pair4_b_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
                                   - obj: {id: pair4_b_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}

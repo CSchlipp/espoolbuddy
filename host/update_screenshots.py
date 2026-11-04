@@ -42,6 +42,8 @@ VARIANTS = [
         "quick-settings": "quick-settings.png",
         "nfc-spool": "nfc-spool.png",
         "nfc-unlinked": "nfc-unlinked.png",
+        "nfc-unlinked-bambu": "nfc-unlinked-bambu.png",
+        "nfc-unlinked-opentag3d": "nfc-unlinked-opentag3d.png",
         "nfc-picker": "nfc-picker.png",
         "scale": "scale.png",
         "settings-features": "settings-features.png",
