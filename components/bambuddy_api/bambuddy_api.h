@@ -133,6 +133,12 @@ static constexpr uint32_t SCALE_HEARTBEAT_FAST_MS = 200;
 // has already been reported as failed there, and applying it later (possibly
 // with a spool on the platform) would set a wrong zero point.
 static constexpr uint32_t PENDING_SCALE_CMD_TTL_MS = 15000;
+// A tare/calibrate request on a local load cell waits for a settled reading.
+// MIN_WAIT covers the filters' delay before a disturbance shows up in the
+// reading at all, so "stable" can't just mean "hasn't noticed yet". TIMEOUT
+// stays below PENDING_SCALE_CMD_TTL_MS, the Bambuddy UI's own limit.
+static constexpr uint32_t LOCAL_CAPTURE_MIN_WAIT_MS = 1000;
+static constexpr uint32_t LOCAL_CAPTURE_TIMEOUT_MS = 10000;
 
 // Where a device gets its weight from (bambuddy_api `scale:` block).
 //   NONE   — no scale (a satellite that only forwards NFC events).
@@ -733,11 +739,12 @@ class BambuddyAPIComponent : public Component {
   void request_tare();
 
   // ---- Local tare (scale: type: local only) ----
-  // Takes the current gross reading as the new zero point, saves it to NVS
-  // and republishes the reading so the zeroed weight shows at once (the
-  // sensor's delta filter emits nothing while the load is unchanged).  On a
-  // console it also reports the new tare to Bambuddy.  Called by the scale's
-  // Tare button, request_tare() and a heartbeat-delivered tare command.
+  // Asks for the next settled gross reading to become the new zero point (see
+  // start_local_capture()). It is then saved to NVS and republished so the
+  // zeroed weight shows at once (the sensor's delta filter emits nothing while
+  // the load is unchanged).  On a console it is also reported to Bambuddy.
+  // Called by the scale's Tare button, request_tare() and a
+  // heartbeat-delivered tare command, from any task.
   // No-op for any other weight source.
   void local_tare();
 
@@ -745,7 +752,8 @@ class BambuddyAPIComponent : public Component {
   // Single calibrate entry point for both the UI calibrate button and the
   // backend "calibrate_with_weight" command (handle_command).  Place a known
   // reference weight on the scale, then call this with its value.  LOCAL:
-  // factor = reference / net reading, saved to NVS and reported to Bambuddy.
+  // factor = reference / settled net reading (see start_local_capture()),
+  // saved to NVS and reported to Bambuddy.
   // REMOTE scale connected: delivered via its next heartbeat response.
   // Otherwise only shows "No scale connected".  Rejects values <= 0.
   void request_calibration(float reference_weight_g);
@@ -775,9 +783,21 @@ class BambuddyAPIComponent : public Component {
   // (rate limited — see http_task_loop()). Never queues a job, so weight can't
   // crowd user actions out of the job queue.
   void ingest_weight(float net, bool stable, int raw_adc);
-  // LOCAL source: calibrate against a reference weight on the platform.
-  // Returns false (and sets a status) when no usable reading is available.
+  // LOCAL source: calibrate against a reference weight on the platform, once
+  // the reading has settled. Returns false when there is no reading yet. Safe
+  // from any task.
   bool local_calibrate(float reference_weight_g);
+  // LOCAL source: tare and calibrate don't take the reading at the moment they
+  // are asked for. It may still be moving: the sensor's filters lag behind a
+  // load that was just changed, and the load itself can take a moment to come
+  // to rest. This only records the request, which
+  // run_local_capture() carries out on the main loop once the reading settles.
+  // A newer request replaces a pending one.
+  enum class LocalCapture : uint8_t { NONE, TARE, CALIBRATE };
+  void start_local_capture(LocalCapture kind, float reference_weight_g);
+  void run_local_capture();
+  void apply_local_tare();
+  void apply_local_calibration(float reference_weight_g);
   // LOCAL source: re-feed the last reading so a tare/calibration change shows
   // at once.
   void republish_local_reading();
@@ -1237,6 +1257,11 @@ class BambuddyAPIComponent : public Component {
   uint32_t local_change_ms_{0};             // when the reading last moved by >= stable_band
   bool local_have_value_{false};
   bool local_stable_{false};
+  // Pending tare/calibrate. The kind can be set from any task; the time and
+  // reference weight are guarded by state_mutex_ and written first.
+  std::atomic<LocalCapture> local_capture_{LocalCapture::NONE};
+  uint32_t local_capture_ms_{0};
+  float local_capture_ref_{0.0f};
 
   // Base URLs of the console(s), no port (satellites only). The first
   // entry drives connectivity (last_push_ok_ms_) and the LED; commands

@@ -222,13 +222,16 @@ void BambuddyAPIComponent::setup() {
 // blocked. loop() only times the LOCAL source's stability: a delta filter on
 // the sensor stops emitting once the load is steady, so "stable" can't be
 // edge-detected from the sensor stream — it is the absence of moves for
-// local_stable_after_ms_.
+// local_stable_after_ms_. It also carries out a pending tare/calibrate once the
+// reading has settled.
 void BambuddyAPIComponent::loop() {
-  if (scale_source_ != ScaleSource::LOCAL || !local_have_value_ || local_stable_) return;
-  if (millis() - local_change_ms_ >= local_stable_after_ms_) {
+  if (scale_source_ != ScaleSource::LOCAL) return;
+  if (local_have_value_ && !local_stable_ &&
+      millis() - local_change_ms_ >= local_stable_after_ms_) {
     local_stable_ = true;
     on_scale_reading(local_gross_, true);
   }
+  run_local_capture();
 }
 
 // ---------------------------------------------------------------------------
@@ -1133,6 +1136,44 @@ void BambuddyAPIComponent::local_tare() {
     ESP_LOGW(TAG, "Tare ignored: no reading from the load-cell sensor yet");
     return;
   }
+  start_local_capture(LocalCapture::TARE, 0.0f);
+}
+
+void BambuddyAPIComponent::start_local_capture(LocalCapture kind, float reference_weight_g) {
+  lock_state();
+  local_capture_ms_  = millis();
+  local_capture_ref_ = reference_weight_g;
+  unlock_state();
+  local_capture_.store(kind);
+  set_status("Hold still...");
+}
+
+void BambuddyAPIComponent::run_local_capture() {
+  const LocalCapture kind = local_capture_.load();
+  if (kind == LocalCapture::NONE) return;
+  lock_state();
+  const uint32_t started = local_capture_ms_;
+  const float reference  = local_capture_ref_;
+  unlock_state();
+  const uint32_t age = millis() - started;
+  if (age >= LOCAL_CAPTURE_TIMEOUT_MS) {
+    local_capture_.store(LocalCapture::NONE);
+    set_status("Scale not settling, try again");
+    ESP_LOGW(TAG, "%s cancelled: reading did not settle within %lu ms",
+             kind == LocalCapture::TARE ? "Tare" : "Calibrate",
+             (unsigned long) LOCAL_CAPTURE_TIMEOUT_MS);
+    return;
+  }
+  if (age < LOCAL_CAPTURE_MIN_WAIT_MS || !local_stable_ || !local_live()) return;
+  local_capture_.store(LocalCapture::NONE);
+  if (kind == LocalCapture::TARE) {
+    apply_local_tare();
+  } else {
+    apply_local_calibration(reference);
+  }
+}
+
+void BambuddyAPIComponent::apply_local_tare() {
   lock_state();
   tare_offset_ = local_gross_;
   unlock_state();
@@ -1678,20 +1719,7 @@ void BambuddyAPIComponent::request_calibration(float reference_weight_g) {
       ESP_LOGW(TAG, "Calibrate ignored: load-cell sensor not delivering readings");
       return;
     }
-    if (!local_calibrate(reference_weight_g)) return;
-    char msg[64];
-    snprintf(msg, sizeof(msg), "Calibration applied (factor %.4f)", calibration_factor_);
-    set_status(msg);
-    // Report to Bambuddy as a synthetic reference/measured pair that
-    // reproduces the factor: its set-factor endpoint only takes integer
-    // raw readings, and 10000 / factor (>= 10000 units for a sensor with at
-    // least one unit per gram) keeps the rounding error below 1e-4, well
-    // inside the heartbeat sync's threshold — so the echo can't ping-pong.
-    HttpJob job;
-    job.kind = HttpJob::UPDATE_CALIBRATION;
-    job.f1   = 10000.0f;
-    job.f2   = 10000.0f / calibration_factor_;
-    enqueue_local_cal_job(job);
+    local_calibrate(reference_weight_g);
     return;
   }
 
@@ -1718,13 +1746,18 @@ bool BambuddyAPIComponent::local_calibrate(float reference_weight_g) {
     ESP_LOGW(TAG, "Calibrate ignored: no reading from the load-cell sensor yet");
     return false;
   }
+  start_local_capture(LocalCapture::CALIBRATE, reference_weight_g);
+  return true;
+}
+
+void BambuddyAPIComponent::apply_local_calibration(float reference_weight_g) {
   lock_state();
   float raw_net = local_gross_ - tare_offset_;
   unlock_state();
   if (raw_net <= 0.0f) {
     set_status("Place the reference weight first");
     ESP_LOGW(TAG, "Calibrate ignored: reading at or below tare (net %.2f)", raw_net);
-    return false;
+    return;
   }
   lock_state();
   calibration_factor_ = reference_weight_g / raw_net;
@@ -1734,7 +1767,21 @@ bool BambuddyAPIComponent::local_calibrate(float reference_weight_g) {
   ESP_LOGI(TAG, "Calibrated: ref=%.1f g net=%.2f → factor=%.6f",
            reference_weight_g, raw_net, calibration_factor_);
   republish_local_reading();
-  return true;
+  if (!satellite()) {
+    char msg[64];
+    snprintf(msg, sizeof(msg), "Calibration applied (factor %.4f)", calibration_factor_);
+    set_status(msg);
+    // Report to Bambuddy as a synthetic reference/measured pair that
+    // reproduces the factor: its set-factor endpoint only takes integer
+    // raw readings, and 10000 / factor (>= 10000 units for a sensor with at
+    // least one unit per gram) keeps the rounding error below 1e-4, well
+    // inside the heartbeat sync's threshold — so the echo can't ping-pong.
+    HttpJob job;
+    job.kind = HttpJob::UPDATE_CALIBRATION;
+    job.f1   = 10000.0f;
+    job.f2   = 10000.0f / calibration_factor_;
+    enqueue_local_cal_job(job);
+  }
 }
 
 bool BambuddyAPIComponent::api_write_tag_result(int spool_id,
@@ -3045,8 +3092,8 @@ void BambuddyAPIComponent::api_scale_push_heartbeat() {
   } else if (cmd == "calibrate") {
     float ref = parse_json_float(resp, "value", 0.0f);
     ESP_LOGI(TAG, "Scale received calibrate command via heartbeat (ref=%.1f g)", ref);
-    // local_calibrate() saves to NVS and force-pushes the recalibrated
-    // weight (which also carries the new factor to the console).
+    // Once the reading settles, this saves to NVS and force-pushes the
+    // recalibrated weight (which also carries the new factor to the console).
     if (ref > 0.0f) local_calibrate(ref);
   } else if (cmd == "set_calibration") {
     // Backend-driven calibration relayed by the console: adopt the values,
