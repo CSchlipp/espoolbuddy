@@ -468,13 +468,12 @@ void BambuddyAPIComponent::http_task_loop() {
           api_write_tag_result(job.i1, job.s1, job.b1, job.s2);
           break;
         case HttpJob::UPDATE_TARE:
-          // Every UPDATE_TARE / UPDATE_CALIBRATION job on a LOCAL console was
-          // queued through enqueue_local_cal_job(); a failed one leaves the
-          // backend stale, so re-send on the next good heartbeat instead of
-          // letting its calibration sync revert the local values.
-          if (!api_update_tare(job.f1) && scale_source_ == ScaleSource::LOCAL)
-            local_cal_unsynced_ = true;
-          if (scale_source_ == ScaleSource::LOCAL) local_cal_jobs_--;
+          // Every UPDATE_TARE / UPDATE_CALIBRATION job was queued through
+          // enqueue_cal_report_job(); a failed one leaves the backend stale, so
+          // re-send on the next good heartbeat instead of letting its
+          // calibration sync revert the values.
+          if (!api_update_tare(job.f1)) cal_unsynced_ = true;
+          cal_report_jobs_--;
           break;
         case HttpJob::CLEAR_ASSIGNMENT: {
           int ams_id   = job.i1;
@@ -511,10 +510,8 @@ void BambuddyAPIComponent::http_task_loop() {
           api_create_spool_from_tag(job.s1, job.s2, job.filament);
           break;
         case HttpJob::UPDATE_CALIBRATION:
-          if (!api_report_calibration_point(job.f1, job.f2) &&
-              scale_source_ == ScaleSource::LOCAL)
-            local_cal_unsynced_ = true;
-          if (scale_source_ == ScaleSource::LOCAL) local_cal_jobs_--;
+          if (!api_report_calibration_point(job.f1, job.f2)) cal_unsynced_ = true;
+          cal_report_jobs_--;
           break;
         case HttpJob::UPDATE_SPOOL_WEIGHT:
           api_update_spool_weight(job.i1, job.f1);
@@ -1121,7 +1118,7 @@ void BambuddyAPIComponent::request_tare() {
     pending_scale_cmd_    = "tare";
     pending_scale_cmd_ms_ = millis();
     unlock_state();
-    set_status("Tare sent to scale...");
+    set_status("Hold still...");
     return;
   }
   // No scale: post nothing — a tare of whatever happens to be in
@@ -1159,6 +1156,10 @@ void BambuddyAPIComponent::run_local_capture() {
   if (age >= LOCAL_CAPTURE_TIMEOUT_MS) {
     local_capture_.store(LocalCapture::NONE);
     set_status("Scale not settling, try again");
+    if (satellite()) {
+      capture_error_ = CAPTURE_ERROR_NOT_SETTLED;
+      weight_push_dirty_ = true;
+    }
     ESP_LOGW(TAG, "%s cancelled: reading did not settle within %lu ms",
              kind == LocalCapture::TARE ? "Tare" : "Calibrate",
              (unsigned long) LOCAL_CAPTURE_TIMEOUT_MS);
@@ -1185,13 +1186,13 @@ void BambuddyAPIComponent::apply_local_tare() {
     HttpJob job;
     job.kind = HttpJob::UPDATE_TARE;
     job.f1   = tare_offset_;
-    enqueue_local_cal_job(job);
+    enqueue_cal_report_job(job);
   }
 }
 
-void BambuddyAPIComponent::enqueue_local_cal_job(const HttpJob &job) {
-  local_cal_jobs_++;
-  if (!enqueue_job(job)) local_cal_jobs_--;
+void BambuddyAPIComponent::enqueue_cal_report_job(const HttpJob &job) {
+  cal_report_jobs_++;
+  if (!enqueue_job(job)) cal_report_jobs_--;
 }
 
 // ---------------------------------------------------------------------------
@@ -1239,7 +1240,7 @@ bool BambuddyAPIComponent::api_register_device() {
       HttpJob tj;
       tj.kind = HttpJob::UPDATE_TARE;
       tj.f1   = tare_offset_;
-      enqueue_local_cal_job(tj);
+      enqueue_cal_report_job(tj);
     }
     if (calibration_factor_ > 0.0f &&
         fabsf(cal - calibration_factor_) > calibration_factor_ * 1e-3f) {
@@ -1247,7 +1248,7 @@ bool BambuddyAPIComponent::api_register_device() {
       cj.kind = HttpJob::UPDATE_CALIBRATION;
       cj.f1   = 10000.0f;  // synthetic pair, see request_calibration()
       cj.f2   = 10000.0f / calibration_factor_;
-      enqueue_local_cal_job(cj);
+      enqueue_cal_report_job(cj);
     }
   } else if (cal != calibration_factor_ || tare != tare_offset_) {
     calibration_factor_ = cal;
@@ -1367,25 +1368,28 @@ void BambuddyAPIComponent::api_heartbeat() {
   // local tare/calibration has not reached the backend yet, so stale backend
   // values never revert a fresh tare.
   lock_state();
-  bool tare_in_flight = tare_ack_pending_;
+  // A tare/calibrate handed to the scale hasn't reported back yet: the backend's
+  // values are about to be replaced, so don't push them to the scale.
+  bool tare_in_flight = (tare_ack_pending_ || calibrate_ack_pending_) &&
+                        millis() - scale_cmd_delivered_ms_ < PENDING_SCALE_CMD_TTL_MS;
   unlock_state();
-  if (local_cal_unsynced_ && local_cal_jobs_.load() == 0) {
+  if (cal_unsynced_ && cal_report_jobs_.load() == 0) {
     // An earlier local tare/calibration POST failed; the backend is reachable
     // again (this heartbeat worked), so send the local values once more.
-    local_cal_unsynced_ = false;
+    cal_unsynced_ = false;
     ESP_LOGI(TAG, "Re-sending local calibration to backend");
     HttpJob tj;
     tj.kind = HttpJob::UPDATE_TARE;
     tj.f1   = tare_offset_;
-    enqueue_local_cal_job(tj);
+    enqueue_cal_report_job(tj);
     HttpJob cj;
     cj.kind = HttpJob::UPDATE_CALIBRATION;
     cj.f1   = 10000.0f;  // synthetic pair, see request_calibration()
     cj.f2   = 10000.0f / calibration_factor_;
-    enqueue_local_cal_job(cj);
+    enqueue_cal_report_job(cj);
   }
   if (cmd != "tare" && cmd != "calibrate_with_weight" && !tare_in_flight &&
-      local_cal_jobs_.load() == 0) {
+      cal_report_jobs_.load() == 0) {
     float cal  = parse_json_float(resp, "calibration_factor", calibration_factor_);
     float tare = parse_json_float(resp, "tare_offset",        tare_offset_);
     // Thresholds absorb the backend's integer tare rounding and the
@@ -1730,7 +1734,7 @@ void BambuddyAPIComponent::request_calibration(float reference_weight_g) {
     pending_scale_cmd_value_ = reference_weight_g;
     pending_scale_cmd_ms_    = millis();
     unlock_state();
-    set_status("Calibrate sent to scale...");
+    set_status("Hold still...");
     ESP_LOGI(TAG, "request_calibration (push): ref=%.1f g queued for scale", reference_weight_g);
     return;
   }
@@ -1757,6 +1761,10 @@ void BambuddyAPIComponent::apply_local_calibration(float reference_weight_g) {
   if (raw_net <= 0.0f) {
     set_status("Place the reference weight first");
     ESP_LOGW(TAG, "Calibrate ignored: reading at or below tare (net %.2f)", raw_net);
+    if (satellite()) {
+      capture_error_ = CAPTURE_ERROR_NO_LOAD;
+      weight_push_dirty_ = true;
+    }
     return;
   }
   lock_state();
@@ -1780,7 +1788,7 @@ void BambuddyAPIComponent::apply_local_calibration(float reference_weight_g) {
     job.kind = HttpJob::UPDATE_CALIBRATION;
     job.f1   = 10000.0f;
     job.f2   = 10000.0f / calibration_factor_;
-    enqueue_local_cal_job(job);
+    enqueue_cal_report_job(job);
   }
 }
 
@@ -3019,12 +3027,17 @@ bool BambuddyAPIComponent::api_scale_push_weight(float grams, bool stable) {
   // Apply tare and calibration before pushing so the console receives net grams.
   float net = (grams - tare_offset_) * calibration_factor_;
 
-  char body[256];
+  // capturing: a tare/calibrate is still waiting for a settled reading, so
+  // these values aren't its result yet. capture_error: why one was given up on.
+  const int capture_error = capture_error_.load();
+  char body[300];
   snprintf(body, sizeof(body),
            "{\"weight_grams\":%.2f,\"stable\":%s,\"hostname\":\"%s\","
-           "\"tare_offset\":%.2f,\"calibration_factor\":%.6f}",
+           "\"tare_offset\":%.2f,\"calibration_factor\":%.6f,"
+           "\"capturing\":%s,\"capture_error\":%d}",
            net, stable ? "true" : "false", esc(hostname_).c_str(),
-           tare_offset_, calibration_factor_);
+           tare_offset_, calibration_factor_,
+           local_capture_.load() != LocalCapture::NONE ? "true" : "false", capture_error);
 
   std::string resp;
   bool ok = push_to_consoles("/scale/weight", body, resp);
@@ -3032,6 +3045,7 @@ bool BambuddyAPIComponent::api_scale_push_weight(float grams, bool stable) {
     ESP_LOGD(TAG, "Scale push weight to console failed");
     return false;
   }
+  if (capture_error != CAPTURE_ERROR_NONE) capture_error_ = CAPTURE_ERROR_NONE;
   return true;
   // Commands (tare/calibrate/write_tag) are delivered via heartbeat response,
   // not piggybacked here, so weight push stays a pure data channel.
@@ -3264,15 +3278,36 @@ esp_err_t BambuddyAPIComponent::console_http_scale_weight(httpd_req_t *req) {
   float new_tare = parse_json_float(json, "tare_offset",       kAbsent);
   float new_cal  = parse_json_float(json, "calibration_factor", kAbsent);
 
+  // Absent on a scale running older firmware, which applied commands at once.
+  bool capturing    = parse_json_bool(json, "capturing", false);
+  int capture_error = (int) parse_json_float(json, "capture_error", 0.0f);
+
   self->lock_state();
-  // A tare command was delivered to the scale and this push carries its
-  // (post-tare) offset — consume the ack flag.
+  // A tare/calibrate command was delivered to the scale and this push carries
+  // its result — consume the ack flags. A push sent while the scale is still
+  // waiting to capture only carries the old values.
   bool ack_tare = false;
-  if (self->tare_ack_pending_ && new_tare != kAbsent) {
+  bool ack_calibrate = false;
+  if (capture_error != CAPTURE_ERROR_NONE) {
     self->tare_ack_pending_ = false;
-    ack_tare = true;
+    self->calibrate_ack_pending_ = false;
+  } else if (!capturing && new_tare != kAbsent) {
+    ack_tare = self->tare_ack_pending_;
+    ack_calibrate = self->calibrate_ack_pending_;
+    self->tare_ack_pending_ = false;
+    self->calibrate_ack_pending_ = false;
   }
   self->unlock_state();
+
+  if (capture_error == CAPTURE_ERROR_NOT_SETTLED) {
+    self->set_status("Scale not settling, try again");
+  } else if (capture_error == CAPTURE_ERROR_NO_LOAD) {
+    self->set_status("Place the reference weight first");
+  } else if (ack_tare) {
+    self->set_status("Tare applied");
+  } else if (ack_calibrate) {
+    self->set_status("Calibration applied");
+  }
 
   // Sync tare from the scale.  POST set-tare to the backend when the offset
   // changed — or unconditionally right after a tare command (ack_tare): the
@@ -3285,7 +3320,7 @@ esp_err_t BambuddyAPIComponent::console_http_scale_weight(httpd_req_t *req) {
     HttpJob tj;
     tj.kind = HttpJob::UPDATE_TARE;
     tj.f1   = new_tare;
-    self->enqueue_job(tj);
+    self->enqueue_cal_report_job(tj);
     ESP_LOGI(TAG, "Console: reporting scale tare_offset %.2f to backend%s",
              new_tare, ack_tare ? " (tare command ack)" : "");
   }
@@ -3304,7 +3339,7 @@ esp_err_t BambuddyAPIComponent::console_http_scale_weight(httpd_req_t *req) {
     cj.kind = HttpJob::UPDATE_CALIBRATION;
     cj.f1   = 10000.0f;
     cj.f2   = 10000.0f / new_cal;
-    self->enqueue_job(cj);
+    self->enqueue_cal_report_job(cj);
     ESP_LOGI(TAG, "Console: scale calibration_factor changed to %.6f — notifying backend",
              new_cal);
   }
@@ -3360,6 +3395,8 @@ esp_err_t BambuddyAPIComponent::console_http_scale_heartbeat(httpd_req_t *req) {
   // Tare handed to the scale: ack to the backend on the next weight push,
   // even if the offset value comes back unchanged (see tare_ack_pending_).
   if (cmd == "tare" && !expired) self->tare_ack_pending_ = true;
+  if (cmd == "calibrate" && !expired) self->calibrate_ack_pending_ = true;
+  if ((cmd == "tare" || cmd == "calibrate") && !expired) self->scale_cmd_delivered_ms_ = millis();
 
   self->unlock_state();
 

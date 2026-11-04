@@ -137,8 +137,11 @@ static constexpr uint32_t PENDING_SCALE_CMD_TTL_MS = 15000;
 // MIN_WAIT covers the filters' delay before a disturbance shows up in the
 // reading at all, so "stable" can't just mean "hasn't noticed yet". TIMEOUT
 // stays below PENDING_SCALE_CMD_TTL_MS, the Bambuddy UI's own limit.
-static constexpr uint32_t LOCAL_CAPTURE_MIN_WAIT_MS = 1000;
+static constexpr uint32_t LOCAL_CAPTURE_MIN_WAIT_MS = 600;
 static constexpr uint32_t LOCAL_CAPTURE_TIMEOUT_MS = 10000;
+static constexpr int CAPTURE_ERROR_NONE = 0;
+static constexpr int CAPTURE_ERROR_NOT_SETTLED = 1;
+static constexpr int CAPTURE_ERROR_NO_LOAD = 2;
 
 // Where a device gets its weight from (bambuddy_api `scale:` block).
 //   NONE   — no scale (a satellite that only forwards NFC events).
@@ -887,8 +890,8 @@ class BambuddyAPIComponent : public Component {
   // Returns false when the (capped) queue was full and the job was dropped.
   bool enqueue_job(const HttpJob &job);
   // LOCAL source: queue an UPDATE_TARE / UPDATE_CALIBRATION job and count it
-  // in local_cal_jobs_ until the HTTP task has sent it.
-  void enqueue_local_cal_job(const HttpJob &job);
+  // in cal_report_jobs_ until the HTTP task has sent it.
+  void enqueue_cal_report_job(const HttpJob &job);
   bool dequeue_job(HttpJob &job);
 
   // State-mutex helpers (guard all concurrent access to display_state_)
@@ -1260,6 +1263,9 @@ class BambuddyAPIComponent : public Component {
   // Pending tare/calibrate. The kind can be set from any task; the time and
   // reference weight are guarded by state_mutex_ and written first.
   std::atomic<LocalCapture> local_capture_{LocalCapture::NONE};
+  // Satellite: why the last capture failed, reported in the next weight push
+  // because the status line that would show it is on the console.
+  std::atomic<int> capture_error_{CAPTURE_ERROR_NONE};
   uint32_t local_capture_ms_{0};
   float local_capture_ref_{0.0f};
 
@@ -1290,11 +1296,11 @@ class BambuddyAPIComponent : public Component {
   // LOCAL source: tare/calibration jobs queued but not yet sent to Bambuddy.
   // While non-zero, the heartbeat's calibration sync is skipped — its values
   // predate the local change and would revert it.
-  std::atomic<int> local_cal_jobs_{0};
+  std::atomic<int> cal_report_jobs_{0};
   // LOCAL source: a tare/calibration POST failed, so the backend holds stale
   // values. Set by the HTTP task; the next successful heartbeat re-sends the
   // local values instead of syncing from the backend.
-  bool local_cal_unsynced_{false};
+  bool cal_unsynced_{false};
 
   // Pending console→scale command: delivered in the next /scale/heartbeat response.
   // Written by request_tare() / request_calibration() / handle_command() (under state_mutex_).
@@ -1309,6 +1315,10 @@ class BambuddyAPIComponent : public Component {
   // confirms tare completion by watching last_calibrated_at advance (15 s
   // timeout), which only happens on a set-tare POST.  Guarded by state_mutex_.
   bool tare_ack_pending_{false};
+  // Same for a calibrate command, and when the latest of the two was handed
+  // over: a scale that never answers must not block the backend sync forever.
+  bool calibrate_ack_pending_{false};
+  uint32_t scale_cmd_delivered_ms_{0};
   float pending_scale_cmd_value_{0.0f};
   // Extra JSON key-value pairs for commands that carry a payload (e.g. write_tag).
   // Serialised as a comma-prefixed JSON fragment appended directly to the response object.
