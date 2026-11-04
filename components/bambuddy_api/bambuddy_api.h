@@ -696,6 +696,17 @@ class BambuddyAPIComponent : public Component {
   // Takes the state mutex, copies, releases — never blocks on HTTP.
   DisplayState snapshot();
 
+  // Status line accessors for the UI. The generation changes on every
+  // set_status(), so a button's feedback can render on the next main-loop
+  // iteration, and repeating the same message still counts as new.
+  uint32_t status_generation() const { return status_generation_.load(); }
+  std::string get_status() {
+    lock_state();
+    std::string m = display_state_.status_message;
+    unlock_state();
+    return m;
+  }
+
   // Lightweight scale-only accessor for the on_loop weight display — just 3
   // primitives under the lock, unlike snapshot() which deep-copies the whole
   // DisplayState (printers/AMS vectors included). Cheap enough to call every
@@ -842,6 +853,7 @@ class BambuddyAPIComponent : public Component {
     lock_state();
     display_state_.status_message = m;
     unlock_state();
+    status_generation_++;
   }
 
   // ------------------------------------------------------------------
@@ -1217,6 +1229,7 @@ class BambuddyAPIComponent : public Component {
   // confirms tare completion by watching last_calibrated_at advance (15 s
   // timeout), which only happens on a set-tare POST.  Guarded by state_mutex_.
   bool tare_ack_pending_{false};
+  std::atomic<uint32_t> status_generation_{0};
   float pending_scale_cmd_value_{0.0f};
   // Extra JSON key-value pairs for commands that carry a payload (e.g. write_tag).
   // Serialised as a comma-prefixed JSON fragment appended directly to the response object.
