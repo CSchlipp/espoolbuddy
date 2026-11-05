@@ -84,7 +84,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: platformio-${{ runner.os }}-${{ hashFiles('espoolbuddy_console.yaml', 'espoolbuddy_console_pandatouch.yaml', 'espoolbuddy_scale.yaml') }}
+          key: platformio-${{ runner.os }}-${{ hashFiles('espoolbuddy_console.yaml', 'espoolbuddy_console_pandatouch.yaml', 'espoolbuddy_console_scale.yaml', 'espoolbuddy_scale.yaml') }}
           restore-keys: |
             platformio-${{ runner.os }}-
 

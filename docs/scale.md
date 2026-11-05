@@ -6,7 +6,7 @@ A load cell + NFC reader that weighs a spool and pushes the reading straight
 to the console — no display of its own, no direct connection to Bambuddy.
 Firmware: [`espoolbuddy_scale.yaml`](../espoolbuddy_scale.yaml).
 
-Works with either console build. It's what the console uses by default
+Works with the WT32-SC01 Plus and Panda Touch console builds. It's what the console uses by default
 (`scale: type: remote`). A console can instead read a
 [load cell wired to itself](console-builtin-scale.md) (optional).
 

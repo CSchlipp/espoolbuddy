@@ -3,7 +3,7 @@
 # Setup & flashing
 
 These steps are the same for every device this project builds — the
-console (either hardware option) and the scale. Wherever you see
+console (any hardware option) and the scale. Wherever you see
 **`<console file>`** below, use the entry-point YAML for whichever device
 you're flashing:
 
@@ -11,6 +11,7 @@ you're flashing:
 |---|---|
 | Console — WT32-SC01 Plus | [`espoolbuddy_console.yaml`](../espoolbuddy_console.yaml) |
 | Console — Panda Touch | [`espoolbuddy_console_pandatouch.yaml`](../espoolbuddy_console_pandatouch.yaml) |
+| Console with built-in scale — [SpoolmanScale hardware](console-builtin-scale.md#spoolmanscale-hardware-nau7802) | [`espoolbuddy_console_scale.yaml`](../espoolbuddy_console_scale.yaml) |
 | Scale | [`espoolbuddy_scale.yaml`](../espoolbuddy_scale.yaml) |
 
 ## 1. Get Bambuddy running first

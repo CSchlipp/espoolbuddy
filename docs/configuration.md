@@ -5,7 +5,8 @@
 Edit the top of your device's entry-point YAML to change these —
 [`espoolbuddy_console.yaml`](../espoolbuddy_console.yaml),
 [`espoolbuddy_console_pandatouch.yaml`](../espoolbuddy_console_pandatouch.yaml),
-or [`espoolbuddy_scale.yaml`](../espoolbuddy_scale.yaml). All three share the
+[`espoolbuddy_console_scale.yaml`](../espoolbuddy_console_scale.yaml),
+or [`espoolbuddy_scale.yaml`](../espoolbuddy_scale.yaml). All four share the
 same `bambuddy_api` component; several options only apply to one mode.
 
 | Key | Applies to | Default | Description |
