@@ -82,6 +82,12 @@ esphome:
         }
         prev_weight_stable = stable_now;
 
+        static uint32_t rendered_status_generation = 0;
+        if (bambuddy->status_generation() != rendered_status_generation) {
+          rendered_status_generation = bambuddy->status_generation();
+          id(render_status).execute();
+        }
+
 # ============================================================================
 # Persistent globals
 # ============================================================================
@@ -206,6 +212,33 @@ text_sensor:
 # Tab switcher — shows the active content container and highlights its button
 # ============================================================================
 script:
+  # Status vs clock (they share one header slot). While a status message is
+  # active (held ~6 s after it changes) show it scrolling and hide the clock;
+  # otherwise show the clock. Run by the UI interval, and from on_loop as soon as
+  # a new status is set, so a button's feedback doesn't wait for the 400 ms tick.
+  - id: render_status
+    then:
+      - lambda: |-
+          static std::string last_status;
+          static uint32_t last_generation = 0;
+          static uint32_t status_since = 0;
+          std::string status = bambuddy->get_status();
+          uint32_t generation = bambuddy->status_generation();
+          if (status != last_status || generation != last_generation) {
+            last_status = status;
+            last_generation = generation;
+            status_since = millis();
+          }
+          bool show_msg = !status.empty() && (millis() - status_since) <= 6000;
+          if (show_msg) {
+            lv_label_set_text(id(lbl_status), status.c_str());
+            lv_obj_clear_flag(id(lbl_status), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(lbl_clock), LV_OBJ_FLAG_HIDDEN);
+          } else {
+            lv_obj_add_flag(id(lbl_status), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(lbl_clock), LV_OBJ_FLAG_HIDDEN);
+          }
+
   - id: apply_tab
     then:
       - lambda: |-
@@ -1153,28 +1186,6 @@ script:
               // the combined text doesn't fit, so short names just sit centered.
               std::string full = cur_printer.empty() ? std::string(cb) : (cur_printer + " - " + cb);
               lv_label_set_text(id(lbl_clock), full.c_str());
-            }
-          }
-
-          // ---- Status vs clock (share one header slot) ----
-          // While a status message is active (held ~6 s after it changes) show it
-          // scrolling and hide the clock; otherwise show the clock.
-          {
-            static std::string last_status;
-            static uint32_t status_since = 0;
-            if (s.status_message != last_status) {
-              last_status = s.status_message;
-              status_since = millis();
-            }
-            bool show_msg = !s.status_message.empty() &&
-                            (millis() - status_since) <= 6000;
-            if (show_msg) {
-              lv_label_set_text(id(lbl_status), s.status_message.c_str());
-              lv_obj_clear_flag(id(lbl_status), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_add_flag(id(lbl_clock), LV_OBJ_FLAG_HIDDEN);
-            } else {
-              lv_obj_add_flag(id(lbl_status), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_clear_flag(id(lbl_clock), LV_OBJ_FLAG_HIDDEN);
             }
           }
 
@@ -2603,3 +2614,4 @@ interval:
   - interval: 400ms
     then:
       - script.execute: ui_refresh
+      - script.execute: render_status
