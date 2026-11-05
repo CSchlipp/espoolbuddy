@@ -1157,6 +1157,7 @@ void BambuddyAPIComponent::request_tare() {
 void BambuddyAPIComponent::local_tare() {
   if (scale_source_ != ScaleSource::LOCAL) return;
   if (!local_have_value_) {
+    set_status("Scale not ready, try again");
     ESP_LOGW(TAG, "Tare ignored: no reading from the load-cell sensor yet");
     report_capture_error(CAPTURE_ERROR_NOT_SETTLED);
     return;
@@ -1826,6 +1827,7 @@ void BambuddyAPIComponent::request_calibration(float reference_weight_g) {
 
 bool BambuddyAPIComponent::local_calibrate(float reference_weight_g) {
   if (scale_source_ != ScaleSource::LOCAL || !local_have_value_) {
+    set_status("Scale not ready, try again");
     ESP_LOGW(TAG, "Calibrate ignored: no reading from the load-cell sensor yet");
     report_capture_error(CAPTURE_ERROR_NOT_SETTLED);
     return false;

@@ -849,7 +849,8 @@ class BambuddyAPIComponent : public Component {
   // True when the configured weight source currently delivers readings.
   bool scale_connected() const {
     switch (scale_source_) {
-      case ScaleSource::LOCAL:  return local_live();
+      // Raw readings can arrive before the sensor's filters publish a value.
+      case ScaleSource::LOCAL:  return local_live() && local_have_value_;
       case ScaleSource::REMOTE: return scale_live();
       default:                  return false;
     }
