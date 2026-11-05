@@ -925,6 +925,9 @@ class BambuddyAPIComponent : public Component {
   void enqueue_factor_report(float factor);
   // Satellite: tell the console why a tare/calibrate failed, in the next push.
   void report_capture_error(int error);
+  // Satellite: hand a tare/calibrate result (done, or why it failed) to every
+  // console's mailbox; each reports it once in its next weight push.
+  void post_capture_result(bool done, int error);
   bool dequeue_job(HttpJob &job);
 
   // State-mutex helpers (guard all concurrent access to display_state_)
@@ -1299,11 +1302,9 @@ class BambuddyAPIComponent : public Component {
   // Pending tare/calibrate. The kind can be set from any task; the time and
   // reference weight are guarded by state_mutex_ and written first.
   std::atomic<LocalCapture> local_capture_{LocalCapture::NONE};
-  // Satellite: why the last capture failed, reported in the next weight push
-  // because the status line that would show it is on the console.
-  std::atomic<int> capture_error_{CAPTURE_ERROR_NONE};
-  // Satellite: a tare/calibrate finished; the next push carries its result.
-  std::atomic<bool> capture_done_{false};
+  // Satellite: numbers each capture result handed to the mailboxes
+  // (post_capture_result()), so a sender only clears the one it delivered.
+  std::atomic<uint32_t> capture_seq_{0};
   uint32_t local_capture_ms_{0};
   float local_capture_ref_{0.0f};
 
@@ -1330,6 +1331,15 @@ class BambuddyAPIComponent : public Component {
     std::deque<ConsoleMsg> events;     // NFC / write-result, sent in order
     std::string weight_body;           // newest weight, if weight_pending
     bool weight_pending{false};
+    uint32_t weight_capture_seq{0};    // capture result in weight_body (0 = none)
+    // Capture result (tare/calibrate done, or why it failed) this console has
+    // not received yet. Added to each weight push queued for it until one is
+    // delivered; dropped after PENDING_SCALE_CMD_TTL_MS, when nobody waits for
+    // it any more (the console and the Bambuddy UI have given up).
+    bool capture_done{false};
+    int capture_error{CAPTURE_ERROR_NONE};
+    uint32_t capture_seq{0};           // 0 = no result pending
+    uint32_t capture_ms{0};            // when the result was produced
     std::string hb_body;               // newest heartbeat, if hb_pending
     bool hb_pending{false};
     uint8_t fails{0};                  // consecutive failed sends

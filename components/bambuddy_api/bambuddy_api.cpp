@@ -1206,7 +1206,7 @@ void BambuddyAPIComponent::apply_local_tare() {
   tare_offset_ = local_gross_;
   unlock_state();
   save_calibration_nvs();
-  if (satellite()) capture_done_ = true;
+  post_capture_result(true, CAPTURE_ERROR_NONE);
   // Show the zeroed reading at once (and, on a satellite, force a push of it).
   republish_local_reading();
   if (!satellite()) {
@@ -1220,8 +1220,24 @@ void BambuddyAPIComponent::apply_local_tare() {
 }
 
 void BambuddyAPIComponent::report_capture_error(int error) {
+  post_capture_result(false, error);
+}
+
+void BambuddyAPIComponent::post_capture_result(bool done, int error) {
   if (!satellite()) return;
-  capture_error_ = error;
+  uint32_t seq = ++capture_seq_;
+  if (seq == 0) seq = ++capture_seq_;  // 0 means "none"
+  uint32_t now = millis();
+  for (auto &wp : console_workers_) {
+    ConsoleWorker *w = wp.get();
+    xSemaphoreTake(w->lock, portMAX_DELAY);
+    // A newer result replaces one the console hasn't received yet.
+    w->capture_done = done;
+    w->capture_error = error;
+    w->capture_seq = seq;
+    w->capture_ms = now;
+    xSemaphoreGive(w->lock);
+  }
   weight_push_dirty_ = true;
 }
 
@@ -1838,7 +1854,7 @@ void BambuddyAPIComponent::apply_local_calibration(float reference_weight_g) {
   save_calibration_nvs();
   ESP_LOGI(TAG, "Calibrated: ref=%.1f g net=%.2f → factor=%.6f",
            reference_weight_g, raw_net, calibration_factor_);
-  if (satellite()) capture_done_ = true;
+  post_capture_result(true, CAPTURE_ERROR_NONE);
   republish_local_reading();
   if (!satellite()) {
     char msg[64];
@@ -3109,6 +3125,7 @@ void BambuddyAPIComponent::drain_console(ConsoleWorker *w) {
   for (;;) {
     ConsolePush kind;
     ConsoleMsg m;
+    uint32_t sent_capture_seq = 0;
     xSemaphoreTake(w->lock, portMAX_DELAY);
     if (!w->events.empty()) {
       kind = ConsolePush::EVENT;
@@ -3118,6 +3135,7 @@ void BambuddyAPIComponent::drain_console(ConsoleWorker *w) {
       kind = ConsolePush::WEIGHT;
       m = {"/scale/weight", std::move(w->weight_body)};
       w->weight_pending = false;
+      sent_capture_seq = w->weight_capture_seq;
     } else if (w->hb_pending) {
       kind = ConsolePush::HEARTBEAT;
       m = {"/scale/heartbeat", std::move(w->hb_body)};
@@ -3136,6 +3154,17 @@ void BambuddyAPIComponent::drain_console(ConsoleWorker *w) {
     std::string resp;
     bool ok = http_post_direct(w->base + m.path, m.body, resp);
     note_console_result(w, ok);
+    if (ok && sent_capture_seq != 0) {
+      // This console has the capture result now. Clear it, unless a newer
+      // one arrived meanwhile (that one goes out with the next push).
+      xSemaphoreTake(w->lock, portMAX_DELAY);
+      if (w->capture_seq == sent_capture_seq) {
+        w->capture_done = false;
+        w->capture_error = CAPTURE_ERROR_NONE;
+        w->capture_seq = 0;
+      }
+      xSemaphoreGive(w->lock);
+    }
     if (ok) {
       if (kind == ConsolePush::HEARTBEAT && !parse_json_string(resp, "cmd").empty()) {
         xSemaphoreTake(job_mutex_, portMAX_DELAY);
@@ -3152,6 +3181,7 @@ void BambuddyAPIComponent::drain_console(ConsoleWorker *w) {
       if (!w->weight_pending) {
         w->weight_body = std::move(m.body);
         w->weight_pending = true;
+        w->weight_capture_seq = sent_capture_seq;
       }
       xSemaphoreGive(w->lock);
     }
@@ -3164,10 +3194,27 @@ void BambuddyAPIComponent::post_to_consoles(ConsolePush kind, const char *path,
     ConsoleWorker *w = wp.get();
     xSemaphoreTake(w->lock, portMAX_DELAY);
     switch (kind) {
-      case ConsolePush::WEIGHT:
+      case ConsolePush::WEIGHT: {
+        // Add this console's own capture result (see ConsoleWorker). It is
+        // attached here, when the body is built, not at send time: a body
+        // built before the tare/calibrate carries the old values and must
+        // not be reported as its result.
+        if (w->capture_seq != 0 && millis() - w->capture_ms >= PENDING_SCALE_CMD_TTL_MS) {
+          ESP_LOGD(TAG, "Console %s: capture result expired unsent",
+                   console_urls_[w->idx].c_str());
+          w->capture_done = false;
+          w->capture_error = CAPTURE_ERROR_NONE;
+          w->capture_seq = 0;
+        }
+        char fields[64];
+        snprintf(fields, sizeof(fields), ",\"capture_done\":%s,\"capture_error\":%d",
+                 w->capture_done ? "true" : "false", w->capture_error);
         w->weight_body = body;
+        w->weight_body.insert(w->weight_body.size() - 1, fields);  // before the closing '}'
+        w->weight_capture_seq = w->capture_seq;
         w->weight_pending = true;
         break;
+      }
       case ConsolePush::HEARTBEAT:
         w->hb_body = body;
         w->hb_pending = true;
@@ -3195,23 +3242,18 @@ bool BambuddyAPIComponent::api_scale_push_weight(float grams, bool stable) {
   // Apply tare and calibration before pushing so the console receives net grams.
   float net = (grams - tare_offset_) * calibration_factor_;
 
-  // capture_done: a tare/calibrate finished, and these values are its result.
-  // capture_error: why one was given up on. Each is reported in one push.
-  const int capture_error = capture_error_.load();
-  const bool capture_done = capture_done_.load();
+  // post_to_consoles() adds capture_done (a tare/calibrate finished, and
+  // these values are its result) and capture_error (why one was given up on)
+  // per console, so each console gets each result exactly once.
   char body[300];
   snprintf(body, sizeof(body),
            "{\"weight_grams\":%.2f,\"stable\":%s,\"hostname\":\"%s\","
-           "\"tare_offset\":%.2f,\"calibration_factor\":%.6f,"
-           "\"capture_done\":%s,\"capture_error\":%d}",
+           "\"tare_offset\":%.2f,\"calibration_factor\":%.6f}",
            net, stable ? "true" : "false", esc(hostname_).c_str(),
-           tare_offset_, calibration_factor_,
-           capture_done ? "true" : "false", capture_error);
+           tare_offset_, calibration_factor_);
 
   // Queued, not sent: each console's sender retries it on its own.
   post_to_consoles(ConsolePush::WEIGHT, "/scale/weight", body);
-  if (capture_error != CAPTURE_ERROR_NONE) capture_error_ = CAPTURE_ERROR_NONE;
-  if (capture_done) capture_done_ = false;
   return true;
   // Commands (tare/calibrate/write_tag) are delivered via heartbeat response,
   // not piggybacked here, so weight push stays a pure data channel.
