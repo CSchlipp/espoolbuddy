@@ -485,7 +485,7 @@ struct DisplayState {
  *   - Accepts NFC tag-scanned / tag-removed callbacks from BambuddyNFCComponent
  *   - Reads weight from a local load-cell sensor or a remote scale device
  *   - Maintains a DisplayState struct that LVGL lambdas can query
- *   - Mocks SSH key deployment (not supported on ESP32)
+ *   - Ignores the SSH key Bambuddy sends (ESPHome can't accept SSH)
  */
 class BambuddyAPIComponent : public Component {
  public:
@@ -555,8 +555,9 @@ class BambuddyAPIComponent : public Component {
   bool chime_playing() const;
   // Sleep / low-power mode. After sleep_timeout of UI inactivity the YAML sleep
   // state machine turns the backlight off and calls set_low_power(true), which
-  // multiplies the heartbeat and printer-poll cadence by sleep_factor to cut
-  // backend traffic. set_sleep_timeout takes seconds (0 = feature disabled);
+  // multiplies the printer-poll cadence by sleep_factor to cut backend traffic.
+  // The heartbeat keeps its normal cadence, so Bambuddy keeps it online.
+  // set_sleep_timeout takes seconds (0 = feature disabled);
   // the UI calls it on every refresh with its Settings value, so the 600 s
   // default below only covers the moments after boot.
   void set_sleep_timeout(uint32_t s) { sleep_timeout_ms_ = s * 1000; }
@@ -803,7 +804,7 @@ class BambuddyAPIComponent : public Component {
 
   // ---- Sleep / low-power mode ----
   // Enter/leave low-power mode (called by the UI sleep state machine). Entering
-  // stretches the heartbeat / printer-poll intervals by sleep_factor. Leaving
+  // stretches the printer-poll interval by sleep_factor. Leaving
   // forces an immediate heartbeat + printer/AMS poll on the next task tick (so
   // the UI refreshes at once on wake) and then resumes the normal cadence.
   void set_low_power(bool enable);
@@ -1239,7 +1240,7 @@ class BambuddyAPIComponent : public Component {
 
   // Sleep / low-power mode
   uint32_t sleep_timeout_ms_{600000};   // UI inactivity before deep sleep (0 = disabled)
-  uint32_t low_power_factor_{6};         // heartbeat / poll interval multiplier while asleep
+  uint32_t low_power_factor_{6};         // printer-poll interval multiplier while asleep
   std::atomic<bool> low_power_{false};   // true while running the reduced sleep cadence
   wifi_ps_type_t awake_ps_mode_{WIFI_PS_NONE};  // awake WiFi PS mode, captured on sleep / restored on wake
 

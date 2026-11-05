@@ -16,7 +16,7 @@ same `bambuddy_api` component; several options only apply to one mode.
 | `bambuddy_api.hostname` | Both | `SpoolBuddy-ESP` | Display name in the Bambuddy UI |
 | `bambuddy_api.heartbeat_interval` | Console | `10` s | Heartbeat / command-poll frequency |
 | `bambuddy_api.printer_poll_interval` | Console | `30` s | AMS/printer state poll frequency |
-| `bambuddy_api.sleep_factor` | Console | `6` | Heartbeat/poll interval multiplier while asleep |
+| `bambuddy_api.sleep_factor` | Console | `6` | Printer/AMS poll interval multiplier while asleep. The heartbeat isn't stretched, because Bambuddy shows a device as offline after 30 s without one. On battery, set WiFi in sleep to Off to save the most power |
 | `bambuddy_api.console_url` | Scale | `http://espoolbuddy-console.local` | Console URL(s) to push readings to — a single string or a list, see [Scale build](scale.md#point-it-at-the-console). Setting it makes the device push to the console instead of talking to Bambuddy, so it can't be combined with `backend_url` |
 | `bambuddy_api.scale` | Both | console: `type: remote` | Where weight comes from — see [below](#weight-source-scale) |
 | `bambuddy_api.scale_report_interval` | Both | `1000` ms (scale YAML: `100`) | Scale: weight push cadence to the console. Console: minimum interval between weight reports to Bambuddy (a change of the stable flag is reported at once) |

@@ -657,12 +657,9 @@ void BambuddyAPIComponent::http_task_loop() {
     }
 
     // ---- Scheduled heartbeat ----
-    // Stretched by low_power_factor_ while asleep to cut backend traffic. The
-    // task watchdog is fed every loop iteration (above), so the stretched
-    // cadence cannot starve it.
-    uint32_t hb_interval = low_power_ ? heartbeat_interval_ms_ * low_power_factor_
-                                      : heartbeat_interval_ms_;
-    if (now - last_heartbeat_ms_ >= hb_interval) {
+    // Not stretched while asleep: Bambuddy marks a device offline after 30 s
+    // without a heartbeat, and queued commands wait for the next one.
+    if (now - last_heartbeat_ms_ >= heartbeat_interval_ms_) {
       last_heartbeat_ms_ = now;
       lock_state();
       display_state_.uptime_s = (now - start_ms_) / 1000;
@@ -1060,9 +1057,9 @@ void BambuddyAPIComponent::set_low_power(bool enable) {
     // restores exactly what was configured.
     if (esp_wifi_get_ps(&awake_ps_mode_) != ESP_OK) awake_ps_mode_ = WIFI_PS_NONE;
     esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
-    // Also stretch the backend cadence by low_power_factor_ (http_task_loop) to
+    // Also stretch the printer/AMS poll by low_power_factor_ (http_task_loop) to
     // cut backend traffic while idle.
-    ESP_LOGI(TAG, "Sleep: entering low-power mode (WiFi MAX_MODEM, heartbeat/poll x%lu)",
+    ESP_LOGI(TAG, "Sleep: entering low-power mode (WiFi MAX_MODEM, printer poll x%lu)",
              low_power_factor_);
   } else {
     // Restore the awake WiFi power-save mode, then force an immediate heartbeat +
@@ -1338,16 +1335,8 @@ bool BambuddyAPIComponent::api_register_device() {
     ESP_LOGI(TAG, "Calibration from backend: tare=%.2f factor=%.6f", tare, cal);
   }
 
-  // SSH key deployment — not supported on ESPHome, log and ignore
-  std::string ssh_key = parse_json_string(resp, "ssh_public_key");
-  if (!ssh_key.empty()) {
-    ESP_LOGI(TAG,
-             "SSH key deployment not supported on ESPHome (mocked response). "
-             "Key ignored.");
-    // Return a mocked "OK" to the backend via system_command_result
-    api_system_command_result("deploy_ssh_key", true,
-                              "SSH not supported on ESPHome device");
-  }
+  // ssh_public_key is ignored: ESPHome can't accept SSH, and the Pi daemon
+  // doesn't report deploying it either.
   return true;
 }
 
@@ -1404,14 +1393,6 @@ void BambuddyAPIComponent::api_heartbeat() {
   // Do NOT force scale_ok here — it is kept in sync with the weight
   // source's liveness by the maintenance block in http_task_loop().
   unlock_state();
-
-  // Handle SSH key in heartbeat response (same mock as registration)
-  std::string ssh_key = parse_json_string(resp, "ssh_public_key");
-  if (!ssh_key.empty()) {
-    ESP_LOGD(TAG, "SSH key in heartbeat ignored (not supported on ESPHome)");
-    api_system_command_result("deploy_ssh_key", true,
-                              "SSH not supported on ESPHome device");
-  }
 
   // Process pending_command
   std::string cmd = parse_json_string(resp, "pending_command");

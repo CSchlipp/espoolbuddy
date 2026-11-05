@@ -82,6 +82,11 @@ the WT32-SC01 Plus board — nothing to connect for those.
      the battery without opening the enclosure. Watch the polarity here too
      — make sure the cable can't be connected backwards!
 
+  On battery, **Settings → WiFi in sleep → Off** gives the longest runtime:
+  WiFi turns off and the ESP32 light-sleeps while the screen is asleep, so
+  Bambuddy shows the console as offline until it wakes. **Power Save** keeps it
+  online, sending a heartbeat every 10 s.
+
 ## 3D printed case
 
 This firmware doesn't require any particular case — it works with **any
