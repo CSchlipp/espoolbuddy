@@ -354,9 +354,8 @@ void BambuddyAPIComponent::http_task_loop() {
         float grams  = display_state_.weight_grams;
         bool  stable = display_state_.weight_stable;
         unlock_state();
-        bool ok = api_scale_push_weight(grams, stable);
-        if (!ok) weight_push_dirty_ = true;
-        vTaskDelay(pdMS_TO_TICKS(ok ? 10 : 2000));
+        api_scale_push_weight(grams, stable);
+        vTaskDelay(pdMS_TO_TICKS(10));
       }
 
       // Process one queued NFC event per tick.
@@ -1182,8 +1181,11 @@ void BambuddyAPIComponent::run_local_capture() {
   const float reference  = local_capture_ref_;
   unlock_state();
   const uint32_t age = millis() - started;
+  // Clear the request only if it's still the one loaded above. Another task
+  // can start a new one meanwhile, and a plain store would discard it.
+  LocalCapture expected = kind;
   if (age >= LOCAL_CAPTURE_TIMEOUT_MS) {
-    local_capture_.store(LocalCapture::NONE);
+    if (!local_capture_.compare_exchange_strong(expected, LocalCapture::NONE)) return;
     set_status("Scale not settling, try again");
     report_capture_error(CAPTURE_ERROR_NOT_SETTLED);
     ESP_LOGW(TAG, "%s cancelled: reading did not settle within %lu ms",
@@ -1193,7 +1195,7 @@ void BambuddyAPIComponent::run_local_capture() {
   }
   const uint32_t min_wait = std::max(LOCAL_CAPTURE_MIN_WAIT_MS, local_stable_after_ms_);
   if (age < min_wait || !local_stable_ || !local_live()) return;
-  local_capture_.store(LocalCapture::NONE);
+  if (!local_capture_.compare_exchange_strong(expected, LocalCapture::NONE)) return;
   if (kind == LocalCapture::TARE) {
     apply_local_tare();
   } else {
@@ -3192,7 +3194,7 @@ void BambuddyAPIComponent::drain_console(ConsoleWorker *w) {
 }
 
 void BambuddyAPIComponent::post_to_consoles(ConsolePush kind, const char *path,
-                                             const std::string &body) {
+                                             const std::string &body, uint32_t values_seq) {
   for (auto &wp : console_workers_) {
     ConsoleWorker *w = wp.get();
     xSemaphoreTake(w->lock, portMAX_DELAY);
@@ -3209,12 +3211,16 @@ void BambuddyAPIComponent::post_to_consoles(ConsolePush kind, const char *path,
           w->capture_error = CAPTURE_ERROR_NONE;
           w->capture_seq = 0;
         }
+        // A result newer than the body's values waits for the next push.
+        const bool attach = w->capture_seq != 0 &&
+                            static_cast<int32_t>(w->capture_seq - values_seq) <= 0;
         char fields[64];
         snprintf(fields, sizeof(fields), ",\"capture_done\":%s,\"capture_error\":%d",
-                 w->capture_done ? "true" : "false", w->capture_error);
+                 attach && w->capture_done ? "true" : "false",
+                 attach ? w->capture_error : CAPTURE_ERROR_NONE);
         w->weight_body = body;
         w->weight_body.insert(w->weight_body.size() - 1, fields);  // before the closing '}'
-        w->weight_capture_seq = w->capture_seq;
+        w->weight_capture_seq = attach ? w->capture_seq : 0;
         w->weight_pending = true;
         break;
       }
@@ -3239,11 +3245,20 @@ void BambuddyAPIComponent::post_to_consoles(ConsolePush kind, const char *path,
   }
 }
 
-bool BambuddyAPIComponent::api_scale_push_weight(float grams, bool stable) {
-  if (console_urls_.empty()) return false;
+void BambuddyAPIComponent::api_scale_push_weight(float grams, bool stable) {
+  if (console_urls_.empty()) return;
+
+  // Read the capture counter before the values. A tare/calibrate that
+  // finishes after this point may not be in them, so post_to_consoles()
+  // leaves its result for the next push (which it forces).
+  const uint32_t values_seq = capture_seq_.load();
+  lock_state();
+  const float tare = tare_offset_;
+  const float factor = calibration_factor_;
+  unlock_state();
 
   // Apply tare and calibration before pushing so the console receives net grams.
-  float net = (grams - tare_offset_) * calibration_factor_;
+  float net = (grams - tare) * factor;
 
   // post_to_consoles() adds capture_done (a tare/calibrate finished, and
   // these values are its result) and capture_error (why one was given up on)
@@ -3253,11 +3268,10 @@ bool BambuddyAPIComponent::api_scale_push_weight(float grams, bool stable) {
            "{\"weight_grams\":%.2f,\"stable\":%s,\"hostname\":\"%s\","
            "\"tare_offset\":%.2f,\"calibration_factor\":%.6f}",
            net, stable ? "true" : "false", esc(hostname_).c_str(),
-           tare_offset_, calibration_factor_);
+           tare, factor);
 
   // Queued, not sent: each console's sender retries it on its own.
-  post_to_consoles(ConsolePush::WEIGHT, "/scale/weight", body);
-  return true;
+  post_to_consoles(ConsolePush::WEIGHT, "/scale/weight", body, values_seq);
   // Commands (tare/calibrate/write_tag) are delivered via heartbeat response,
   // not piggybacked here, so weight push stays a pure data channel.
 }
