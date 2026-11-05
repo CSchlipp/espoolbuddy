@@ -149,7 +149,8 @@ Panda Touch shows the same screens at 800×480.
   switch to the next printer, hold to open the full printer picker; the icon
   is green while that printer is reachable — and **Sound**, which
   mutes/unmutes the chimes and stays in sync with Settings → Features →
-  Sound. The drawer stays out of the way while a dialog is open or the
+  Sound. That Settings row also sets the chime volume to Low, Med or High,
+  playing a chime at the level you pick. The drawer stays out of the way while a dialog is open or the
   screen is asleep.
 
   <img src="images/ui/quick-settings.png" alt="Quick settings drawer with Power and Printer tiles" width="360">

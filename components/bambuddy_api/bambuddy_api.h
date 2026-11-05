@@ -88,6 +88,7 @@ class ChimePlayer {
   virtual ~ChimePlayer() = default;
   virtual void play(const std::string &rtttl) = 0;
   virtual bool is_playing() = 0;
+  virtual void set_gain(float gain) = 0;
 };
 
 template<typename T>
@@ -96,6 +97,7 @@ class ChimePlayerAdapter : public ChimePlayer {
   explicit ChimePlayerAdapter(T *speaker) : speaker_(speaker) {}
   void play(const std::string &rtttl) override { speaker_->play(rtttl); }
   bool is_playing() override { return speaker_->is_playing(); }
+  void set_gain(float gain) override { speaker_->set_gain(gain); }
 
  private:
   T *speaker_;
@@ -495,6 +497,13 @@ class BambuddyAPIComponent : public Component {
   void set_backlight_component(light::LightState *backlight) { backlight_ = backlight; }
   bool has_nfc() const { return nfc_ != nullptr; }
   bool has_speaker() const { return speaker_ != nullptr; }
+  // Chime volume: 0 = Low, 1 = Med, 2 = High. Applies from the next chime.
+  // ESPHome maps gain linearly to dB, so these are about 7 dB apart. High is
+  // the level the chimes have always played at.
+  void set_chime_level(int level) {
+    static constexpr float GAINS[3] = {0.40f, 0.55f, 0.70f};
+    if (speaker_ != nullptr) speaker_->set_gain(GAINS[clamp(level, 0, 2)]);
+  }
 
   // Gated wrappers — safe to call regardless of whether NFC/speaker hardware
   // is configured; no-op (or a harmless default) when absent.
