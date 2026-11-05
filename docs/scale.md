@@ -35,7 +35,7 @@ then you lose the Bambuddy integration.
 | PN532 SS (CS) | GPIO18 | Chip select |
 | PN532 IRQ | GPIO8 | Open-drain; firmware enables an internal pull-up |
 | PN532 VCC / GND | 3.3 V / GND | |
-| Status LED (WS2812) | GPIO48 | Already onboard on most DevKitC-1 boards; red = no WiFi, blue = WiFi but console unreachable, green = connected |
+| Status LED (WS2812) | GPIO48 | Already onboard on most DevKitC-1 boards; red = no WiFi, blue = WiFi but console unreachable, green = connected (several consoles: see [below](#point-it-at-the-console)) |
 
 Load-cell wiring to the HX711 (E+/E-/A+/A-) follows the standard 4-wire
 half-bridge pinout printed on your specific load cell — not
@@ -75,12 +75,16 @@ console_url:
   - "http://espoolbuddy-console-2.local"
 ```
 
-The **first** console in the list is authoritative — only its heartbeat
-response is used for `tare`/`calibrate`/`write_tag` commands, and only its
-reachability drives the scale's status LED. Any additional consoles just
-receive every weight/NFC event as read-only observers; they can't send
-commands back. This keeps two consoles from racing each other to trigger a
-tare or calibration.
+With several consoles, the scale's status LED is green while all of them
+answer, blue while only some do and red while none do.
+Tare, Calibrate and tag writes work from any of the consoles.
+
+Each console gets its own sender on the scale, so a slow or switched-off
+console never delays updates for the others. After two failed sends in a
+row, the scale stops sending to that console and retries it every 5 s,
+backing off to once a minute. When it answers again, it gets the current
+weight straight away, but not a tag that was already on the reader while it
+was away.
 
 ## Calibrate the scale
 

@@ -161,7 +161,8 @@ Panda Touch shows the same screens at 800×480.
   a deep-idle "sleep" tier (backlight off, reduced network cadence) after a
   configurable timeout — any touch, new tag, or weight change wakes it.
 - **Scale status LED**: red = no WiFi, blue = WiFi up but console
-  unreachable, green = fully connected.
+  unreachable, green = fully connected. With several consoles: green = all
+  reachable, blue = only some, red = none.
 
 See the [configuration reference](configuration.md) for the settings behind
 several of these (poll intervals, sleep timeout, and more).

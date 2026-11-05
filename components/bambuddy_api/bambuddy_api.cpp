@@ -141,6 +141,30 @@ void BambuddyAPIComponent::setup() {
     if (!console_urls_.empty()) {
       ESP_LOGI(TAG, "Scale push mode active — console: %s%s", console_urls_[0].c_str(),
                console_urls_.size() > 1 ? " (+ secondary consoles)" : "");
+      // One sender task per console (see post_to_consoles()). Plain HTTP,
+      // no TLS, so 8 kB is plenty.
+      constexpr uint32_t WORKER_STACK_BYTES = 8192;
+      for (size_t i = 0; i < console_urls_.size(); i++) {
+        auto w = std::make_unique<ConsoleWorker>();
+        w->self = this;
+        w->idx = i;
+        w->base = console_urls_[i] + ":8080";
+        w->lock = xSemaphoreCreateMutex();
+        auto *stack = static_cast<StackType_t *>(
+            heap_caps_malloc(WORKER_STACK_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (stack == nullptr)
+          stack = static_cast<StackType_t *>(
+              heap_caps_malloc(WORKER_STACK_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+        if (stack != nullptr)
+          w->task = xTaskCreateStaticPinnedToCore(
+              &BambuddyAPIComponent::console_worker_trampoline, "console_push",
+              WORKER_STACK_BYTES / sizeof(StackType_t), w.get(), 5, stack, &w->tcb, 1);
+        else
+          ESP_LOGW(TAG, "No memory for a sender task for %s — sending from the push task",
+                   console_urls_[i].c_str());
+        console_workers_.push_back(std::move(w));
+      }
+
       constexpr uint32_t PUSH_STACK_BYTES = 12288;
       auto *push_stack = static_cast<StackType_t *>(
           heap_caps_malloc(PUSH_STACK_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
@@ -283,19 +307,22 @@ void BambuddyAPIComponent::http_task_loop() {
         }
       }
 
+      // A command one of the consoles' senders picked up from a heartbeat
+      // response (see post_to_consoles()).
+      {
+        std::string cmd_resp;
+        xSemaphoreTake(job_mutex_, portMAX_DELAY);
+        cmd_resp.swap(console_cmd_resp_);
+        xSemaphoreGive(job_mutex_);
+        if (!cmd_resp.empty()) handle_scale_command(cmd_resp);
+      }
+
       // Weight push — always sends the CURRENT display_state_ weight/stable,
       // read fresh right here rather than a value captured whenever the dirty
-      // flag was set. That's what makes it safe for this to block for seconds
-      // (pushing multiple consoles is sequential — see push_to_consoles()):
-      // a reading that arrives while a push is already in flight just leaves
-      // the flag dirty again, and is picked up as the latest truth on the
-      // very next check. Nothing is queued and nothing is silently dropped —
-      // the old design captured one job per event and skipped enqueuing a new
-      // one whenever a push was already outstanding, which for a multi-console
-      // (or merely slow) push meant readings — including the final "stable"
-      // one — could be lost for the entire duration of that push.
-      // On failure, re-mark dirty so delivery keeps retrying (paced by the
-      // 2 s backoff below) until it succeeds or a newer reading supersedes it.
+      // flag was set. It only queues the reading: each console's sender
+      // (post_to_consoles()) keeps just the newest one and retries a failed
+      // send itself, so a slow or offline console never holds this loop up
+      // or makes another console miss a reading.
       if (weight_push_dirty_.exchange(false)) {
         lock_state();
         float grams  = display_state_.weight_grams;
@@ -2852,24 +2879,135 @@ esp_err_t BambuddyAPIComponent::scale_http_calibrate(httpd_req_t *req) {
 // Scale push mode — scale → console
 // ---------------------------------------------------------------------------
 
-// POSTs `body` to `path` on every configured console; see the declaration in
-// bambuddy_api.h for why only the first console's outcome drives
-// primary_resp/the return value, while all_resps (when requested) collects
-// every reachable console's response so commands aren't tied to the primary.
-bool BambuddyAPIComponent::push_to_consoles(const std::string &path, const std::string &body,
-                                             std::string &primary_resp,
-                                             std::vector<std::string> *all_resps) {
-  bool primary_ok = false;
-  for (size_t i = 0; i < console_urls_.size(); i++) {
-    std::string resp;
-    bool ok = http_post_direct(console_urls_[i] + ":8080" + path, body, resp);
-    if (i == 0) {
-      primary_ok = ok;
-      primary_resp = resp;
-    }
-    if (ok && all_resps != nullptr) all_resps->push_back(std::move(resp));
+// Each console has its own sender task (ConsoleWorker); post_to_consoles()
+// only queues. See the declaration in bambuddy_api.h.
+void BambuddyAPIComponent::console_worker_trampoline(void *arg) {
+  auto *w = static_cast<ConsoleWorker *>(arg);
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    w->self->drain_console(w);
   }
-  return primary_ok;
+}
+
+// Backoff bookkeeping after a send to w. Sender only (drain_console()).
+void BambuddyAPIComponent::note_console_result(ConsoleWorker *w, bool ok) {
+  const char *url = console_urls_[w->idx].c_str();
+  if (ok) {
+    if (w->fails >= CONSOLE_BACKOFF_AFTER) {
+      ESP_LOGI(TAG, "Console %s reachable again", url);
+      // It missed the weight while it was away — send the current one.
+      weight_push_dirty_ = true;
+    }
+    w->fails = 0;
+    w->last_ok_ms = millis();
+    if (w->idx == 0) {
+      // On the first successful push after boot, force-push the current
+      // weight so the console immediately has a reading — even if it is 0 or
+      // unchanged (the ESPHome delta filter would otherwise suppress
+      // on_scale_reading() callbacks until the weight changes by ≥ 0.3 g).
+      if (last_push_ok_ms_ == 0) {
+        weight_push_dirty_ = true;
+        ESP_LOGI(TAG, "First push OK — force-pushing initial weight");
+      }
+      last_push_ok_ms_ = millis();
+    }
+    return;
+  }
+  if (w->fails < 255) w->fails++;
+  if (w->fails >= CONSOLE_BACKOFF_AFTER) {
+    uint8_t steps = std::min<uint8_t>(w->fails - CONSOLE_BACKOFF_AFTER, 4);
+    uint32_t wait = std::min(CONSOLE_BACKOFF_MIN_MS << steps, CONSOLE_BACKOFF_MAX_MS);
+    w->retry_at_ms = millis() + wait;
+    if (w->fails == CONSOLE_BACKOFF_AFTER)
+      ESP_LOGW(TAG, "Console %s unreachable — retrying it every %u-%u s", url,
+               (unsigned) (CONSOLE_BACKOFF_MIN_MS / 1000),
+               (unsigned) (CONSOLE_BACKOFF_MAX_MS / 1000));
+  }
+}
+
+// Sends everything queued for w, events first, until its mailbox is empty.
+void BambuddyAPIComponent::drain_console(ConsoleWorker *w) {
+  for (;;) {
+    ConsolePush kind;
+    ConsoleMsg m;
+    xSemaphoreTake(w->lock, portMAX_DELAY);
+    if (!w->events.empty()) {
+      kind = ConsolePush::EVENT;
+      m = std::move(w->events.front());
+      w->events.pop_front();
+    } else if (w->weight_pending) {
+      kind = ConsolePush::WEIGHT;
+      m = {"/scale/weight", std::move(w->weight_body)};
+      w->weight_pending = false;
+    } else if (w->hb_pending) {
+      kind = ConsolePush::HEARTBEAT;
+      m = {"/scale/heartbeat", std::move(w->hb_body)};
+      w->hb_pending = false;
+    } else {
+      xSemaphoreGive(w->lock);
+      return;
+    }
+    xSemaphoreGive(w->lock);
+
+    // Offline console in backoff: drop instead of waiting out its timeout.
+    // The next heartbeat after retry_at_ms probes it again.
+    if (w->fails >= CONSOLE_BACKOFF_AFTER && (int32_t) (millis() - w->retry_at_ms) < 0)
+      continue;
+
+    std::string resp;
+    bool ok = http_post_direct(w->base + m.path, m.body, resp);
+    note_console_result(w, ok);
+    if (ok) {
+      if (kind == ConsolePush::HEARTBEAT && !parse_json_string(resp, "cmd").empty()) {
+        xSemaphoreTake(job_mutex_, portMAX_DELAY);
+        if (console_cmd_resp_.empty()) console_cmd_resp_ = std::move(resp);
+        xSemaphoreGive(job_mutex_);
+      }
+    } else if (kind == ConsolePush::EVENT) {
+      ESP_LOGW(TAG, "Scale push %s to %s failed", m.path.c_str(),
+               console_urls_[w->idx].c_str());
+    } else if (kind == ConsolePush::WEIGHT) {
+      // Retry it unless a newer reading is already waiting; once the console
+      // is in backoff the retry is dropped above, and recovery re-sends.
+      xSemaphoreTake(w->lock, portMAX_DELAY);
+      if (!w->weight_pending) {
+        w->weight_body = std::move(m.body);
+        w->weight_pending = true;
+      }
+      xSemaphoreGive(w->lock);
+    }
+  }
+}
+
+void BambuddyAPIComponent::post_to_consoles(ConsolePush kind, const char *path,
+                                             const std::string &body) {
+  for (auto &wp : console_workers_) {
+    ConsoleWorker *w = wp.get();
+    xSemaphoreTake(w->lock, portMAX_DELAY);
+    switch (kind) {
+      case ConsolePush::WEIGHT:
+        w->weight_body = body;
+        w->weight_pending = true;
+        break;
+      case ConsolePush::HEARTBEAT:
+        w->hb_body = body;
+        w->hb_pending = true;
+        break;
+      case ConsolePush::EVENT:
+        if (w->events.size() >= CONSOLE_EVENT_QUEUE_MAX) {
+          ESP_LOGW(TAG, "Console %s queue full — dropping %s",
+                   console_urls_[w->idx].c_str(), w->events.front().path.c_str());
+          w->events.pop_front();
+        }
+        w->events.push_back({path, body});
+        break;
+    }
+    xSemaphoreGive(w->lock);
+    if (w->task != nullptr)
+      xTaskNotifyGive(w->task);
+    else
+      drain_console(w);  // no sender task — send in turn, as before
+  }
 }
 
 bool BambuddyAPIComponent::api_scale_push_weight(float grams, bool stable) {
@@ -2885,12 +3023,8 @@ bool BambuddyAPIComponent::api_scale_push_weight(float grams, bool stable) {
            net, stable ? "true" : "false", esc(hostname_).c_str(),
            tare_offset_, calibration_factor_);
 
-  std::string resp;
-  bool ok = push_to_consoles("/scale/weight", body, resp);
-  if (!ok) {
-    ESP_LOGD(TAG, "Scale push weight to console failed");
-    return false;
-  }
+  // Queued, not sent: each console's sender retries it on its own.
+  post_to_consoles(ConsolePush::WEIGHT, "/scale/weight", body);
   return true;
   // Commands (tare/calibrate/write_tag) are delivered via heartbeat response,
   // not piggybacked here, so weight push stays a pure data channel.
@@ -2901,46 +3035,13 @@ void BambuddyAPIComponent::api_scale_push_heartbeat() {
 
   char body[128];
   snprintf(body, sizeof(body), "{\"hostname\":\"%s\"}", esc(hostname_).c_str());
+  post_to_consoles(ConsolePush::HEARTBEAT, "/scale/heartbeat", body);
+}
 
-  std::string primary_resp;
-  std::vector<std::string> all_resps;
-  bool primary_ok = push_to_consoles("/scale/heartbeat", body, primary_resp, &all_resps);
-
-  if (primary_ok) {
-    bool first_success = (last_push_ok_ms_ == 0);
-    last_push_ok_ms_ = millis();
-
-    // On first successful heartbeat after boot, force-push the current weight
-    // so the console immediately has a reading — even if it is 0 or unchanged
-    // (the ESPHome delta filter would otherwise suppress on_scale_reading()
-    // callbacks until the weight changes by ≥ 0.3 g).
-    if (first_success) {
-      weight_push_dirty_ = true;
-      ESP_LOGI(TAG, "First heartbeat OK — force-pushing initial weight");
-    }
-  } else {
-    ESP_LOGD(TAG, "Scale heartbeat to primary console failed");
-  }
-
-  // Honor a pending command from whichever console has one — a human tapping
-  // Tare/Calibrate on ANY console is a single unambiguous action, so it must
-  // not be dropped just because that console isn't the primary/connectivity
-  // one. At most one console is expected to have a command pending at a
-  // given heartbeat; take the first non-empty one found.
-  std::string resp;
-  std::string cmd;
-  for (auto &r : all_resps) {
-    std::string c = parse_json_string(r, "cmd");
-    if (!c.empty()) {
-      cmd  = std::move(c);
-      resp = std::move(r);
-      break;
-    }
-  }
-  if (cmd.empty()) {
-    ESP_LOGD(TAG, "Heartbeat OK — no pending command");
-    return;
-  }
+// Runs a tare/calibrate/set_calibration/write_tag command from a console's
+// heartbeat response. Push task only (calibration and tare state live there).
+void BambuddyAPIComponent::handle_scale_command(const std::string &resp) {
+  std::string cmd = parse_json_string(resp, "cmd");
   if (cmd == "tare") {
     ESP_LOGI(TAG, "Scale received tare command via heartbeat");
     local_tare();
@@ -3013,10 +3114,7 @@ void BambuddyAPIComponent::api_scale_push_nfc_scanned(const std::string &uid,
              filament.format.c_str(), filament.material.c_str(),
              filament.subtype.c_str(), filament.color_name.c_str());
 
-  std::string resp;
-  bool ok = push_to_consoles("/scale/nfc/tag-scanned", body, resp);
-  if (ok) last_push_ok_ms_ = millis();
-  else ESP_LOGW(TAG, "Scale push nfc-scanned to console failed (uid=%s)", uid.c_str());
+  post_to_consoles(ConsolePush::EVENT, "/scale/nfc/tag-scanned", body);
 }
 
 void BambuddyAPIComponent::api_scale_push_nfc_removed(const std::string &uid) {
@@ -3025,10 +3123,7 @@ void BambuddyAPIComponent::api_scale_push_nfc_removed(const std::string &uid) {
   char body[128];
   snprintf(body, sizeof(body), "{\"uid\":\"%s\"}", esc(uid).c_str());
 
-  std::string resp;
-  bool ok = push_to_consoles("/scale/nfc/tag-removed", body, resp);
-  if (ok) last_push_ok_ms_ = millis();
-  else ESP_LOGW(TAG, "Scale push nfc-removed to console failed");
+  post_to_consoles(ConsolePush::EVENT, "/scale/nfc/tag-removed", body);
 }
 
 void BambuddyAPIComponent::api_scale_push_write_result(int spool_id,
@@ -3043,15 +3138,9 @@ void BambuddyAPIComponent::api_scale_push_write_result(int spool_id,
            spool_id, esc(uid).c_str(), success ? "true" : "false",
            esc(msg).c_str());
 
-  std::string resp;
-  bool ok = push_to_consoles("/scale/nfc/write-result", body, resp);
-  if (ok) {
-    last_push_ok_ms_ = millis();
-    ESP_LOGI(TAG, "Scale pushed write-result to console: spool=%d uid=%s success=%d",
-             spool_id, uid.c_str(), (int)success);
-  } else {
-    ESP_LOGW(TAG, "Scale push write-result to console failed");
-  }
+  ESP_LOGI(TAG, "Scale pushing write-result to console: spool=%d uid=%s success=%d",
+           spool_id, uid.c_str(), (int)success);
+  post_to_consoles(ConsolePush::EVENT, "/scale/nfc/write-result", body);
 }
 
 // ---------------------------------------------------------------------------
