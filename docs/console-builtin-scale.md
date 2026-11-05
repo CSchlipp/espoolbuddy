@@ -1,12 +1,44 @@
 ← [Back to README](../README.md)
 
-# Built-in load cell on the console (optional, untested)
+# Built-in load cell on the console (optional)
 
-> **Untested.** This variant has not been built or run on real hardware yet.
-> It has only been compile-checked. There is no ready-made case for it. The
-> wiring below is a set of suggestions based on the boards' pinouts: check
-> them against your board before soldering anything. If you build one,
-> please report back
+There are two ways to build this:
+
+- **[SpoolmanScale hardware](#spoolmanscale-hardware-nau7802):** a ready-made
+  config, tested on a real build.
+- **[Hand-wired HX711](#hand-wired-hx711):** the rest of this page.
+
+## SpoolmanScale hardware (NAU7802)
+
+`espoolbuddy_console_scale.yaml` runs on a WT32-SC01 Plus wired like a
+[SpoolmanScale](https://github.com/Niko11111/SpoolmanScale): the PN532 and a
+NAU7802 share one I²C bus, with one more wire to reset the PN532. This build
+needs no separate scale device.
+
+| Signal | WT32-SC01 Plus |
+|---|---|
+| I²C SDA (PN532 and NAU7802) | GPIO10 |
+| I²C SCL (PN532 and NAU7802) | GPIO11 |
+| PN532 RSTPDN | GPIO14 |
+| PN532 VCC and NAU7802 VIN | 5 V |
+| PN532 GND and NAU7802 GND | GND |
+
+Set the PN532's mode DIP switches to I²C: **switch 1 ON, switch 2 OFF**.
+
+After flashing, tare with the pad empty, then calibrate with a known weight. The
+values are stored on the device and in Bambuddy.
+
+Tested with a 2 kg load cell. Recovery from a hung I²C bus using the reset wire
+has not been tested. The reading can drift by a fraction of a gram per hour, and
+the zero can shift across a restart, so tare again if an empty pad doesn't read
+zero.
+
+## Hand-wired HX711
+
+> **The hand-wired HX711 builds are untested.** They have only been
+> compile-checked, and there is no ready-made case for them. The wiring below is
+> a set of suggestions based on the boards' pinouts: check them against your
+> board before soldering anything. If you build one, please report back
 > ([#36](https://github.com/CSchlipp/espoolbuddy/issues/36)).
 
 By default a console gets its weight from a separate [scale device](scale.md).
@@ -23,7 +55,7 @@ Trade-offs compared with the separate scale:
   Touch, the PN532's IRQ line on the WT32-SC01 Plus.
 - **No case.** You'll need to design the mounting for the load cell yourself.
 
-## Config
+### Config
 
 Add the HX711 sensor and point `bambuddy_api` at it. Replace the
 `scale: type: remote` block in your console YAML with this one; the pins
