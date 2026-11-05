@@ -1741,6 +1741,19 @@ script:
               lv_obj_t *pa_barf[5]={id(pair0_a_barf),id(pair1_a_barf),id(pair2_a_barf),id(pair3_a_barf),id(pair4_a_barf)};
               lv_obj_t *pb_bar[5]={id(pair0_b_bar),id(pair1_b_bar),id(pair2_b_bar),id(pair3_b_bar),id(pair4_b_bar)};
               lv_obj_t *pb_barf[5]={id(pair0_b_barf),id(pair1_b_barf),id(pair2_b_barf),id(pair3_b_barf),id(pair4_b_barf)};
+              lv_obj_t *pa_side[5]={id(pair0_a_side),id(pair1_a_side),id(pair2_a_side),id(pair3_a_side),id(pair4_a_side)};
+              lv_obj_t *p_div[5]={id(pair0_div),id(pair1_div),id(pair2_div),id(pair3_div),id(pair4_div)};
+              // Second external spool, on the B side (see flush_pending).
+              lv_obj_t *pc_noz[5]={id(pair0_c_noz),id(pair1_c_noz),id(pair2_c_noz),id(pair3_c_noz),id(pair4_c_noz)};
+              lv_obj_t *pc_icon[5]={id(pair0_c_icon),id(pair1_c_icon),id(pair2_c_icon),id(pair3_c_icon),id(pair4_c_icon)};
+              lv_obj_t *pc_fi[5]={id(pair0_c_fill),id(pair1_c_fill),id(pair2_c_fill),id(pair3_c_fill),id(pair4_c_fill)};
+              lv_obj_t *pc_hu[5]={id(pair0_c_hub),id(pair1_c_hub),id(pair2_c_hub),id(pair3_c_hub),id(pair4_c_hub)};
+              lv_obj_t *pc_em[5]={id(pair0_c_emp),id(pair1_c_emp),id(pair2_c_emp),id(pair3_c_emp),id(pair4_c_emp)};
+              lv_obj_t *pc_ac[5]={id(pair0_c_act),id(pair1_c_act),id(pair2_c_act),id(pair3_c_act),id(pair4_c_act)};
+              lv_obj_t *pc_bar[5]={id(pair0_c_bar),id(pair1_c_bar),id(pair2_c_bar),id(pair3_c_bar),id(pair4_c_bar)};
+              lv_obj_t *pc_barf[5]={id(pair0_c_barf),id(pair1_c_barf),id(pair2_c_barf),id(pair3_c_barf),id(pair4_c_barf)};
+              lv_obj_t *pc_ty[5]={id(pair0_c_type),id(pair1_c_type),id(pair2_c_type),id(pair3_c_type),id(pair4_c_type)};
+              lv_obj_t *pc_id[5]={id(pair0_c_id),id(pair1_c_id),id(pair2_c_id),id(pair3_c_id),id(pair4_c_id)};
 
               lv_obj_add_flag(id(ams_hdr_l), LV_OBJ_FLAG_HIDDEN);
               lv_obj_add_flag(id(ams_hdr_r), LV_OBJ_FLAG_HIDDEN);
@@ -2029,66 +2042,13 @@ script:
               int page = id(ams_page);
               int ds = 0, reg_used = 0, pair_used = 0;
 
-              // Fill one side of a pair row from a single-slot unit. p_icon is
-              // the fill/hub/empty/act/bar wrapper (pairN_X_icon,
-              // tab_ams.yaml) -- geometry (zoom + type/id label position) is
-              // handled by apply_slot_geom, same helper regular rows use, since
-              // both now share the identical wrapped-icon structure.
-              auto fill_side = [&](const bambuddy_api::AMSUnit &unit,
-                                   lv_obj_t *p_ht, lv_obj_t *p_vt,
-                                   lv_obj_t *p_nm, lv_obj_t *p_th, lv_obj_t *p_nz,
-                                   lv_obj_t *p_icon,
-                                   lv_obj_t *p_fi, lv_obj_t *p_hu, lv_obj_t *p_em,
-                                   lv_obj_t *p_ac,
-                                   lv_obj_t *p_ty, lv_obj_t *p_id_lbl,
-                                   lv_obj_t *p_bar, lv_obj_t *p_barf,
-                                   const char *nz) {
-                // A pair side is a flex_grow HALF of the row (minus a 1px
-                // divider) -- a much smaller width budget than a regular
-                // row's dedicated 144px-of-480px info column, so name_w/
-                // noz_x/noz_w (sized for that bigger budget) can run the
-                // nozzle label straight into the icon on a narrower screen.
-                // Recompute a pair-specific noz_x that's capped to leave
-                // wrap_size + margins free for the icon on THIS side, then
-                // derive name_w/icon_x/label_x from that capped value so
-                // everything stays proportioned the same way the regular-row
-                // versions are (name right edge always 4px before noz_x,
-                // icon always a few px after noz_x+noz_w).
-                int pair_side_w = (SCREEN_W - 1) / 2;
-                int pair_text_end_max = pair_side_w - wrap_size - 8;
-                int pair_noz_x = std::max(128, std::min(noz_x, pair_text_end_max - noz_w));
-                int pair_name_w = 94 + (pair_noz_x - 128);
-                apply_info_geom(nullptr, nullptr, p_ht, p_vt, p_nm, p_th, p_nz,
-                                 pair_name_w, pair_noz_x, 0);
-                int pair_icon_x  = pair_noz_x + noz_w + 4;
-                int pair_label_x = pair_icon_x - 14;
-                apply_slot_geom(p_icon, p_fi, p_hu, p_em, p_ac, p_bar, p_barf, p_ty, p_id_lbl,
-                                 pair_icon_x, pair_label_x);
-                if (unit.is_vt) { lv_obj_add_flag(p_ht, LV_OBJ_FLAG_HIDDEN);
-                                   lv_obj_clear_flag(p_vt, LV_OBJ_FLAG_HIDDEN); }
-                else             { lv_obj_clear_flag(p_ht, LV_OBJ_FLAG_HIDDEN);
-                                   lv_obj_add_flag(p_vt, LV_OBJ_FLAG_HIDDEN); }
-                { char nb[40];
-                  if (unit.is_vt) {
-                    if (nz[0]) snprintf(nb, sizeof(nb), "Ext-%s", nz);
-                    else        snprintf(nb, sizeof(nb), "Ext");
-                  } else if (!unit.custom_name.empty()) {
-                    snprintf(nb, sizeof(nb), "%s", unit.custom_name.c_str());
-                  } else {
-                    snprintf(nb, sizeof(nb), "AMS-%c", 'A' + (int)(unit.id % 26));
-                  }
-                  lv_label_set_text(p_nm, nb);
-                  lv_obj_set_style_text_color(p_nm, lv_color_hex(unit.drying ? 0xFF9E6E : 0x7B9EFF), LV_PART_MAIN); }
-                if (unit.is_vt) {
-                  lv_label_set_text(p_th, "");
-                } else {
-                  char tb[24];
-                  snprintf(tb, sizeof(tb), "%.0f\u00B0\n%d%%", unit.temp, unit.humidity);
-                  lv_label_set_text(p_th, tb);
-                  lv_obj_set_style_text_color(p_th, lv_color_hex(unit.drying ? 0xFF9E6E : 0xCCCCDD), LV_PART_MAIN);
-                  lv_obj_set_style_img_recolor(p_ht, lv_color_hex(unit.drying ? 0xFF9E6E : 0x7B9EFF), LV_PART_MAIN);
-                }
-                lv_label_set_text(p_nz, nz);
+              // Fill the spool part of a single-slot cell (fill/hub/empty/active
+              // ring/type/id/fill bar). Positions come from apply_slot_geom.
+              auto fill_spool = [&](const bambuddy_api::AMSUnit &unit,
+                                    lv_obj_t *p_fi, lv_obj_t *p_hu, lv_obj_t *p_em,
+                                    lv_obj_t *p_ac,
+                                    lv_obj_t *p_ty, lv_obj_t *p_id_lbl,
+                                    lv_obj_t *p_bar, lv_obj_t *p_barf) {
                 bool present = !unit.trays.empty() && unit.trays[0].present;
                 // Active check: which global tray ID does this single-slot unit occupy?
                 //   VT external:  global_id = unit.id (254 or 255)
@@ -2137,6 +2097,82 @@ script:
                 }
               };
 
+              // An external spool's L/R letter sits beside the spool rather than
+              // in the info block, so two spools in one section stay tellable apart.
+              // At big tiers on the Console the spool nearly fills its column and
+              // the letter would hit the previous column's fill bar, so it drops
+              // to the spool-id line, whose short text leaves the left side free.
+              // Row border is 1px each side, same as a regular row's.
+              int grid_col_w = (SCREEN_W - 2 - info_w - 4 * COL_GAP) / 4;
+              int grid_margin = (grid_col_w - wrap_size) / 2;
+              auto place_ext_letter = [&](lv_obj_t *nz_lbl, int icon_x) {
+                if (grid_margin >= 16) {  // the glyph is narrower than its label box
+                  lv_obj_set_x(nz_lbl, icon_x - noz_w);
+                  lv_obj_set_y(nz_lbl, slot_icon_y);
+                } else {
+                  const font::Font *letter_font = id(roboto_16);
+                  lv_obj_set_style_text_font(nz_lbl, letter_font, LV_PART_MAIN);
+                  lv_obj_set_x(nz_lbl, icon_x - grid_margin);
+                  lv_obj_set_y(nz_lbl, slot_id_y);
+                }
+              };
+
+              // Fill one section of a pair row from a single-slot unit. p_icon is
+              // the fill/hub/empty/act/bar wrapper (pairN_X_icon,
+              // tab_ams.yaml) -- geometry (zoom + type/id label position) is
+              // handled by apply_slot_geom, same helper regular rows use, since
+              // both now share the identical wrapped-icon structure. The caller
+              // works out the widths and positions (see flush_pending).
+              auto fill_side = [&](const bambuddy_api::AMSUnit &unit,
+                                   lv_obj_t *p_ht, lv_obj_t *p_vt,
+                                   lv_obj_t *p_nm, lv_obj_t *p_th, lv_obj_t *p_nz,
+                                   lv_obj_t *p_icon,
+                                   lv_obj_t *p_fi, lv_obj_t *p_hu, lv_obj_t *p_em,
+                                   lv_obj_t *p_ac,
+                                   lv_obj_t *p_ty, lv_obj_t *p_id_lbl,
+                                   lv_obj_t *p_bar, lv_obj_t *p_barf,
+                                   const char *nz,
+                                   int use_name_w, int use_noz_x, int icon_x, int label_x,
+                                   bool on_grid) {
+                apply_info_geom(nullptr, nullptr, p_ht, p_vt, p_nm, p_th, p_nz,
+                                 use_name_w, use_noz_x, 0);
+                // "Ext" in a one-column section is the only name this narrow;
+                // the XL tier's font doesn't fit it on the Console.
+                if (use_name_w < 36) {
+                  const font::Font *narrow_font = id(roboto_16);
+                  lv_obj_set_style_text_font(p_nm, narrow_font, LV_PART_MAIN);
+                }
+                apply_slot_geom(p_icon, p_fi, p_hu, p_em, p_ac, p_bar, p_barf, p_ty, p_id_lbl,
+                                 icon_x, label_x);
+                if (unit.is_vt) { lv_obj_add_flag(p_ht, LV_OBJ_FLAG_HIDDEN);
+                                   lv_obj_clear_flag(p_vt, LV_OBJ_FLAG_HIDDEN); }
+                else             { lv_obj_clear_flag(p_ht, LV_OBJ_FLAG_HIDDEN);
+                                   lv_obj_add_flag(p_vt, LV_OBJ_FLAG_HIDDEN); }
+                { char nb[40];
+                  if (unit.is_vt) {
+                    if (nz[0] && !on_grid) snprintf(nb, sizeof(nb), "Ext-%s", nz);
+                    else                    snprintf(nb, sizeof(nb), "Ext");
+                  } else if (!unit.custom_name.empty()) {
+                    snprintf(nb, sizeof(nb), "%s", unit.custom_name.c_str());
+                  } else {
+                    snprintf(nb, sizeof(nb), "AMS-%c", 'A' + (int)(unit.id % 26));
+                  }
+                  lv_label_set_text(p_nm, nb);
+                  lv_obj_set_style_text_color(p_nm, lv_color_hex(unit.drying ? 0xFF9E6E : 0x7B9EFF), LV_PART_MAIN); }
+                if (unit.is_vt) {
+                  lv_label_set_text(p_th, "");
+                } else {
+                  char tb[24];
+                  snprintf(tb, sizeof(tb), "%.0f\u00B0\n%d%%", unit.temp, unit.humidity);
+                  lv_label_set_text(p_th, tb);
+                  lv_obj_set_style_text_color(p_th, lv_color_hex(unit.drying ? 0xFF9E6E : 0xCCCCDD), LV_PART_MAIN);
+                  lv_obj_set_style_img_recolor(p_ht, lv_color_hex(unit.drying ? 0xFF9E6E : 0x7B9EFF), LV_PART_MAIN);
+                }
+                lv_label_set_text(p_nz, nz);
+                if (unit.is_vt && on_grid) place_ext_letter(p_nz, icon_x);
+                fill_spool(unit, p_fi, p_hu, p_em, p_ac, p_ty, p_id_lbl, p_bar, p_barf);
+              };
+
               // Blank the B side when an odd single-slot unit has no partner.
               auto blank_b = [&](int k) {
                 lv_obj_add_flag(pb_ht[k], LV_OBJ_FLAG_HIDDEN);
@@ -2156,8 +2192,19 @@ script:
               int pending_u = -1;
               const char *pending_nz = "";
 
-              // Flush pending single-slot unit, optionally paired with u_b.
-              auto flush_pending = [&](int u_b, const char *nz_b) {
+              // Flush the pending single-slot unit as a row, optionally with a
+              // second section u_b. u_c is a second external spool, shown in the
+              // same section as the first one (the last section on the row).
+              //
+              // Two AMS HT units split the row in half, as each needs room for
+              // its name and temp/humidity. So does HT + one external spool on
+              // the Panda Touch, which has the width to spare. Anything else uses
+              // the regular rows' grid, so spools line up with the AMS slots above:
+              //   | HT info   | HT spool | Ext label | spool L | spool R |
+              //   | Ext info  | spool L  | spool R   |
+              // A second section's info takes column 1. Sibling x positions on
+              // the B side are relative to b0, where that side starts.
+              auto flush_pending = [&](int u_b, const char *nz_b, int u_c, const char *nz_c) {
                 if (pair_used >= 5) { pending_u = -1; return; }
                 int k = pair_used++;
                 int sp = ds - page * PER_PAGE;
@@ -2169,17 +2216,79 @@ script:
                   lv_obj_clear_flag(prow[k], LV_OBJ_FLAG_SCROLLABLE);
                   lv_obj_clear_flag(prow[k], LV_OBJ_FLAG_HIDDEN);
                   lv_obj_set_height(prow[k], ROW_H);
-                  fill_side(s.ams_units[pending_u],
-                            pa_ht[k],pa_vt[k],pa_nm[k],pa_th[k],pa_nz[k],
-                            pa_icon[k],pa_fi[k],pa_hu[k],pa_em[k],pa_ac[k],pa_ty[k],pa_id[k],
-                            pa_bar[k],pa_barf[k], pending_nz);
-                  if (u_b >= 0)
+                  bool two_ht = u_b >= 0 && !s.ams_units[u_b].is_vt;
+                  bool wide_single = u_b >= 0 && u_c < 0 && SCREEN_H >= 400;
+                  if (two_ht || wide_single) {
+                    // A half is a much smaller width budget than a regular row's
+                    // info column, so name_w/noz_x/noz_w (sized for that bigger
+                    // budget) can run the nozzle label straight into the icon on
+                    // a narrower screen. Cap noz_x to leave wrap_size + margins
+                    // free for the icon, and derive the rest from it (name right
+                    // edge always 4px before noz_x, icon always a few px after
+                    // noz_x+noz_w).
+                    lv_obj_set_flex_grow(pa_side[k], 1);
+                    int pair_side_w = (SCREEN_W - 1) / 2;
+                    int pair_text_end_max = pair_side_w - wrap_size - 8;
+                    int pair_noz_x = std::max(128, std::min(noz_x, pair_text_end_max - noz_w));
+                    int pair_name_w = 94 + (pair_noz_x - 128);
+                    int pair_icon_x  = pair_noz_x + noz_w + 4;
+                    int pair_label_x = pair_icon_x - 14;
+                    fill_side(s.ams_units[pending_u],
+                              pa_ht[k],pa_vt[k],pa_nm[k],pa_th[k],pa_nz[k],
+                              pa_icon[k],pa_fi[k],pa_hu[k],pa_em[k],pa_ac[k],pa_ty[k],pa_id[k],
+                              pa_bar[k],pa_barf[k], pending_nz,
+                              pair_name_w, pair_noz_x, pair_icon_x, pair_label_x, false);
                     fill_side(s.ams_units[u_b],
                               pb_ht[k],pb_vt[k],pb_nm[k],pb_th[k],pb_nz[k],
                               pb_icon[k],pb_fi[k],pb_hu[k],pb_em[k],pb_ac[k],pb_ty[k],pb_id[k],
-                              pb_bar[k],pb_barf[k], nz_b);
-                  else
-                    blank_b(k);
+                              pb_bar[k],pb_barf[k], nz_b,
+                              pair_name_w, pair_noz_x, pair_icon_x, pair_label_x, false);
+                  } else {
+                    const int GRID_LABEL_W = 60;  // type/id labels, tab_ams.yaml
+                    int col_w = grid_col_w;
+                    auto col_x = [&](int i) { return info_w + COL_GAP + i * (col_w + COL_GAP); };
+                    auto icon_at = [&](int i) { return col_x(i) + (col_w - wrap_size) / 2; };
+                    auto label_at = [&](int i) { return col_x(i) + (col_w - GRID_LABEL_W) / 2; };
+                    int b0 = col_x(1) - 1;
+                    lv_obj_set_flex_grow(pa_side[k], 0);
+                    lv_obj_set_width(pa_side[k], b0 - 1);
+                    fill_side(s.ams_units[pending_u],
+                              pa_ht[k],pa_vt[k],pa_nm[k],pa_th[k],pa_nz[k],
+                              pa_icon[k],pa_fi[k],pa_hu[k],pa_em[k],pa_ac[k],pa_ty[k],pa_id[k],
+                              pa_bar[k],pa_barf[k], pending_nz,
+                              name_w, noz_x, icon_at(0), label_at(0), true);
+                    // A lone spool ends the section, the way an HT spool ends its own.
+                    int b_col = (u_c >= 0) ? 2 : 3;
+                    if (u_b >= 0)
+                      fill_side(s.ams_units[u_b],
+                                pb_ht[k],pb_vt[k],pb_nm[k],pb_th[k],pb_nz[k],
+                                pb_icon[k],pb_fi[k],pb_hu[k],pb_em[k],pb_ac[k],pb_ty[k],pb_id[k],
+                                pb_bar[k],pb_barf[k], nz_b,
+                                col_w + 1 - 30, noz_x, icon_at(b_col) - b0, label_at(b_col) - b0, true);
+                    else
+                      blank_b(k);
+                    if (u_c >= 0) {
+                      int c_col = (u_b >= 0) ? 3 : 1;
+                      apply_slot_geom(pc_icon[k], pc_fi[k], pc_hu[k], pc_em[k], pc_ac[k],
+                                      pc_bar[k], pc_barf[k], pc_ty[k], pc_id[k],
+                                      icon_at(c_col) - b0, label_at(c_col) - b0);
+                      fill_spool(s.ams_units[u_c], pc_fi[k], pc_hu[k], pc_em[k], pc_ac[k],
+                                 pc_ty[k], pc_id[k], pc_bar[k], pc_barf[k]);
+                      lv_obj_clear_flag(pc_icon[k], LV_OBJ_FLAG_HIDDEN);
+                      lv_label_set_text(pc_noz[k], nz_c);
+                      lv_obj_set_width(pc_noz[k], noz_w);
+                      lv_obj_set_style_text_font(pc_noz[k], tier_noz_font, LV_PART_MAIN);
+                      place_ext_letter(pc_noz[k], icon_at(c_col) - b0);
+                    }
+                  }
+                  if (u_c < 0) {
+                    lv_obj_add_flag(pc_icon[k], LV_OBJ_FLAG_HIDDEN);
+                    lv_label_set_text(pc_noz[k], "");
+                    lv_label_set_text(pc_ty[k], ""); lv_label_set_text(pc_id[k], "");
+                  }
+                  // Nothing to separate unless the row has a second section.
+                  if (u_b >= 0) lv_obj_clear_flag(p_div[k], LV_OBJ_FLAG_HIDDEN);
+                  else          lv_obj_add_flag(p_div[k], LV_OBJ_FLAG_HIDDEN);
                 } else {
                   lv_obj_add_flag(prow[k], LV_OBJ_FLAG_HIDDEN);
                 }
@@ -2187,11 +2296,16 @@ script:
               };
 
               // Place one unit: multi-slot \u2192 regular row; single-slot \u2192 pair row.
-              auto place = [&](int u, const char *nz) {
+              // u2 is a second external spool to show alongside u (-1 = none).
+              auto place = [&](int u, const char *nz, int u2, const char *nz2) {
                 const auto &unit = s.ams_units[u];
                 if (unit.is_ht || unit.is_vt) {
-                  if (pending_u < 0) { pending_u = u; pending_nz = nz; }
-                  else                flush_pending(u, nz);
+                  if (pending_u >= 0) {
+                    flush_pending(u, nz, u2, nz2);
+                  } else {
+                    pending_u = u; pending_nz = nz;
+                    if (u2 >= 0) flush_pending(-1, "", u2, nz2);
+                  }
                 } else {
                   if (reg_used >= 8) return;
                   int k = reg_used++;
@@ -2290,15 +2404,23 @@ script:
               // nozzle letter (L/R) rather than grouping all-L-then-all-R — the
               // old grouping floated a left-nozzle external spool above the AMS
               // units, breaking the requested order.
+              auto nozzle_letter = [&](int u) -> const char * {
+                if (!s.dual_nozzle) return "";
+                int nv = s.ams_units[u].nozzle;
+                return (nv == 1) ? "L" : (nv == 0) ? "R" : "";
+              };
               for (int u = 0; u < n_ams; u++) {
-                const char *nz = "";
-                if (s.dual_nozzle) {
-                  int nv = s.ams_units[u].nozzle;
-                  nz = (nv == 1) ? "L" : (nv == 0) ? "R" : "";
+                // Two external spools share one section, left spool first.
+                int u2 = -1;
+                int first = u;
+                if (s.ams_units[u].is_vt && u + 1 < n_ams && s.ams_units[u + 1].is_vt) {
+                  u2 = u + 1;
+                  if (s.ams_units[first].nozzle == 0 && s.ams_units[u2].nozzle == 1) std::swap(first, u2);
                 }
-                place(u, nz);
+                place(first, nozzle_letter(first), u2, u2 >= 0 ? nozzle_letter(u2) : "");
+                if (u2 >= 0) u++;
               }
-              if (pending_u >= 0) flush_pending(-1, "");
+              if (pending_u >= 0) flush_pending(-1, "", -1, "");
 
               // Hide unused widget slots
               for (int k = reg_used;  k < 8; k++) lv_obj_add_flag(row[k],  LV_OBJ_FLAG_HIDDEN);

@@ -1581,13 +1581,12 @@ obj:
                                 on_click:
                                   then:
                                     - lambda: "intptr_t d=(intptr_t)lv_obj_get_user_data(id(hit_r7s3));if(d==(intptr_t)-1)return;id(modal_ams_id)=(int)(((unsigned)d>>16)&0xFF);id(modal_tray_slot)=(int)(d&0xFF);if((unsigned)d&0x40000000u){id(slot_assign_open).execute();}else{id(open_ams_modal).execute();}"
-                # ---- Pair rows: two single-slot units (HT / VT) side by side ----
-                # Side A and side B are equal flex_grow:1 columns separated by a 1px divider;
-                # each side's internal icon/label cluster keeps its original fixed offsets
-                # (it's a compact, left-anchored info block, not a stretch-to-fill grid like the
-                # regular-row spool slots) -- extra width on a bigger screen becomes right-side
-                # breathing room within each half, matching the "more space = margins, not more
-                # content" decision.
+                # ---- Pair rows: single-slot units (HT / VT) side by side ----
+                # Side A and side B are separated by a 1px divider, and everything inside them
+                # is positioned at runtime (flush_pending in app.yaml). Two HT units split the
+                # row into equal halves. Otherwise side A is sized so the spools line up with a
+                # regular row's slot columns, and two external spools share one section: the
+                # first uses that section's side, the second the pairN_c_* widgets on side B.
                 - obj:
                     id: ams_pair0
                     x: 0
@@ -1598,7 +1597,7 @@ obj:
                     scrollbar_mode: "OFF"
                     scrollable: false
                     hidden: true
-                    layout: {type: FLEX, flex_flow: ROW}
+                    layout: {type: FLEX, flex_flow: ROW, pad_column: 0}
                     widgets:
                       - obj:
                           id: pair0_a_side
@@ -1635,7 +1634,7 @@ obj:
                                   - obj: {id: pair0_a_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair0_a_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair0_a_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
-                      - obj: {width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
+                      - obj: {id: pair0_div, width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
                       - obj:
                           id: pair0_b_side
                           flex_grow: 1
@@ -1671,6 +1670,29 @@ obj:
                                   - obj: {id: pair0_b_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair0_b_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair0_b_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
+                            # Second external spool (Ext-R beside Ext-L) -- placed at runtime, hidden otherwise.
+                            - label: {id: pair0_c_noz, x: 0, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
+                            - obj:
+                                id: pair0_c_icon
+                                x: 148
+                                y: 0
+                                width: 44
+                                height: 44
+                                bg_opa: TRANSP
+                                border_width: 0
+                                pad_all: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                hidden: true
+                                widgets:
+                                  - image: {id: pair0_c_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
+                                  - obj: {id: pair0_c_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
+                                  - image: {id: pair0_c_emp, src: img_spool_empty, x: 0, y: 6, image_recolor: 0x9898C0, image_recolor_opa: COVER, align: TOP_LEFT}
+                                  - image: {id: pair0_c_act, src: img_spool_active, x: -2, y: 4, image_recolor: 0x4CAF50, image_recolor_opa: COVER, hidden: true, align: TOP_LEFT}
+                                  - obj: {id: pair0_c_bar, x: 38, y: 6, width: 5, height: 32, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", hidden: true, align: TOP_LEFT}
+                                  - obj: {id: pair0_c_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
+                            - label: {id: pair0_c_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
+                            - label: {id: pair0_c_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
                 - obj:
                     id: ams_pair1
                     x: 0
@@ -1681,7 +1703,7 @@ obj:
                     scrollbar_mode: "OFF"
                     scrollable: false
                     hidden: true
-                    layout: {type: FLEX, flex_flow: ROW}
+                    layout: {type: FLEX, flex_flow: ROW, pad_column: 0}
                     widgets:
                       - obj:
                           id: pair1_a_side
@@ -1718,7 +1740,7 @@ obj:
                                   - obj: {id: pair1_a_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair1_a_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair1_a_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
-                      - obj: {width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
+                      - obj: {id: pair1_div, width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
                       - obj:
                           id: pair1_b_side
                           flex_grow: 1
@@ -1754,6 +1776,29 @@ obj:
                                   - obj: {id: pair1_b_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair1_b_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair1_b_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
+                            # Second external spool (Ext-R beside Ext-L) -- placed at runtime, hidden otherwise.
+                            - label: {id: pair1_c_noz, x: 0, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
+                            - obj:
+                                id: pair1_c_icon
+                                x: 148
+                                y: 0
+                                width: 44
+                                height: 44
+                                bg_opa: TRANSP
+                                border_width: 0
+                                pad_all: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                hidden: true
+                                widgets:
+                                  - image: {id: pair1_c_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
+                                  - obj: {id: pair1_c_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
+                                  - image: {id: pair1_c_emp, src: img_spool_empty, x: 0, y: 6, image_recolor: 0x9898C0, image_recolor_opa: COVER, align: TOP_LEFT}
+                                  - image: {id: pair1_c_act, src: img_spool_active, x: -2, y: 4, image_recolor: 0x4CAF50, image_recolor_opa: COVER, hidden: true, align: TOP_LEFT}
+                                  - obj: {id: pair1_c_bar, x: 38, y: 6, width: 5, height: 32, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", hidden: true, align: TOP_LEFT}
+                                  - obj: {id: pair1_c_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
+                            - label: {id: pair1_c_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
+                            - label: {id: pair1_c_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
                 - obj:
                     id: ams_pair2
                     x: 0
@@ -1764,7 +1809,7 @@ obj:
                     scrollbar_mode: "OFF"
                     scrollable: false
                     hidden: true
-                    layout: {type: FLEX, flex_flow: ROW}
+                    layout: {type: FLEX, flex_flow: ROW, pad_column: 0}
                     widgets:
                       - obj:
                           id: pair2_a_side
@@ -1801,7 +1846,7 @@ obj:
                                   - obj: {id: pair2_a_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair2_a_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair2_a_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
-                      - obj: {width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
+                      - obj: {id: pair2_div, width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
                       - obj:
                           id: pair2_b_side
                           flex_grow: 1
@@ -1837,6 +1882,29 @@ obj:
                                   - obj: {id: pair2_b_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair2_b_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair2_b_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
+                            # Second external spool (Ext-R beside Ext-L) -- placed at runtime, hidden otherwise.
+                            - label: {id: pair2_c_noz, x: 0, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
+                            - obj:
+                                id: pair2_c_icon
+                                x: 148
+                                y: 0
+                                width: 44
+                                height: 44
+                                bg_opa: TRANSP
+                                border_width: 0
+                                pad_all: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                hidden: true
+                                widgets:
+                                  - image: {id: pair2_c_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
+                                  - obj: {id: pair2_c_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
+                                  - image: {id: pair2_c_emp, src: img_spool_empty, x: 0, y: 6, image_recolor: 0x9898C0, image_recolor_opa: COVER, align: TOP_LEFT}
+                                  - image: {id: pair2_c_act, src: img_spool_active, x: -2, y: 4, image_recolor: 0x4CAF50, image_recolor_opa: COVER, hidden: true, align: TOP_LEFT}
+                                  - obj: {id: pair2_c_bar, x: 38, y: 6, width: 5, height: 32, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", hidden: true, align: TOP_LEFT}
+                                  - obj: {id: pair2_c_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
+                            - label: {id: pair2_c_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
+                            - label: {id: pair2_c_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
                 - obj:
                     id: ams_pair3
                     x: 0
@@ -1847,7 +1915,7 @@ obj:
                     scrollbar_mode: "OFF"
                     scrollable: false
                     hidden: true
-                    layout: {type: FLEX, flex_flow: ROW}
+                    layout: {type: FLEX, flex_flow: ROW, pad_column: 0}
                     widgets:
                       - obj:
                           id: pair3_a_side
@@ -1884,7 +1952,7 @@ obj:
                                   - obj: {id: pair3_a_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair3_a_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair3_a_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
-                      - obj: {width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
+                      - obj: {id: pair3_div, width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
                       - obj:
                           id: pair3_b_side
                           flex_grow: 1
@@ -1920,6 +1988,29 @@ obj:
                                   - obj: {id: pair3_b_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair3_b_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair3_b_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
+                            # Second external spool (Ext-R beside Ext-L) -- placed at runtime, hidden otherwise.
+                            - label: {id: pair3_c_noz, x: 0, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
+                            - obj:
+                                id: pair3_c_icon
+                                x: 148
+                                y: 0
+                                width: 44
+                                height: 44
+                                bg_opa: TRANSP
+                                border_width: 0
+                                pad_all: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                hidden: true
+                                widgets:
+                                  - image: {id: pair3_c_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
+                                  - obj: {id: pair3_c_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
+                                  - image: {id: pair3_c_emp, src: img_spool_empty, x: 0, y: 6, image_recolor: 0x9898C0, image_recolor_opa: COVER, align: TOP_LEFT}
+                                  - image: {id: pair3_c_act, src: img_spool_active, x: -2, y: 4, image_recolor: 0x4CAF50, image_recolor_opa: COVER, hidden: true, align: TOP_LEFT}
+                                  - obj: {id: pair3_c_bar, x: 38, y: 6, width: 5, height: 32, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", hidden: true, align: TOP_LEFT}
+                                  - obj: {id: pair3_c_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
+                            - label: {id: pair3_c_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
+                            - label: {id: pair3_c_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
                 - obj:
                     id: ams_pair4
                     x: 0
@@ -1930,7 +2021,7 @@ obj:
                     scrollbar_mode: "OFF"
                     scrollable: false
                     hidden: true
-                    layout: {type: FLEX, flex_flow: ROW}
+                    layout: {type: FLEX, flex_flow: ROW, pad_column: 0}
                     widgets:
                       - obj:
                           id: pair4_a_side
@@ -1967,7 +2058,7 @@ obj:
                                   - obj: {id: pair4_a_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair4_a_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair4_a_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
-                      - obj: {width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
+                      - obj: {id: pair4_div, width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
                       - obj:
                           id: pair4_b_side
                           flex_grow: 1
@@ -2003,6 +2094,29 @@ obj:
                                   - obj: {id: pair4_b_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair4_b_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair4_b_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
+                            # Second external spool (Ext-R beside Ext-L) -- placed at runtime, hidden otherwise.
+                            - label: {id: pair4_c_noz, x: 0, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
+                            - obj:
+                                id: pair4_c_icon
+                                x: 148
+                                y: 0
+                                width: 44
+                                height: 44
+                                bg_opa: TRANSP
+                                border_width: 0
+                                pad_all: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                hidden: true
+                                widgets:
+                                  - image: {id: pair4_c_fill, src: img_spool_fill, x: 0, y: 6, image_recolor: 0x2A2A3A, image_recolor_opa: COVER, align: TOP_LEFT}
+                                  - obj: {id: pair4_c_hub, x: 10, y: 16, width: 12, height: 12, radius: 6, bg_color: 0x1B1B2A, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
+                                  - image: {id: pair4_c_emp, src: img_spool_empty, x: 0, y: 6, image_recolor: 0x9898C0, image_recolor_opa: COVER, align: TOP_LEFT}
+                                  - image: {id: pair4_c_act, src: img_spool_active, x: -2, y: 4, image_recolor: 0x4CAF50, image_recolor_opa: COVER, hidden: true, align: TOP_LEFT}
+                                  - obj: {id: pair4_c_bar, x: 38, y: 6, width: 5, height: 32, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", hidden: true, align: TOP_LEFT}
+                                  - obj: {id: pair4_c_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
+                            - label: {id: pair4_c_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
+                            - label: {id: pair4_c_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
 
           # ---- AMS pagination nav bar -- fixed-height flex row, sits below
           # ams_rows_wrap inside ams_body; prev/next stay fixed-width, the page
