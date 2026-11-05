@@ -108,7 +108,8 @@ bambuddy_api:
   scale:
     type: local                # weight from the HX711 sensor below; tare/cal kept in NVS
     sensor: spool_weight
-    # stable_after: 750ms      # reading counts as settled after this long without a move...
+    # The default 750ms lets tare and calibrate capture during a brief pause in a moving load.
+    stable_after: 1500ms       # reading counts as settled after this long without a move...
     # stable_band: 0.3         # ...of at least this much (matches the delta filter below)
     # timeout: 5s              # no HX711 reading for this long → console shows "No scale connected"
   scale_report_interval: 100   # ms — weight push cadence to the console
@@ -152,8 +153,8 @@ button:
   - platform: template
     name: "Tare Scale"
     id: tare_button
-    # local_tare() reads the current ADC reading as the new zero-point and saves
-    # it to NVS immediately.  No network call needed.
+    # local_tare() waits for a settled ADC reading, uses it as the new zero-point
+    # and saves it to NVS.  No network call needed.
     on_press:
       then:
         - lambda: bambuddy->local_tare();

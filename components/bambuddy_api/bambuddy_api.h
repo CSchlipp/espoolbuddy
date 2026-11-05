@@ -144,6 +144,18 @@ static constexpr uint32_t CONSOLE_BACKOFF_MIN_MS = 5000;
 static constexpr uint32_t CONSOLE_BACKOFF_MAX_MS = 60000;
 // Scale push: most NFC/write-result events queued per console (oldest dropped).
 static constexpr size_t   CONSOLE_EVENT_QUEUE_MAX = 16;
+// A tare/calibrate request on a local load cell waits for a settled reading.
+// MIN_WAIT covers the filters' delay before a disturbance shows up in the
+// reading at all, so "stable" can't just mean "hasn't noticed yet": up to about
+// 1 s on the shipped filter chains. TIMEOUT stays below
+// PENDING_SCALE_CMD_TTL_MS, the Bambuddy UI's own limit.
+static constexpr uint32_t LOCAL_CAPTURE_MIN_WAIT_MS = 1200;
+static constexpr uint32_t LOCAL_CAPTURE_TIMEOUT_MS = 10000;
+static constexpr int CAPTURE_ERROR_NONE = 0;
+static constexpr int CAPTURE_ERROR_NOT_SETTLED = 1;
+static constexpr int CAPTURE_ERROR_NO_LOAD = 2;
+// Calibrating needs a net reading of at least this many stable_bands.
+static constexpr float CALIBRATE_MIN_NET_BANDS = 10.0f;
 
 // Where a device gets its weight from (bambuddy_api `scale:` block).
 //   NONE   — no scale (a satellite that only forwards NFC events).
@@ -758,11 +770,12 @@ class BambuddyAPIComponent : public Component {
   void request_tare();
 
   // ---- Local tare (scale: type: local only) ----
-  // Takes the current gross reading as the new zero point, saves it to NVS
-  // and republishes the reading so the zeroed weight shows at once (the
-  // sensor's delta filter emits nothing while the load is unchanged).  On a
-  // console it also reports the new tare to Bambuddy.  Called by the scale's
-  // Tare button, request_tare() and a heartbeat-delivered tare command.
+  // Asks for the next settled gross reading to become the new zero point (see
+  // start_local_capture()). It is then saved to NVS and republished so the
+  // zeroed weight shows at once (the sensor's delta filter emits nothing while
+  // the load is unchanged).  On a console it is also reported to Bambuddy.
+  // Called by the scale's Tare button, request_tare() and a
+  // heartbeat-delivered tare command, from any task.
   // No-op for any other weight source.
   void local_tare();
 
@@ -770,7 +783,8 @@ class BambuddyAPIComponent : public Component {
   // Single calibrate entry point for both the UI calibrate button and the
   // backend "calibrate_with_weight" command (handle_command).  Place a known
   // reference weight on the scale, then call this with its value.  LOCAL:
-  // factor = reference / net reading, saved to NVS and reported to Bambuddy.
+  // factor = reference / settled net reading (see start_local_capture()),
+  // saved to NVS and reported to Bambuddy.
   // REMOTE scale connected: delivered via its next heartbeat response.
   // Otherwise only shows "No scale connected".  Rejects values <= 0.
   void request_calibration(float reference_weight_g);
@@ -800,9 +814,21 @@ class BambuddyAPIComponent : public Component {
   // (rate limited — see http_task_loop()). Never queues a job, so weight can't
   // crowd user actions out of the job queue.
   void ingest_weight(float net, bool stable, int raw_adc);
-  // LOCAL source: calibrate against a reference weight on the platform.
-  // Returns false (and sets a status) when no usable reading is available.
+  // LOCAL source: calibrate against a reference weight on the platform, once
+  // the reading has settled. Returns false when there is no reading yet. Safe
+  // from any task.
   bool local_calibrate(float reference_weight_g);
+  // LOCAL source: tare and calibrate don't take the reading at the moment they
+  // are asked for. It may still be moving: the sensor's filters lag behind a
+  // load that was just changed, and the load itself can take a moment to come
+  // to rest. This only records the request, which
+  // run_local_capture() carries out on the main loop once the reading settles.
+  // A newer request replaces a pending one.
+  enum class LocalCapture : uint8_t { NONE, TARE, CALIBRATE };
+  void start_local_capture(LocalCapture kind, float reference_weight_g);
+  void run_local_capture();
+  void apply_local_tare();
+  void apply_local_calibration(float reference_weight_g);
   // LOCAL source: re-feed the last reading so a tare/calibration change shows
   // at once.
   void republish_local_reading();
@@ -893,8 +919,12 @@ class BambuddyAPIComponent : public Component {
   // Returns false when the (capped) queue was full and the job was dropped.
   bool enqueue_job(const HttpJob &job);
   // LOCAL source: queue an UPDATE_TARE / UPDATE_CALIBRATION job and count it
-  // in local_cal_jobs_ until the HTTP task has sent it.
-  void enqueue_local_cal_job(const HttpJob &job);
+  // in cal_report_jobs_ until the HTTP task has sent it.
+  void enqueue_cal_report_job(const HttpJob &job);
+  // Same, reporting a calibration factor to Bambuddy.
+  void enqueue_factor_report(float factor);
+  // Satellite: tell the console why a tare/calibrate failed, in the next push.
+  void report_capture_error(int error);
   bool dequeue_job(HttpJob &job);
 
   // State-mutex helpers (guard all concurrent access to display_state_)
@@ -1266,6 +1296,16 @@ class BambuddyAPIComponent : public Component {
   uint32_t local_change_ms_{0};             // when the reading last moved by >= stable_band
   bool local_have_value_{false};
   bool local_stable_{false};
+  // Pending tare/calibrate. The kind can be set from any task; the time and
+  // reference weight are guarded by state_mutex_ and written first.
+  std::atomic<LocalCapture> local_capture_{LocalCapture::NONE};
+  // Satellite: why the last capture failed, reported in the next weight push
+  // because the status line that would show it is on the console.
+  std::atomic<int> capture_error_{CAPTURE_ERROR_NONE};
+  // Satellite: a tare/calibrate finished; the next push carries its result.
+  std::atomic<bool> capture_done_{false};
+  uint32_t local_capture_ms_{0};
+  float local_capture_ref_{0.0f};
 
   // Base URLs of the console(s), no port (satellites only). The first
   // entry drives the initial weight push (last_push_ok_ms_); every entry
@@ -1319,14 +1359,17 @@ class BambuddyAPIComponent : public Component {
   // Console with a non-REMOTE source: a /scale/weight push was already
   // logged as ignored (log once).
   bool remote_weight_ignored_logged_{false};
-  // LOCAL source: tare/calibration jobs queued but not yet sent to Bambuddy.
+  // Tare/calibration changes not yet sent to Bambuddy.
   // While non-zero, the heartbeat's calibration sync is skipped — its values
   // predate the local change and would revert it.
-  std::atomic<int> local_cal_jobs_{0};
-  // LOCAL source: a tare/calibration POST failed, so the backend holds stale
-  // values. Set by the HTTP task; the next successful heartbeat re-sends the
-  // local values instead of syncing from the backend.
-  bool local_cal_unsynced_{false};
+  std::atomic<int> cal_report_jobs_{0};
+  // A tare/calibration report failed or was dropped, so the backend holds stale
+  // values. The next successful heartbeat re-sends the local values instead of
+  // syncing from the backend.
+  std::atomic<bool> cal_unsynced_{false};
+  // LOCAL source: NVS holds a tare or factor. Without one the values are only
+  // defaults, and registration restores the backend's copy.
+  std::atomic<bool> local_cal_in_nvs_{false};
 
   // Pending console→scale command: delivered in the next /scale/heartbeat response.
   // Written by request_tare() / request_calibration() / handle_command() (under state_mutex_).
@@ -1341,6 +1384,10 @@ class BambuddyAPIComponent : public Component {
   // confirms tare completion by watching last_calibrated_at advance (15 s
   // timeout), which only happens on a set-tare POST.  Guarded by state_mutex_.
   bool tare_ack_pending_{false};
+  // Same for a calibrate command, and when the latest of the two was handed
+  // over: a scale that never answers must not block the backend sync forever.
+  bool calibrate_ack_pending_{false};
+  uint32_t scale_cmd_delivered_ms_{0};
   float pending_scale_cmd_value_{0.0f};
   // Extra JSON key-value pairs for commands that carry a payload (e.g. write_tag).
   // Serialised as a comma-prefixed JSON fragment appended directly to the response object.
