@@ -32,6 +32,18 @@ lvgl:
   bg_color: 0x12121A
   default_font: roboto_16
 
+  # One pressed state for every button, so a tap always shows it registered. A
+  # style for a specific state takes priority over a widget's own default-state
+  # style, so this overrides each button's colour while it's held, and bg_opa
+  # covers the buttons that are otherwise transparent. The theme
+  # doesn't reach buttons built at runtime, so render_storage_locations and
+  # render_plug_list in app.yaml set the same colour themselves.
+  theme:
+    button:
+      pressed:
+        bg_color: 0x3A5A9C
+        bg_opa: COVER
+
   style_definitions:
     - id: sty_bar
       bg_color: 0x0D0D16

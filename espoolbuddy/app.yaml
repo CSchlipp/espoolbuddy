@@ -532,6 +532,7 @@ script:
             lv_obj_set_width(btn, 96);
             lv_obj_set_height(btn, 32);
             lv_obj_add_style(btn, id(sty_card), 0);
+            lv_obj_set_style_bg_color(btn, lv_color_hex(0x3A5A9C), LV_STATE_PRESSED);  // matches lvgl.yaml's theme
             lv_obj_t *btn_lbl = lv_label_create(btn);
             lv_label_set_text(btn_lbl, linked ? "Unlink" : "Scan to Link");
             lv_obj_set_style_text_color(btn_lbl, linked ? lv_color_hex(0xFF8888) : lv_color_hex(0x4ECDC4), 0);
@@ -608,6 +609,7 @@ script:
             lv_obj_set_width(btn, 72);
             lv_obj_set_height(btn, 32);
             lv_obj_add_style(btn, id(sty_card), 0);
+            lv_obj_set_style_bg_color(btn, lv_color_hex(0x3A5A9C), LV_STATE_PRESSED);  // matches lvgl.yaml's theme
             lv_obj_set_style_border_width(btn, 1, 0);
             lv_obj_set_style_border_color(btn,
                 plug.on ? lv_color_hex(0x4CAF50) : lv_color_hex(0x454572), 0);
