@@ -63,7 +63,9 @@ Panda Touch shows the same screens at 800×480.
   in except the hotend temperatures, which Bambuddy does not accept for
   Spoolman spools. This works the same whether the tag was scanned on the
   console or on the scale — the scale decodes the tag itself and pushes the
-  decoded values to the console along with the UID.
+  decoded values to the console along with the UID. Once it's created, the
+  new spool is shown just like a scanned one: its details, the 60 s window to
+  load it into an AMS slot, and **Quick Weight**.
 
   The panel already previews what will be added: the title names the tag
   type ("New Bambu Lab Tag discovered", "New OpenTag3D discovered" or "New

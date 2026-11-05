@@ -4373,20 +4373,35 @@ void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid,
   }
   ESP_LOGI(TAG, "api_create_spool_from_tag: created spool #%d", new_id);
 
-  // Arm the pending-assign TTL for AMS slot auto-assignment, then clear the
-  // view so the user returns to "Waiting for tag…".
+  // Show the new spool exactly as if its tag had just been scanned: spool
+  // details, the auto-assign window for loading it into the AMS, and Quick
+  // Weight. Seeded from what was sent, then refreshed from the backend by
+  // activate_spool()'s api_get_spool().
+  FilamentInfo fi;
   lock_state();
-  pending_assign_spool_id_  = new_id;
-  pending_assign_expiry_ms_ = millis() + ASSIGN_TTL_MS;
-  display_state_.spool_assign_expiry_ms = pending_assign_expiry_ms_;
-  unlinked_tag_expiry_ms_   = 0;
+  fi.tag_type   = display_state_.current_filament.tag_type;
+  fi.tag_format = display_state_.current_filament.tag_format;
+  fi.sak        = display_state_.current_filament.sak;
+  unlinked_tag_expiry_ms_ = 0;
   display_state_.unlinked_tag_expiry_ms = 0;
-  display_state_.nfc_state  = NFCTagState::ABSENT;
-  display_state_.spool_selected   = false;
-  display_state_.current_filament = FilamentInfo{};
-  display_state_.status_message   = "Created spool #" + std::to_string(new_id) +
-                                    (tag_link_failed ? ", tag link failed" : "");
   unlock_state();
+  fi.spool_id  = new_id;
+  fi.tray_uuid = tray_uuid;
+  if (tf.valid && !tf.material.empty()) {
+    fi.material_type  = tf.material;
+    fi.subtype        = tf.subtype;
+    fi.color_name     = tf.color_name;
+    fi.color_hex      = tf.color_hex.substr(0, 6);
+    fi.brand          = !tf.brand.empty() ? tf.brand
+                      : tf.format != "open_tag_3d" ? std::string("Bambu Lab") : std::string();
+    fi.label_weight_g = (tf.spool_weight > 0 && tf.spool_weight <= 5000) ? tf.spool_weight : 1000;
+  } else {
+    fi.material_type  = "PLA";
+    fi.label_weight_g = 1000;
+  }
+  activate_spool(fi, uid, last_tag_source_);
+  set_status("Created spool #" + std::to_string(new_id) +
+             (tag_link_failed ? ", tag link failed" : ""));
 }
 
 // ---- Public method implementations ----
