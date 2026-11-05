@@ -89,7 +89,7 @@ AMSUnit demo_unit(int id, const char *name, int humidity, float temp, int nozzle
 }
 
 // AMS layout per demo printer: printer 0 is a dual-nozzle printer with two
-// AMS, an AMS HT and the external slot; printer 1 a single AMS; printer 2 is
+// AMS, an AMS HT and two external spools; printer 1 a single AMS; printer 2 is
 // offline with nothing loaded.
 void fill_demo_ams(int printer_idx, DisplayState &ds) {
   ds.ams_units.clear();
@@ -109,10 +109,13 @@ void fill_demo_ams(int printer_idx, DisplayState &ds) {
     AMSUnit ht = demo_unit(128, "AMS HT", 1, 27.0f, 1);
     ht.is_ht = true;
     ht.trays = {demo_tray(0, find_demo_spool(35))};
-    AMSUnit vt = demo_unit(255, "Ext", 0, 0.0f, 0);
-    vt.is_vt = true;
-    vt.trays = {demo_tray(0, find_demo_spool(37))};
-    ds.ams_units = {a, b, ht, vt};
+    AMSUnit vl = demo_unit(254, "Ext", 0, 0.0f, 1);
+    vl.is_vt = true;
+    vl.trays = {demo_tray(0, find_demo_spool(37))};
+    AMSUnit vr = demo_unit(255, "Ext", 0, 0.0f, 0);
+    vr.is_vt = true;
+    vr.trays = {demo_tray(0, find_demo_spool(34))};
+    ds.ams_units = {a, b, ht, vl, vr};
   } else if (printer_idx == 1) {
     ds.tray_now = 2;
     AMSUnit a = demo_unit(0, "AMS A", 4, 24.0f, -1);
