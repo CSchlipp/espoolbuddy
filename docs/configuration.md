@@ -14,7 +14,7 @@ same `bambuddy_api` component; several options only apply to one mode.
 | `bambuddy_api.backend_url` | Console | *(secrets)* | Bambuddy server URL |
 | `bambuddy_api.api_key` | Console | *(secrets)* | Bambuddy API key |
 | `bambuddy_api.hostname` | Both | `SpoolBuddy-ESP` | Display name in the Bambuddy UI |
-| `bambuddy_api.heartbeat_interval` | Console | `10` s | Heartbeat / command-poll frequency |
+| `bambuddy_api.heartbeat_interval` | Console | `10` s | Heartbeat / command-poll frequency. Keep it under 30 s, or Bambuddy shows the console as offline |
 | `bambuddy_api.printer_poll_interval` | Console | `30` s | AMS/printer state poll frequency |
 | `bambuddy_api.sleep_factor` | Console | `6` | Printer/AMS poll interval multiplier while asleep. The heartbeat isn't stretched, because Bambuddy shows a device as offline after 30 s without one. On battery, set WiFi in sleep to Off to save the most power |
 | `bambuddy_api.console_url` | Scale | `http://espoolbuddy-console.local` | Console URL(s) to push readings to — a single string or a list, see [Scale build](scale.md#point-it-at-the-console). Setting it makes the device push to the console instead of talking to Bambuddy, so it can't be combined with `backend_url` |
