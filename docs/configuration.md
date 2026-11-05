@@ -15,7 +15,6 @@ same `bambuddy_api` component; several options only apply to one mode.
 | `bambuddy_api.hostname` | Both | `SpoolBuddy-ESP` | Display name in the Bambuddy UI |
 | `bambuddy_api.heartbeat_interval` | Console | `10` s | Heartbeat / command-poll frequency |
 | `bambuddy_api.printer_poll_interval` | Console | `30` s | AMS/printer state poll frequency |
-| `bambuddy_api.sleep_timeout` | Console | `600` s | Idle time before deep sleep (`0` = disabled); also adjustable live from the Settings tab |
 | `bambuddy_api.sleep_factor` | Console | `6` | Heartbeat/poll interval multiplier while asleep |
 | `bambuddy_api.scale_mode` | Scale | `true` | Runs the local HTTP server + push client instead of talking to Bambuddy |
 | `bambuddy_api.console_url` | Scale | `http://espoolbuddy-console.local` | Console URL(s) to push readings to — a single string or a list, see [Scale build](scale.md#point-it-at-the-console) |
