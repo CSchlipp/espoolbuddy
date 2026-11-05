@@ -60,16 +60,26 @@ esphome:
         - script.execute: apply_tab
     # ESPHome's nau7802 driver doesn't run the chip's internal offset
     # calibration itself. Wait out its 600 ms power-up in setup() first. The
-    # sensor below publishes nothing until this has finished, so nothing acts
-    # on a reading from before the baseline moved.
+    # sensor below publishes nothing until this has succeeded, so nothing acts
+    # on a reading from before the baseline moved. If it fails, the scale stays
+    # out of service until a reboot rather than showing a wrong weight.
     - priority: -100
       then:
         - delay: 2s
         - nau7802.calibrate_internal_offset: spool_weight
-        - delay: 1s
-        - globals.set:
-            id: nau_offset_calibrated
-            value: "true"
+        # CTRL2 register: CALS (0x04) is set while calibrating, CAL_ERR (0x08) on failure.
+        - wait_until:
+            condition:
+              lambda: 'return !(id(spool_weight).reg(0x02).get() & 0x04);'
+            timeout: 5s
+        # Let a conversion from after the calibration reach the data registers.
+        - delay: 300ms
+        - lambda: |-
+            if (id(spool_weight).reg(0x02).get() & 0x0C) {
+              ESP_LOGE("scale", "NAU7802 offset calibration failed, reboot to retry");
+              return;
+            }
+            id(nau_offset_calibrated) = true;
 
 globals:
   - id: nau_offset_calibrated
@@ -137,11 +147,9 @@ packages:
     refresh: always
 
 logger:
-  # Global level must be DEBUG so the Bambuddy components can emit DEBUG (a
+  # Change to DEBUG to trace Bambuddy HTTP requests/responses and NFC detail.
+  # The per-tag levels below then keep the noisy framework tags at INFO (a
   # per-tag level may only be RAISED above the global level, never lowered).
-  # The noisy framework tags are raised back to INFO to keep the log readable
-  # while still tracing all Bambuddy HTTP requests/responses and NFC detail.
-  # Change to DEBUG if required
   level: INFO
   baud_rate: 115200
   logs:
@@ -257,7 +265,7 @@ spi:
 # ============================================================================
 bambuddy_nfc:
   id: nfc_reader
-  api_id: bambuddy     # id of the bambuddy_api: component above (required link)
+  api_id: bambuddy     # id of the bambuddy_api: component below (required link)
   interface: i2c
   i2c_id: ext_i2c
   # address: 0x24      # PN532 default
@@ -286,9 +294,10 @@ sensor:
     gain: 128
     ldo_voltage: "3.0V"
     samples_per_second: 10
-    # Slower than the 100 ms conversion time, or update() logs
-    # "No measurements ready!" whenever it polls ahead of the ADC.
-    update_interval: 200ms
+    # Just slower than the 100 ms conversion time, so it uses nearly every
+    # conversion without update() logging "No measurements ready!" by polling
+    # ahead of the ADC.
+    update_interval: 120ms
     filters:
       - lambda: |-
           if (!id(nau_offset_calibrated)) return {};
@@ -421,7 +430,7 @@ bambuddy_api:
   backend_url: !secret bambuddy_backend_url   # Bambuddy server base URL, e.g. http://192.168.1.50:5000
   api_key: !secret bambuddy_api_key           # from Bambuddy → Settings → Devices → this device's API key
   hostname: "SpoolBuddy-Console-Scale"              # display name for this device in Bambuddy's device list (not the network/mDNS hostname)
-  backlight_id: display_backlight             # id of the `light:` below — dimmed/turned off by the sleep state machine
+  backlight_id: display_backlight             # id of the `light:` above — dimmed/turned off by the sleep state machine
   scale:
     type: local                 # weight from the NAU7802 above; tare/cal kept in NVS
     sensor: spool_weight
