@@ -1190,7 +1190,8 @@ void BambuddyAPIComponent::run_local_capture() {
              (unsigned long) LOCAL_CAPTURE_TIMEOUT_MS);
     return;
   }
-  if (age < LOCAL_CAPTURE_MIN_WAIT_MS || !local_stable_ || !local_live()) return;
+  const uint32_t min_wait = std::max(LOCAL_CAPTURE_MIN_WAIT_MS, local_stable_after_ms_);
+  if (age < min_wait || !local_stable_ || !local_live()) return;
   local_capture_.store(LocalCapture::NONE);
   if (kind == LocalCapture::TARE) {
     apply_local_tare();
