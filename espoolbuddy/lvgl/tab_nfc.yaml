@@ -6,15 +6,36 @@ obj:
   scrollbar_mode: "OFF"
   hidden: true
   widgets:
-    # "waiting" placeholder (shown when no spool selected)
-    - label:
+    # "waiting" placeholder (shown when no spool selected): NFC icon + hint,
+    # the same as the Lite UI's waiting screen.
+    - obj:
         id: nfc_waiting
         width: 100%
-        text: "Waiting for tag..."
-        text_font: roboto_28
-        text_color: 0x8888AA
-        text_align: CENTER
+        height: SIZE_CONTENT
         align: CENTER
+        bg_opa: TRANSP
+        border_width: 0
+        pad_all: 0
+        scrollbar_mode: "OFF"
+        clickable: false
+        layout:
+          type: flex
+          flex_flow: column
+          flex_align_cross: center
+          flex_align_track: center
+          pad_row: 6
+        widgets:
+          - label:
+              text: "\U000F0396"
+              text_font: mdi_48
+              text_color: 0x454572
+          - label:
+              id: nfc_waiting_text
+              width: 100%
+              text: "Place spool tag on reader"
+              text_font: roboto_20
+              text_color: 0x8585B8
+              text_align: CENTER
 
     # spool detail group
     - obj:
@@ -317,7 +338,7 @@ obj:
                             lv_obj_add_flag(id(nfc_spool_box), LV_OBJ_FLAG_HIDDEN);
                             lv_obj_add_flag(id(nfc_write_banner), LV_OBJ_FLAG_HIDDEN);
                             lv_obj_add_flag(id(nfc_archive_proposal_popup), LV_OBJ_FLAG_HIDDEN);
-                            lv_label_set_text(id(nfc_waiting), "Waiting for tag...");
+                            lv_label_set_text(id(nfc_waiting_text), "Place spool tag on reader");
                             lv_obj_clear_flag(id(nfc_waiting), LV_OBJ_FLAG_HIDDEN);
                             bambuddy->dismiss_spool();
                         # Then the full refresh (incl. hop back to the previous
