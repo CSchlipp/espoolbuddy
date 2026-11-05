@@ -67,11 +67,17 @@ esphome:
         // on the false->true transition (not on "a stable push was received"), so
         // the scale's bounded stable-push retries (espoolbuddy_scale.yaml) land here
         // as harmless repeat renders of the same text without re-triggering the chime.
+        // One chime per load: a reading that wanders in and out of "stable" stays
+        // silent until it has moved 5 g from the last chime or the pad was emptied.
         static bool prev_weight_stable = false;
+        static float last_chime_grams = 0.0f;
         bool stable_now = ok && stable;
+        if (stable_now && grams < 5.0f) last_chime_grams = 0.0f;
         if (stable_now && !prev_weight_stable && grams >= 5.0f
+            && fabsf(grams - last_chime_grams) >= 5.0f
             && id(sound_enabled) && !bambuddy->chime_playing()) {
           bambuddy->play_chime("stable:d=16,o=6,b=150:c,e,g");
+          last_chime_grams = grams;
         }
         prev_weight_stable = stable_now;
 
