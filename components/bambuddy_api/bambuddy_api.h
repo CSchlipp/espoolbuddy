@@ -145,9 +145,10 @@ static constexpr uint32_t CONSOLE_BACKOFF_MAX_MS = 60000;
 // Scale push: most NFC/write-result events queued per console (oldest dropped).
 static constexpr size_t   CONSOLE_EVENT_QUEUE_MAX = 16;
 // A tare/calibrate request on a local load cell waits for a settled reading.
-// MIN_WAIT covers the filters' delay before a disturbance shows up in the
-// reading at all, so "stable" can't just mean "hasn't noticed yet": up to about
-// 1 s on the shipped filter chains. TIMEOUT stays below
+// The wait covers the filters' delay before a disturbance shows up in the
+// reading at all, so "stable" can't just mean "hasn't noticed yet". It's the
+// longer of MIN_WAIT and stable_after, because a slower filter chain also needs
+// a longer stable_after. TIMEOUT stays below
 // PENDING_SCALE_CMD_TTL_MS, the Bambuddy UI's own limit.
 static constexpr uint32_t LOCAL_CAPTURE_MIN_WAIT_MS = 1200;
 static constexpr uint32_t LOCAL_CAPTURE_TIMEOUT_MS = 10000;
@@ -848,7 +849,8 @@ class BambuddyAPIComponent : public Component {
   // True when the configured weight source currently delivers readings.
   bool scale_connected() const {
     switch (scale_source_) {
-      case ScaleSource::LOCAL:  return local_live();
+      // Raw readings can arrive before the sensor's filters publish a value.
+      case ScaleSource::LOCAL:  return local_live() && local_have_value_;
       case ScaleSource::REMOTE: return scale_live();
       default:                  return false;
     }

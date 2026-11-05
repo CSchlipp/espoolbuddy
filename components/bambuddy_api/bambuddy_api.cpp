@@ -1157,6 +1157,7 @@ void BambuddyAPIComponent::request_tare() {
 void BambuddyAPIComponent::local_tare() {
   if (scale_source_ != ScaleSource::LOCAL) return;
   if (!local_have_value_) {
+    set_status("Scale not ready, try again");
     ESP_LOGW(TAG, "Tare ignored: no reading from the load-cell sensor yet");
     report_capture_error(CAPTURE_ERROR_NOT_SETTLED);
     return;
@@ -1190,7 +1191,8 @@ void BambuddyAPIComponent::run_local_capture() {
              (unsigned long) LOCAL_CAPTURE_TIMEOUT_MS);
     return;
   }
-  if (age < LOCAL_CAPTURE_MIN_WAIT_MS || !local_stable_ || !local_live()) return;
+  const uint32_t min_wait = std::max(LOCAL_CAPTURE_MIN_WAIT_MS, local_stable_after_ms_);
+  if (age < min_wait || !local_stable_ || !local_live()) return;
   local_capture_.store(LocalCapture::NONE);
   if (kind == LocalCapture::TARE) {
     apply_local_tare();
@@ -1825,6 +1827,7 @@ void BambuddyAPIComponent::request_calibration(float reference_weight_g) {
 
 bool BambuddyAPIComponent::local_calibrate(float reference_weight_g) {
   if (scale_source_ != ScaleSource::LOCAL || !local_have_value_) {
+    set_status("Scale not ready, try again");
     ESP_LOGW(TAG, "Calibrate ignored: no reading from the load-cell sensor yet");
     report_capture_error(CAPTURE_ERROR_NOT_SETTLED);
     return false;
