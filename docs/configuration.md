@@ -41,6 +41,7 @@ matching mode.
 | `i2c_id` | | ✅ | The `i2c:` bus (at most `400kHz`) |
 | `address` | | ✅ | Default `0x24` |
 | `irq_pin` | ✅ | ✅ | Optional; without it the status byte is polled over the bus |
+| `reset_pin` | ✅ | ✅ | Optional; drives the PN532's RSTPDN line, which can recover a hung chip. Must be an open-drain output (`mode: {output: true, open_drain: true}`). Pulsed at every PN532 init and checked once per boot; left unused if the pulse has no effect |
 | `poll_interval`, `miss_threshold` | ✅ | ✅ | See the table above |
 
 The WT32-SC01 Plus console and the Scale use SPI with IRQ; the Panda Touch
