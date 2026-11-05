@@ -34,6 +34,7 @@ esphome:
             // it can't read ESPHome globals itself (id() is lambda-only),
             // so this is the only place that mirrors it at startup.
             bambuddy->set_clear_location_on_ams_load(id(clear_location_on_ams_load));
+            bambuddy->set_chime_level(id(chime_level));
   # Weight-tab display + stable chime, run every main-loop iteration instead
   # of the 400 ms interval below. console_http_scale_weight() (bambuddy_api)
   # writes a landed scale push into display_state_ immediately from the HTTP
@@ -141,6 +142,10 @@ globals:
     type: int
     restore_value: yes
     initial_value: '1'
+  - id: chime_level          # Chime volume when sound is on: 0 = Low, 1 = Med, 2 = High
+    type: int
+    restore_value: yes
+    initial_value: '2'
   - id: plate_clear_popup_open  # 1 while the plate-clear popup is on screen (guards re-showing it)
     type: int
     restore_value: no
@@ -396,7 +401,21 @@ script:
                 active ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
           }
 
-  # Refresh the Settings "Sound: On/Off" toggle from the sound_enabled global.
+  # Set the chime volume from a Settings "Sound" segment, and play a chime at
+  # that volume so the choice can be heard.
+  - id: select_chime_level
+    parameters:
+      level: int
+    then:
+      - lambda: |-
+          id(sound_enabled) = 1;
+          id(chime_level) = level;
+          bambuddy->set_chime_level(level);
+          if (!bambuddy->chime_playing())
+            bambuddy->play_chime("tag:d=16,o=6,b=180:e,b");
+      - script.execute: update_sound_btn
+
+  # Refresh the Settings "Sound" row from the sound_enabled and chime_level globals.
   # Called on boot/tab-switch (apply_tab) and on tap.
   - id: update_sound_btn
     then:
@@ -407,10 +426,15 @@ script:
               !on ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
           lv_obj_set_style_text_color(id(lbl_sound_off),
               !on ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
-          lv_obj_set_style_bg_color(id(btn_sound_on),
-              on ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
-          lv_obj_set_style_text_color(id(lbl_sound_on),
-              on ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
+          lv_obj_t *btns[3] = {id(btn_sound_low), id(btn_sound_med), id(btn_sound_high)};
+          lv_obj_t *lbls[3] = {id(lbl_sound_low), id(lbl_sound_med), id(lbl_sound_high)};
+          for (int i = 0; i < 3; i++) {
+            bool active = on && id(chime_level) == i;
+            lv_obj_set_style_bg_color(btns[i],
+                active ? lv_color_hex(0x0F3460) : lv_color_hex(0x1B1B2A), LV_PART_MAIN);
+            lv_obj_set_style_text_color(lbls[i],
+                active ? lv_color_hex(0x4ECDC4) : lv_color_hex(0x8888AA), LV_PART_MAIN);
+          }
           // Quick-settings Sound tile — same global, so routing every caller
           // through this script keeps the two controls showing the same state.
           lv_label_set_text(id(qs_sound_icon), on ? "\U000F057E" : "\U000F0581");

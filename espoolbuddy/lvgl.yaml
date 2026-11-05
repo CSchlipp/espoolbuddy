@@ -900,17 +900,44 @@ lvgl:
                                                       widgets:
                                                         - label: {id: lbl_sound_off, text: "Off", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
                                                   - button:
-                                                      id: btn_sound_on
+                                                      id: btn_sound_low
                                                       flex_grow: 1
                                                       height: 32
                                                       styles: sty_card
                                                       scrollbar_mode: "OFF"
                                                       on_click:
                                                         then:
-                                                          - lambda: 'id(sound_enabled) = 1;'
-                                                          - script.execute: update_sound_btn
+                                                          - script.execute:
+                                                              id: select_chime_level
+                                                              level: 0
                                                       widgets:
-                                                        - label: {id: lbl_sound_on, text: "On", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+                                                        - label: {id: lbl_sound_low, text: "Low", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+                                                  - button:
+                                                      id: btn_sound_med
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - script.execute:
+                                                              id: select_chime_level
+                                                              level: 1
+                                                      widgets:
+                                                        - label: {id: lbl_sound_med, text: "Med", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
+                                                  - button:
+                                                      id: btn_sound_high
+                                                      flex_grow: 1
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - script.execute:
+                                                              id: select_chime_level
+                                                              level: 2
+                                                      widgets:
+                                                        - label: {id: lbl_sound_high, text: "High", text_font: roboto_16, pad_top: 4, text_color: 0x8888AA, align: CENTER}
 
                                             # ---- Row: Clear Location on AMS Load (Off | On segments) ----
                                             - obj:
