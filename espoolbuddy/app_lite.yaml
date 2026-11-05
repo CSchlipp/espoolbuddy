@@ -6,9 +6,12 @@
 # lvgl/tab_nfc.yaml (see the "full UI:" notes). Differences are only where the
 # 172x320 screen forces them.
 #
-#   on_loop        weight labels (get_weight(), cheap, every main-loop pass)
+#   on_loop        weight labels (get_weight(), cheap, every main-loop pass);
+#                  runs lite_render_status as soon as a new status is set
+#   lite_render_status  status message vs clock; also every 400 ms so
+#                  messages time out
 #   lite_refresh   everything else from one snapshot() every 400 ms: header
-#                  (printer icon, clock / status), spool / unlinked / waiting
+#                  (printer icon, clock), spool / unlinked / waiting
 #                  view, action area, popups (plate clear, archive, Quick
 #                  Weight), settings, dim / sleep / wake
 #
@@ -70,6 +73,14 @@ esphome:
         if (ok && fabsf(grams - activity_grams) >= 20.0f) {
           activity_grams = grams;
           lv_disp_trig_activity(NULL);
+        }
+
+        // A new status (e.g. "Tare sent to scale...") renders on the next
+        // main-loop pass instead of waiting for the 400 ms tick.
+        static uint32_t rendered_status_generation = 0;
+        if (bambuddy->status_generation() != rendered_status_generation) {
+          rendered_status_generation = bambuddy->status_generation();
+          id(lite_render_status).execute();
         }
 
 # ============================================================================
@@ -318,6 +329,34 @@ script:
           id(cal_ref_weight) = v;
       - script.execute: lite_update_settings
 
+  # Status vs clock. A status message takes the
+  # clock's place for 6 s after it changes; repeating the same message
+  # (new generation) counts as a change. Run by the 400 ms interval so messages
+  # time out, and from on_loop as soon as a new status is set.
+  - id: lite_render_status
+    then:
+      - lambda: |-
+          if (id(lite_is_sleeping)) return;  // screen is off: skip redraws
+          static std::string last_status;
+          static uint32_t last_generation = 0;
+          static uint32_t status_since = 0;
+          std::string status = bambuddy->get_status();
+          uint32_t generation = bambuddy->status_generation();
+          if (status != last_status || generation != last_generation) {
+            last_status = status;
+            last_generation = generation;
+            status_since = millis();
+            lv_label_set_text(id(lite_status), status.c_str());
+          }
+          bool show_msg = !status.empty() && (millis() - status_since) <= 6000;
+          if (show_msg) {
+            lv_obj_clear_flag(id(lite_status), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(lite_clock), LV_OBJ_FLAG_HIDDEN);
+          } else {
+            lv_obj_add_flag(id(lite_status), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(lite_clock), LV_OBJ_FLAG_HIDDEN);
+          }
+
   - id: lite_refresh
     then:
       - lambda: |-
@@ -426,24 +465,7 @@ script:
               lv_label_set_text(id(lite_clock), cb);
             }
           }
-          {
-            // Status messages take the clock's place for 6 s.
-            static std::string last_status;
-            static uint32_t status_since = 0;
-            if (s.status_message != last_status) {
-              last_status = s.status_message;
-              status_since = now;
-              lv_label_set_text(id(lite_status), s.status_message.c_str());
-            }
-            bool show_msg = !s.status_message.empty() && (now - status_since) <= 6000;
-            if (show_msg) {
-              lv_obj_clear_flag(id(lite_status), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_add_flag(id(lite_clock), LV_OBJ_FLAG_HIDDEN);
-            } else {
-              lv_obj_add_flag(id(lite_status), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_clear_flag(id(lite_clock), LV_OBJ_FLAG_HIDDEN);
-            }
-          }
+          // (Status vs clock is rendered by lite_render_status.)
 
           // ---- Archive proposal (full UI: rising edge of propose_archive) ----
           {
@@ -689,3 +711,4 @@ interval:
   - interval: 400ms
     then:
       - script.execute: lite_refresh
+      - script.execute: lite_render_status
