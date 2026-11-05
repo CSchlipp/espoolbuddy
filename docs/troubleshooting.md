@@ -11,6 +11,10 @@
   scale reaches the console, but its HX711 hasn't delivered a reading for 5 s
   (the `scale:` block's `timeout`). Check the HX711's power and its DOUT/SCK
   wiring.
+- **Console with a NAU7802 shows "No scale connected"**: the NAU7802 hasn't
+  delivered a reading for 5 s. Check its power and I²C wiring, then reboot the
+  console: the NAU7802 doesn't recover on its own after losing power or being
+  missing at boot.
 - **Old scale YAML fails with "scale_mode was removed"**: see
   [Migrating from 2.x](scale.md#migrating-from-2x).
 - **Console shows connection errors right after a reboot**: normal for the
