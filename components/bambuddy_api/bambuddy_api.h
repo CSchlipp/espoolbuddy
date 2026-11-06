@@ -1031,7 +1031,7 @@ class BambuddyAPIComponent : public Component {
   static esp_err_t console_http_scale_heartbeat(httpd_req_t *req);
 
   // Satellite push helpers (satellite() only)
-  bool api_scale_push_weight(float grams, bool stable);
+  void api_scale_push_weight(float grams, bool stable);
   void api_scale_push_heartbeat();
   void api_scale_push_nfc_scanned(const std::string &uid,
                                    const std::string &tray_uuid,
@@ -1051,7 +1051,9 @@ class BambuddyAPIComponent : public Component {
   // single press is never ambiguous.
   enum class ConsolePush { EVENT, WEIGHT, HEARTBEAT };
   struct ConsoleWorker;
-  void post_to_consoles(ConsolePush kind, const char *path, const std::string &body);
+  // values_seq: capture_seq_ as read before a weight body's values (WEIGHT only).
+  void post_to_consoles(ConsolePush kind, const char *path, const std::string &body,
+                        uint32_t values_seq = 0);
   void drain_console(ConsoleWorker *w);
   void note_console_result(ConsoleWorker *w, bool ok);
   void handle_scale_command(const std::string &resp);
