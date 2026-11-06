@@ -293,6 +293,15 @@ struct AMSUnit {
   std::vector<AMSTray> trays;
 };
 
+/** A unit's name on the slot card and in the assign dialog: its custom name,
+ *  "Ext" for an external spool (Ext-L/Ext-R on a dual-nozzle printer), else
+ *  AMS-A, AMS-B... by id. */
+inline std::string unit_display_name(const AMSUnit &unit, bool dual_nozzle) {
+  if (unit.is_vt) return !dual_nozzle ? "Ext" : unit.nozzle == 1 ? "Ext-L" : unit.nozzle == 0 ? "Ext-R" : "Ext";
+  if (!unit.custom_name.empty()) return unit.custom_name;
+  return std::string("AMS-") + (char) ('A' + unit.id % 26);
+}
+
 /** A printer known to the Bambuddy backend */
 struct PrinterInfo {
   std::string id;
