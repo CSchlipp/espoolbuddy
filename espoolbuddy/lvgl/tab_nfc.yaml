@@ -319,6 +319,34 @@ obj:
                           text_color: 0x4ECDC4
                           text_align: CENTER
                           align: CENTER
+                # ---- Print Label (only with the espoolbuddy/label_printer_m220.yaml package) ----
+                - button:
+                    id: btn_nfc_print
+                    flex_grow: 1
+                    height: 50
+                    bg_color: 0x1A1A2E
+                    border_color: 0x4A4A8A
+                    border_width: 1
+                    radius: 5
+                    scrollbar_mode: "OFF"
+                    hidden: true
+                    on_click:
+                      then:
+                        - lambda: |-
+                            #ifdef USE_LABEL_PRINTER
+                            auto s = bambuddy->snapshot();
+                            if (label_printer::global_label_printer != nullptr)
+                              label_printer::global_label_printer->print_spool(s.current_filament.spool_id);
+                            #endif
+                    widgets:
+                      - label:
+                          id: lbl_nfc_print_btn
+                          width: 100%
+                          text: "Print Label"
+                          text_font: roboto_16
+                          text_color: 0xA5A5FF
+                          text_align: CENTER
+                          align: CENTER
                 # ---- Discard ----
                 - button:
                     id: btn_dismiss

@@ -853,6 +853,21 @@ script:
             lv_obj_add_flag(id(modal_spoolid), LV_OBJ_FLAG_HIDDEN);
             lv_label_set_text(id(modal_spoolid), "");
           }
+          // Print Label (espoolbuddy/label_printer_m220.yaml): only for an assigned spool. The
+          // 400 ms interval keeps its text in step with the printer's status,
+          // in the small font: the status lines are too long for a third of the row.
+          #ifdef USE_LABEL_PRINTER
+          if (tr.spool_id > 0 && label_printer::global_label_printer != nullptr) {
+            bool small;
+            if (const char *t = label_printer::button_text_update(id(modal_print_lbl), tr.spool_id, &small)) {
+              lv_obj_set_style_text_font(id(modal_print_lbl), small ? id(roboto_12) : id(roboto_16), LV_PART_MAIN);
+              lv_label_set_text(id(modal_print_lbl), t);
+            }
+            lv_obj_clear_flag(id(modal_print_btn), LV_OBJ_FLAG_HIDDEN);
+          } else {
+            lv_obj_add_flag(id(modal_print_btn), LV_OBJ_FLAG_HIDDEN);
+          }
+          #endif
 
   # Open the assign-by-id dialog for the empty slot in modal_ams_id/modal_tray_slot.
   - id: slot_assign_open
@@ -1208,6 +1223,25 @@ script:
           // moved to the on_loop trigger above, so a landed push renders on
           // the next loop tick instead of the next 400 ms interval tick.)
 
+          // ---- AMS slot card: Print Label status (espoolbuddy/label_printer_m220.yaml) ----
+          #ifdef USE_LABEL_PRINTER
+          if (label_printer::global_label_printer != nullptr &&
+              !lv_obj_has_flag(id(ams_modal_card), LV_OBJ_FLAG_HIDDEN) &&
+              !lv_obj_has_flag(id(modal_print_btn), LV_OBJ_FLAG_HIDDEN)) {
+            int card_spool = 0;
+            for (const auto &u : s.ams_units) {
+              if (u.id != id(modal_ams_id)) continue;
+              for (const auto &tr : u.trays)
+                if (tr.slot == id(modal_tray_slot)) card_spool = tr.spool_id;
+            }
+            bool small;
+            if (const char *t = label_printer::button_text_update(id(modal_print_lbl), card_spool, &small)) {
+              lv_obj_set_style_text_font(id(modal_print_lbl), small ? id(roboto_12) : id(roboto_16), LV_PART_MAIN);
+              lv_label_set_text(id(modal_print_lbl), t);
+            }
+          }
+          #endif
+
           // ---- NFC tab (sticky spool) ----
           if (s.spool_selected) {
             lv_obj_add_flag(id(nfc_waiting), LV_OBJ_FLAG_HIDDEN);
@@ -1344,6 +1378,21 @@ script:
               lv_obj_add_flag(id(btn_nfc_unlink), LV_OBJ_FLAG_HIDDEN);
               lv_obj_add_flag(id(btn_nfc_weight), LV_OBJ_FLAG_HIDDEN);
             }
+
+            // Print Label: only built with the espoolbuddy/label_printer_m220.yaml package. While
+            // printing, and briefly after, the button shows how it's going.
+            #ifdef USE_LABEL_PRINTER
+            if (fi.spool_id > 0 && label_printer::global_label_printer != nullptr) {
+              lv_obj_clear_flag(id(btn_nfc_print), LV_OBJ_FLAG_HIDDEN);
+              bool small;
+              if (const char *t = label_printer::button_text_update(id(lbl_nfc_print_btn), fi.spool_id, &small)) {
+                lv_obj_set_style_text_font(id(lbl_nfc_print_btn), small ? id(roboto_12) : id(roboto_16), LV_PART_MAIN);
+                lv_label_set_text(id(lbl_nfc_print_btn), t);
+              }
+            } else {
+              lv_obj_add_flag(id(btn_nfc_print), LV_OBJ_FLAG_HIDDEN);
+            }
+            #endif
 
             // NFC write proposal banner
             if (s.propose_nfc_write) {

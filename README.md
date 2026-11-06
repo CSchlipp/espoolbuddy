@@ -157,6 +157,8 @@ LEDs mean.
 - **[Built-in load cell](docs/console-builtin-scale.md)** — optional:
   one box on [SpoolmanScale hardware](docs/console-builtin-scale.md#spoolmanscale-hardware-nau7802),
   or wire an HX711 straight to the console (untested)
+- **[Label printer](docs/label-printer.md)** — optional: print spool labels
+  on a Phomemo M220 over Bluetooth, from the spool screen or an AMS slot
 - **[Configuration reference](docs/configuration.md)** — every tunable
   setting, what it does, and its default
 - **[API reference](docs/api-reference.md)** — the Bambuddy endpoints this

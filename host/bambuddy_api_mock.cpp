@@ -407,6 +407,22 @@ void BambuddyAPIComponent::record_scale_weight(int spool_id, float total_grams) 
   set_status("Weight saved");
 }
 
+// The simulator has no label printer; a request just fails.
+void BambuddyAPIComponent::request_label_png(int, const std::string &, const std::string &, int) {
+  label_png_state_ = LABEL_FAILED;
+}
+void BambuddyAPIComponent::cancel_label_png() {
+  label_png_.clear();
+  label_png_state_ = LABEL_NONE;
+}
+BambuddyAPIComponent::LabelFetch BambuddyAPIComponent::poll_label_png(std::string &png) {
+  LabelFetch state = label_png_state_;
+  if (state == LABEL_READY) png = std::move(label_png_);
+  label_png_.clear();
+  label_png_state_ = LABEL_NONE;
+  return state;
+}
+
 void BambuddyAPIComponent::archive_spool(int spool_id) {
   display_state_.propose_archive = false;
   set_status("Spool archived");  // same message as the real component

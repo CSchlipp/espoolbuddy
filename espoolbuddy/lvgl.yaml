@@ -1572,7 +1572,7 @@ lvgl:
                           radius: 5
                     # ---- Separator ----
                     - obj: {x: 12, y: 172, width: 416, height: 1, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollbar_mode: "OFF"}
-                    # ---- Bottom button row: Clear (left) | Close (right) ----
+                    # ---- Bottom button row: Clear (left) | [Print] | Close (right) ----
                     - obj:
                         x: 12
                         y: 180
@@ -1605,6 +1605,35 @@ lvgl:
                                       lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
                               widgets:
                                 - label: {text: "Clear Assignment", text_font: roboto_16, text_color: 0xFF8888, align: CENTER}
+                          # Print Label: only shown with the espoolbuddy/label_printer_m220.yaml package and
+                          # an assigned spool (open_ams_modal). The spool is looked up again
+                          # on tap, in case the slot changed while the card was open.
+                          - button:
+                              id: modal_print_btn
+                              flex_grow: 1
+                              height: 38
+                              bg_color: 0x1E2040
+                              border_color: 0x7BB4FF
+                              border_width: 2
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              hidden: true
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      #ifdef USE_LABEL_PRINTER
+                                      if (label_printer::global_label_printer == nullptr) return;
+                                      auto s = bambuddy->snapshot();
+                                      for (const auto &u : s.ams_units) {
+                                        if (u.id != id(modal_ams_id)) continue;
+                                        for (const auto &tr : u.trays) {
+                                          if (tr.slot == id(modal_tray_slot) && tr.spool_id > 0)
+                                            label_printer::global_label_printer->print_spool(tr.spool_id);
+                                        }
+                                      }
+                                      #endif
+                              widgets:
+                                - label: {id: modal_print_lbl, width: 100%, text: "Print Label", text_font: roboto_16, text_color: 0x7BB4FF, text_align: CENTER, long_mode: WRAP, align: CENTER}
                           - button:
                               id: modal_close_btn
                               flex_grow: 1

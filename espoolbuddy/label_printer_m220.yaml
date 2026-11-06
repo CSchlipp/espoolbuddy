@@ -1,0 +1,83 @@
+# Optional: print spool labels on a Phomemo M220 over Bluetooth.
+#
+# Adds a "Print Label" button to the spool screen and the AMS slot card.
+# Bambuddy draws the label (its 40x30 mm box label by default, the M220's
+# usual stock) and the console sends it to the printer. Needs a console with
+# PSRAM (WT32-SC01 Plus, Panda Touch). Add it next to the main package in
+# your config:
+#
+#   packages:
+#     espoolbuddy: ...                # as before
+#     label_printer:
+#       url: https://github.com/CSchlipp/espoolbuddy.git
+#       ref: ${espoolbuddy_ref}
+#       path: espoolbuddy
+#       files: [label_printer_m220.yaml]
+#       refresh: always
+#
+# The first print finds the printer and the console remembers it. With more
+# than one M220 in range, set the one to use (its Bluetooth address, which a
+# phone's BLE scanner shows):
+#
+#   substitutions:
+#     label_printer_mac: "55:E5:F4:95:C0:BC"
+#
+# See docs/label-printer.md.
+
+substitutions:
+  label_printer_mac: "00:00:00:00:00:00"  # find the printer on the first print
+  label_template: box_40x30               # or box_62x29 for 62 mm stock
+  label_x_offset: right                   # where the roll runs: right (the M220 holder's wall),
+                                          # left, center, or dots (8 per mm) right of centre
+  label_fields: ""                        # the lines to print; empty is Bambuddy's default set
+  # Every field Bambuddy knows, in the order it prints them; keep the ones you want:
+  # label_fields: "brand,material,hex,name,location,material_number,temps,weight,note,added,qr,spool_id"
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/CSchlipp/espoolbuddy.git
+      ref: ${espoolbuddy_ref}
+      path: components
+    components: [label_printer, phomemo, label_printer_ble]
+    refresh: always
+
+# Bluetooth is off except while a label prints: the stack takes about 58 KB
+# of internal RAM while it runs, which the console needs for everything else.
+esp32_ble:
+  enable_on_boot: false
+
+# And while it runs, its buffers come from PSRAM where they can.
+esp32:
+  framework:
+    sdkconfig_options:
+      CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST: "y"
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: false
+    continuous: true
+
+ble_client:
+  - id: label_printer_client
+    mac_address: ${label_printer_mac}
+    auto_connect: true
+
+# The printer's protocol, how its bytes travel, and the label printer that
+# ties them to Bambuddy and the UI.
+phomemo:
+  id: label_driver
+  model: m220
+
+label_printer_ble:
+  id: label_transport
+  ble_client_id: label_printer_client
+
+label_printer:
+  id: spool_label_printer
+  api_id: bambuddy
+  driver_id: label_driver
+  transport_id: label_transport
+  label_template: ${label_template}
+  x_offset: ${label_x_offset}
+  label_fields: ${label_fields}
