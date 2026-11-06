@@ -1795,6 +1795,27 @@ script:
               lv_obj_t *pc_barf[5]={id(pair0_c_barf),id(pair1_c_barf),id(pair2_c_barf),id(pair3_c_barf),id(pair4_c_barf)};
               lv_obj_t *pc_ty[5]={id(pair0_c_type),id(pair1_c_type),id(pair2_c_type),id(pair3_c_type),id(pair4_c_type)};
               lv_obj_t *pc_id[5]={id(pair0_c_id),id(pair1_c_id),id(pair2_c_id),id(pair3_c_id),id(pair4_c_id)};
+              // Tap targets of the single-slot sections, set like the regular
+              // rows' rhit: unit id << 16 | slot, bit 30 for an empty slot (the
+              // assign-by-id dialog), -1 for nothing to open.
+              lv_obj_t *pa_hit[5]={id(hit_p0a),id(hit_p1a),id(hit_p2a),id(hit_p3a),id(hit_p4a)};
+              lv_obj_t *pb_hit[5]={id(hit_p0b),id(hit_p1b),id(hit_p2b),id(hit_p3b),id(hit_p4b)};
+              auto set_hit = [&](lv_obj_t *hit, const bambuddy_api::AMSUnit &unit) {
+                // AMS HT only. External spools stay untappable: Bambuddy keys
+                // them as ams_id 255 with tray_id 0/1, but this firmware as
+                // unit 254/255 slot 0, so their card's Clear Assignment and
+                // assign-by-id would act on the wrong slot.
+                if (!unit.is_ht || unit.trays.empty()) {
+                  lv_obj_set_user_data(hit, (void*)(intptr_t)-1);
+                  return;
+                }
+                const auto &tr = unit.trays[0];
+                // Same rule as the regular rows: a spool is there when it's
+                // present or assigned, and that opens the slot's card.
+                bool pr = tr.present || tr.spool_id > 0;
+                unsigned d = ((unsigned)unit.id << 16) | (unsigned)(tr.slot & 0xFF);
+                lv_obj_set_user_data(hit, (void*)(intptr_t)(pr ? d : (0x40000000u | d)));
+              };
 
               lv_obj_add_flag(id(ams_hdr_l), LV_OBJ_FLAG_HIDDEN);
               lv_obj_add_flag(id(ams_hdr_r), LV_OBJ_FLAG_HIDDEN);
@@ -2257,6 +2278,8 @@ script:
                   lv_obj_clear_flag(prow[k], LV_OBJ_FLAG_SCROLLABLE);
                   lv_obj_clear_flag(prow[k], LV_OBJ_FLAG_HIDDEN);
                   lv_obj_set_height(prow[k], ROW_H);
+                  lv_obj_set_user_data(pa_hit[k], (void*)(intptr_t)-1);
+                  lv_obj_set_user_data(pb_hit[k], (void*)(intptr_t)-1);
                   bool two_ht = u_b >= 0 && !s.ams_units[u_b].is_vt;
                   bool wide_single = u_b >= 0 && u_c < 0 && SCREEN_H >= 400;
                   if (two_ht || wide_single) {
@@ -2279,11 +2302,13 @@ script:
                               pa_icon[k],pa_fi[k],pa_hu[k],pa_em[k],pa_ac[k],pa_ty[k],pa_id[k],
                               pa_bar[k],pa_barf[k], pending_nz,
                               pair_name_w, pair_noz_x, pair_icon_x, pair_label_x, false);
+                    set_hit(pa_hit[k], s.ams_units[pending_u]);
                     fill_side(s.ams_units[u_b],
                               pb_ht[k],pb_vt[k],pb_nm[k],pb_th[k],pb_nz[k],
                               pb_icon[k],pb_fi[k],pb_hu[k],pb_em[k],pb_ac[k],pb_ty[k],pb_id[k],
                               pb_bar[k],pb_barf[k], nz_b,
                               pair_name_w, pair_noz_x, pair_icon_x, pair_label_x, false);
+                    set_hit(pb_hit[k], s.ams_units[u_b]);
                   } else {
                     const int GRID_LABEL_W = 60;  // type/id labels, tab_ams.yaml
                     int col_w = grid_col_w;
@@ -2298,16 +2323,19 @@ script:
                               pa_icon[k],pa_fi[k],pa_hu[k],pa_em[k],pa_ac[k],pa_ty[k],pa_id[k],
                               pa_bar[k],pa_barf[k], pending_nz,
                               name_w, noz_x, icon_at(0), label_at(0), true);
+                    set_hit(pa_hit[k], s.ams_units[pending_u]);
                     // A lone spool ends the section, the way an HT spool ends its own.
                     int b_col = (u_c >= 0) ? 2 : 3;
-                    if (u_b >= 0)
+                    if (u_b >= 0) {
                       fill_side(s.ams_units[u_b],
                                 pb_ht[k],pb_vt[k],pb_nm[k],pb_th[k],pb_nz[k],
                                 pb_icon[k],pb_fi[k],pb_hu[k],pb_em[k],pb_ac[k],pb_ty[k],pb_id[k],
                                 pb_bar[k],pb_barf[k], nz_b,
                                 col_w + 1 - 30, noz_x, icon_at(b_col) - b0, label_at(b_col) - b0, true);
-                    else
+                      set_hit(pb_hit[k], s.ams_units[u_b]);
+                    } else {
                       blank_b(k);
+                    }
                     if (u_c >= 0) {
                       int c_col = (u_b >= 0) ? 3 : 1;
                       apply_slot_geom(pc_icon[k], pc_fi[k], pc_hu[k], pc_em[k], pc_ac[k],
