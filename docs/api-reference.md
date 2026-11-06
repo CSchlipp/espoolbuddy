@@ -71,6 +71,5 @@ Commands received in the `pending_command` field of the heartbeat response:
 The Bambuddy backend may send an SSH public key in registration/heartbeat
 responses — on a Raspberry Pi SpoolBuddy this is written to
 `~/.ssh/authorized_keys`. **ESPHome devices cannot accept SSH connections**,
-so this component returns a mocked success response
-(`"SSH not supported on ESPHome device"`) without performing any operation,
-keeping the API contract intact.
+so this component ignores the key. The Pi daemon doesn't report deploying it
+either, so Bambuddy expects no reply.

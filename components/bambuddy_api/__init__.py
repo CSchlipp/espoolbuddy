@@ -214,8 +214,9 @@ CONFIG_SCHEMA = cv.All(
             # (sleep_timeout_min in app.yaml). See
             # _deprecated_sleep_timeout above.
             cv.Optional(CONF_SLEEP_TIMEOUT): _deprecated_sleep_timeout,
-            # Multiplier applied to the heartbeat and printer-poll intervals while
-            # asleep (e.g. 6 turns a 10 s heartbeat into 60 s).
+            # Multiplier applied to the printer/AMS poll interval while asleep
+            # (e.g. 6 turns a 30 s poll into 180 s). The heartbeat isn't stretched:
+            # Bambuddy shows a device as offline after 30 s without one.
             cv.Optional(CONF_SLEEP_FACTOR, default=6): cv.int_range(min=1),
             # Optional hardware this device may not have — when omitted, the
             # component gracefully no-ops calls that would otherwise target it

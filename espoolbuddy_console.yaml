@@ -371,4 +371,4 @@ bambuddy_api:
   heartbeat_interval: 10        # seconds — tag scan triggers an extra immediate heartbeat
   # heartbeat_fail_threshold: 3   # consecutive failed heartbeats before cloud/WiFi icons go red (default: 3)
   printer_poll_interval: 15     # seconds between AMS/printer status polls to Bambuddy
-  sleep_factor: 12               # heartbeat/poll multiplier while asleep (×12: 10s→120s, 15s→180s); sleep_timeout set at runtime in app.yaml
+  sleep_factor: 12               # printer/AMS poll multiplier while asleep (×12: 15s→180s); the heartbeat isn't stretched; sleep_timeout set at runtime in app.yaml
