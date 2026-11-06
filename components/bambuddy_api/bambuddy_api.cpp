@@ -33,6 +33,32 @@ namespace bambuddy_api {
 static constexpr size_t MALLOC_EXTMEM_LIMIT = 4096;
 
 // ---------------------------------------------------------------------------
+// External spool slots
+// ---------------------------------------------------------------------------
+// The console keeps each external spool as its own unit, named by the
+// printer's vt_tray id (254, or 255 for a second one) with a single slot 0.
+// Bambuddy keys an external slot as AMS 255 with tray 0 (vt 254, Ext-L) or 1
+// (vt 255, Ext-R); records from before that used AMS 254. Assignments are
+// translated here, both ways, so the rest of the console only sees its own
+// unit ids.
+static constexpr int EXT_BACKEND_AMS_ID = 255;
+
+static bool is_ext_unit_id(int unit_id) { return unit_id == 254 || unit_id == 255; }
+
+// The console's (unit, slot) as Bambuddy's (ams_id, tray_id).
+static void to_backend_slot(int &ams_id, int &tray_id) {
+  if (!is_ext_unit_id(ams_id)) return;
+  tray_id = ams_id - 254;
+  ams_id = EXT_BACKEND_AMS_ID;
+}
+
+// Whether Bambuddy's assignment (a_ams, a_tray) is the console's (unit, slot).
+static bool assignment_is_slot(int a_ams, int a_tray, int unit_id, int slot) {
+  if (!is_ext_unit_id(unit_id)) return a_ams == unit_id && a_tray == slot;
+  return (a_ams == EXT_BACKEND_AMS_ID && a_tray == unit_id - 254) || (a_ams == 254 && unit_id == 254);
+}
+
+// ---------------------------------------------------------------------------
 // HTTP response accumulation buffer used by the ESP-IDF event handler
 // ---------------------------------------------------------------------------
 struct HttpContext {
@@ -2883,7 +2909,7 @@ void BambuddyAPIComponent::apply_cached_assignments_locked() {
       tray.subtype.clear();
       tray.color_name.clear();
       for (const auto &a : cached_assignments_) {
-        if (a.ams_id == unit.id && a.tray_id == tray.slot) {
+        if (assignment_is_slot(a.ams_id, a.tray_id, unit.id, tray.slot)) {
           tray.spool_id        = a.spool_id;
           tray.label_weight_g  = a.label_weight_g;
           tray.remaining_g     = a.remaining_g;
@@ -2915,6 +2941,11 @@ bool BambuddyAPIComponent::api_assign_spool(int spool_id,
     ESP_LOGW(TAG, "api_assign_spool: invalid printer_id '%s'", printer_id.c_str());
     return false;
   }
+  // What the user sees, before the slot becomes Bambuddy's key.
+  std::string where = is_ext_unit_id(ams_id) ? "the external spool"
+                    : ams_id >= 128            ? "AMS HT"
+                    : "AMS " + std::to_string(ams_id + 1) + " slot " + std::to_string(tray_id + 1);
+  to_backend_slot(ams_id, tray_id);
   std::ostringstream js;
   js << "{"
      << (spoolman_inventory_ ? "\"spoolman_spool_id\":" : "\"spool_id\":") << spool_id << ","
@@ -2929,8 +2960,7 @@ bool BambuddyAPIComponent::api_assign_spool(int spool_id,
   if (ok) {
     ESP_LOGI(TAG, "Auto-assigned spool %d -> printer %d AMS%d-T%d",
              spool_id, pid, ams_id, tray_id);
-    set_status("Spool assigned to AMS " + std::to_string(ams_id + 1) +
-               " slot " + std::to_string(tray_id + 1));
+    set_status("Spool assigned to " + where);
   } else {
     ESP_LOGW(TAG, "Auto-assign failed: spool %d -> printer %d AMS%d-T%d",
              spool_id, pid, ams_id, tray_id);
@@ -2971,7 +3001,7 @@ void BambuddyAPIComponent::clear_slot_assignment(int ams_id, int tray_slot) {
   cached_assignments_.erase(
     std::remove_if(cached_assignments_.begin(), cached_assignments_.end(),
       [&](const SlotAssignment &a) {
-        return a.ams_id == ams_id && a.tray_id == tray_slot;
+        return assignment_is_slot(a.ams_id, a.tray_id, ams_id, tray_slot);
       }),
     cached_assignments_.end());
   unlock_state();
@@ -3002,6 +3032,7 @@ bool BambuddyAPIComponent::api_clear_assignment(const std::string &printer_id,
     ESP_LOGW(TAG, "api_clear_assignment: no printer selected");
     return false;
   }
+  to_backend_slot(ams_id, tray_slot);
   char qpath[128];
   if (spoolman_inventory_) {
     if (spool_id <= 0) {

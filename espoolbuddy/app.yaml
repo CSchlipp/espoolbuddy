@@ -819,8 +819,7 @@ script:
           // AMS name (own field, scrolls if long) + slot number (own field) so a
           // long custom name never truncates the slot.
           { char nm[40];
-            if (!unit.custom_name.empty()) snprintf(nm, sizeof(nm), "%s", unit.custom_name.c_str());
-            else                           snprintf(nm, sizeof(nm), "AMS-%c", 'A' + (int)(unit.id % 26));
+            snprintf(nm, sizeof(nm), "%s", bambuddy_api::unit_display_name(unit, s.dual_nozzle).c_str());
             lv_label_set_text(id(modal_slotinfo), nm);
             char sl[24]; snprintf(sl, sizeof(sl), "Slot %d", tr.slot + 1);
             lv_label_set_text(id(modal_slotnum), sl); }
@@ -876,19 +875,18 @@ script:
           id(slot_assign_id) = 1;
           lv_label_set_text(id(lbl_slot_assign_id), "ID: 1");
           auto s = bambuddy->snapshot();
-          std::string amsname;
+          std::string amsname = "AMS";
+          bool single = false;  // AMS HT or external spool: no slot number
           for (const auto &u : s.ams_units) {
             if (u.id == id(modal_ams_id)) {
-              amsname = u.custom_name.empty()
-                        ? (std::string("AMS-") + (char)('A' + u.id % 26))
-                        : u.custom_name;
+              amsname = bambuddy_api::unit_display_name(u, s.dual_nozzle);
+              single = u.is_ht || u.is_vt;
               break;
             }
           }
-          if (amsname.empty()) amsname = "AMS";
           char t[64];
-          snprintf(t, sizeof(t), "Assign to %s, Slot %d",
-                   amsname.c_str(), id(modal_tray_slot) + 1);
+          if (single) snprintf(t, sizeof(t), "Assign to %s", amsname.c_str());
+          else        snprintf(t, sizeof(t), "Assign to %s, Slot %d", amsname.c_str(), id(modal_tray_slot) + 1);
           lv_label_set_text(id(slot_assign_title), t);
           lv_obj_clear_flag(id(assign_id_modal), LV_OBJ_FLAG_HIDDEN);
 
@@ -1864,12 +1862,9 @@ script:
               // assign-by-id dialog), -1 for nothing to open.
               lv_obj_t *pa_hit[5]={id(hit_p0a),id(hit_p1a),id(hit_p2a),id(hit_p3a),id(hit_p4a)};
               lv_obj_t *pb_hit[5]={id(hit_p0b),id(hit_p1b),id(hit_p2b),id(hit_p3b),id(hit_p4b)};
+              lv_obj_t *pc_hit[5]={id(hit_p0c),id(hit_p1c),id(hit_p2c),id(hit_p3c),id(hit_p4c)};
               auto set_hit = [&](lv_obj_t *hit, const bambuddy_api::AMSUnit &unit) {
-                // AMS HT only. External spools stay untappable: Bambuddy keys
-                // them as ams_id 255 with tray_id 0/1, but this firmware as
-                // unit 254/255 slot 0, so their card's Clear Assignment and
-                // assign-by-id would act on the wrong slot.
-                if (!unit.is_ht || unit.trays.empty()) {
+                if (unit.trays.empty()) {
                   lv_obj_set_user_data(hit, (void*)(intptr_t)-1);
                   return;
                 }
@@ -2344,6 +2339,8 @@ script:
                   lv_obj_set_height(prow[k], ROW_H);
                   lv_obj_set_user_data(pa_hit[k], (void*)(intptr_t)-1);
                   lv_obj_set_user_data(pb_hit[k], (void*)(intptr_t)-1);
+                  lv_obj_set_user_data(pc_hit[k], (void*)(intptr_t)-1);
+                  lv_obj_add_flag(pc_hit[k], LV_OBJ_FLAG_HIDDEN);
                   bool two_ht = u_b >= 0 && !s.ams_units[u_b].is_vt;
                   bool wide_single = u_b >= 0 && u_c < 0 && SCREEN_H >= 400;
                   if (two_ht || wide_single) {
@@ -2373,6 +2370,9 @@ script:
                               pb_bar[k],pb_barf[k], nz_b,
                               pair_name_w, pair_noz_x, pair_icon_x, pair_label_x, false);
                     set_hit(pb_hit[k], s.ams_units[u_b]);
+                    // A half: the whole side is the target.
+                    lv_obj_set_x(pb_hit[k], 0);
+                    lv_obj_set_width(pb_hit[k], lv_pct(100));
                   } else {
                     const int GRID_LABEL_W = 60;  // type/id labels, tab_ams.yaml
                     int col_w = grid_col_w;
@@ -2397,6 +2397,10 @@ script:
                                 pb_bar[k],pb_barf[k], nz_b,
                                 col_w + 1 - 30, noz_x, icon_at(b_col) - b0, label_at(b_col) - b0, true);
                       set_hit(pb_hit[k], s.ams_units[u_b]);
+                      // On the grid the spool has one column; the rest of the
+                      // side (an Ext label, empty columns) opens nothing.
+                      lv_obj_set_x(pb_hit[k], col_x(b_col) - b0);
+                      lv_obj_set_width(pb_hit[k], col_w);
                     } else {
                       blank_b(k);
                     }
@@ -2412,6 +2416,11 @@ script:
                       lv_obj_set_width(pc_noz[k], noz_w);
                       lv_obj_set_style_text_font(pc_noz[k], tier_noz_font, LV_PART_MAIN);
                       place_ext_letter(pc_noz[k], icon_at(c_col) - b0);
+                      // Its own target over its column, on top of side B's.
+                      lv_obj_set_x(pc_hit[k], col_x(c_col) - b0);
+                      lv_obj_set_width(pc_hit[k], col_w);
+                      lv_obj_clear_flag(pc_hit[k], LV_OBJ_FLAG_HIDDEN);
+                      set_hit(pc_hit[k], s.ams_units[u_c]);
                     }
                   }
                   if (u_c < 0) {
