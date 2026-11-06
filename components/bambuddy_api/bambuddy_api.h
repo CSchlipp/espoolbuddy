@@ -724,6 +724,7 @@ class BambuddyAPIComponent : public Component {
   // from the host YAML's "Simulate ..." buttons and the docs screenshot run.
   void sim_ams_insert();      // load the pending spool into the first empty AMS slot
   void sim_assign_timeout();  // expire the pending auto-assignment now
+  void sim_scale_reading(float gross, bool stable);  // a reading from the scale
   void sim_scale_offline();   // stop scale pushes (scale_ok = false)
   void sim_plate_clear();     // printer waits for the build plate to be cleared
   void sim_ams_remove();      // take the first assigned spool out of the AMS
