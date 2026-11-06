@@ -820,6 +820,22 @@ class BambuddyAPIComponent : public Component {
     unlock_state();
   }
 
+  // Health flags for the diagnostic binary sensors (health.yaml,
+  // app_scale.yaml): one short lock, no DisplayState copy. printer_ok also
+  // requires the backend to be up, because printer_connected keeps its last
+  // value once the status poll stops getting through. scale_ok is the weight
+  // source's liveness (scale_connected()), false when none is configured.
+  void get_health(bool &backend_ok, bool &printer_ok, bool &nfc_ok, bool &scale_ok) {
+    lock_state();
+    backend_ok = display_state_.backend_state == BackendState::REGISTERED;
+    printer_ok = backend_ok && display_state_.printer_connected;
+    nfc_ok     = display_state_.nfc_ok;
+    scale_ok   = scale_connected();
+    unlock_state();
+  }
+  // True when a weight source (local load cell or remote scale) is configured.
+  bool has_scale() const { return scale_source_ != ScaleSource::NONE; }
+
   // ---- Tare support ----
   // Single tare entry point for both the UI tare button and the backend
   // "tare" command (handle_command).  Routing by weight source: LOCAL →

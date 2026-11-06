@@ -2,6 +2,13 @@
 
 # Troubleshooting
 
+- **Watching for problems from Home Assistant**: each device reports its
+  health as diagnostic binary sensors. A console has **Bambuddy connection**
+  and **Printer connection**, plus **NFC reader status** and **Scale status**
+  (on means a problem). The scale has **Console connection** (connected only
+  while every `console_url` answers), **NFC reader status** and **Load cell
+  status**. Problem sensors stay unknown for the first 30 s after boot, and
+  don't appear on a device with no reader or no scale configured.
 - **Scale never turns green (a console unreachable)**: confirm `console_url`
   in `espoolbuddy_scale.yaml` matches the console's `esphome.name`, and that
   your router/network allows mDNS (`.local`) resolution between the two
