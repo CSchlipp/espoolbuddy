@@ -1634,6 +1634,19 @@ obj:
                                   - obj: {id: pair0_a_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair0_a_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair0_a_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
+                            # Tap target for the whole section (user data set when the row is drawn).
+                            - obj:
+                                id: hit_p0a
+                                width: 100%
+                                height: 100%
+                                align: TOP_LEFT
+                                bg_opa: TRANSP
+                                border_width: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                on_click:
+                                  then:
+                                    - lambda: "intptr_t d=(intptr_t)lv_obj_get_user_data(id(hit_p0a));if(d==(intptr_t)-1)return;id(modal_ams_id)=(int)(((unsigned)d>>16)&0xFF);id(modal_tray_slot)=(int)(d&0xFF);if((unsigned)d&0x40000000u){id(slot_assign_open).execute();}else{id(open_ams_modal).execute();}"
                       - obj: {id: pair0_div, width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
                       - obj:
                           id: pair0_b_side
@@ -1670,6 +1683,19 @@ obj:
                                   - obj: {id: pair0_b_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair0_b_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair0_b_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
+                            # Tap target for an AMS HT in this section (user data set when the row is drawn).
+                            - obj:
+                                id: hit_p0b
+                                width: 100%
+                                height: 100%
+                                align: TOP_LEFT
+                                bg_opa: TRANSP
+                                border_width: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                on_click:
+                                  then:
+                                    - lambda: "intptr_t d=(intptr_t)lv_obj_get_user_data(id(hit_p0b));if(d==(intptr_t)-1)return;id(modal_ams_id)=(int)(((unsigned)d>>16)&0xFF);id(modal_tray_slot)=(int)(d&0xFF);if((unsigned)d&0x40000000u){id(slot_assign_open).execute();}else{id(open_ams_modal).execute();}"
                             # Second external spool (Ext-R beside Ext-L) -- placed at runtime, hidden otherwise.
                             - label: {id: pair0_c_noz, x: 0, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
                             - obj:
@@ -1740,6 +1766,19 @@ obj:
                                   - obj: {id: pair1_a_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair1_a_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair1_a_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
+                            # Tap target for the whole section (user data set when the row is drawn).
+                            - obj:
+                                id: hit_p1a
+                                width: 100%
+                                height: 100%
+                                align: TOP_LEFT
+                                bg_opa: TRANSP
+                                border_width: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                on_click:
+                                  then:
+                                    - lambda: "intptr_t d=(intptr_t)lv_obj_get_user_data(id(hit_p1a));if(d==(intptr_t)-1)return;id(modal_ams_id)=(int)(((unsigned)d>>16)&0xFF);id(modal_tray_slot)=(int)(d&0xFF);if((unsigned)d&0x40000000u){id(slot_assign_open).execute();}else{id(open_ams_modal).execute();}"
                       - obj: {id: pair1_div, width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
                       - obj:
                           id: pair1_b_side
@@ -1776,6 +1815,19 @@ obj:
                                   - obj: {id: pair1_b_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair1_b_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair1_b_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
+                            # Tap target for an AMS HT in this section (user data set when the row is drawn).
+                            - obj:
+                                id: hit_p1b
+                                width: 100%
+                                height: 100%
+                                align: TOP_LEFT
+                                bg_opa: TRANSP
+                                border_width: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                on_click:
+                                  then:
+                                    - lambda: "intptr_t d=(intptr_t)lv_obj_get_user_data(id(hit_p1b));if(d==(intptr_t)-1)return;id(modal_ams_id)=(int)(((unsigned)d>>16)&0xFF);id(modal_tray_slot)=(int)(d&0xFF);if((unsigned)d&0x40000000u){id(slot_assign_open).execute();}else{id(open_ams_modal).execute();}"
                             # Second external spool (Ext-R beside Ext-L) -- placed at runtime, hidden otherwise.
                             - label: {id: pair1_c_noz, x: 0, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
                             - obj:
@@ -1846,6 +1898,19 @@ obj:
                                   - obj: {id: pair2_a_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair2_a_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair2_a_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
+                            # Tap target for the whole section (user data set when the row is drawn).
+                            - obj:
+                                id: hit_p2a
+                                width: 100%
+                                height: 100%
+                                align: TOP_LEFT
+                                bg_opa: TRANSP
+                                border_width: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                on_click:
+                                  then:
+                                    - lambda: "intptr_t d=(intptr_t)lv_obj_get_user_data(id(hit_p2a));if(d==(intptr_t)-1)return;id(modal_ams_id)=(int)(((unsigned)d>>16)&0xFF);id(modal_tray_slot)=(int)(d&0xFF);if((unsigned)d&0x40000000u){id(slot_assign_open).execute();}else{id(open_ams_modal).execute();}"
                       - obj: {id: pair2_div, width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
                       - obj:
                           id: pair2_b_side
@@ -1882,6 +1947,19 @@ obj:
                                   - obj: {id: pair2_b_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair2_b_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair2_b_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
+                            # Tap target for an AMS HT in this section (user data set when the row is drawn).
+                            - obj:
+                                id: hit_p2b
+                                width: 100%
+                                height: 100%
+                                align: TOP_LEFT
+                                bg_opa: TRANSP
+                                border_width: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                on_click:
+                                  then:
+                                    - lambda: "intptr_t d=(intptr_t)lv_obj_get_user_data(id(hit_p2b));if(d==(intptr_t)-1)return;id(modal_ams_id)=(int)(((unsigned)d>>16)&0xFF);id(modal_tray_slot)=(int)(d&0xFF);if((unsigned)d&0x40000000u){id(slot_assign_open).execute();}else{id(open_ams_modal).execute();}"
                             # Second external spool (Ext-R beside Ext-L) -- placed at runtime, hidden otherwise.
                             - label: {id: pair2_c_noz, x: 0, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
                             - obj:
@@ -1952,6 +2030,19 @@ obj:
                                   - obj: {id: pair3_a_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair3_a_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair3_a_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
+                            # Tap target for the whole section (user data set when the row is drawn).
+                            - obj:
+                                id: hit_p3a
+                                width: 100%
+                                height: 100%
+                                align: TOP_LEFT
+                                bg_opa: TRANSP
+                                border_width: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                on_click:
+                                  then:
+                                    - lambda: "intptr_t d=(intptr_t)lv_obj_get_user_data(id(hit_p3a));if(d==(intptr_t)-1)return;id(modal_ams_id)=(int)(((unsigned)d>>16)&0xFF);id(modal_tray_slot)=(int)(d&0xFF);if((unsigned)d&0x40000000u){id(slot_assign_open).execute();}else{id(open_ams_modal).execute();}"
                       - obj: {id: pair3_div, width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
                       - obj:
                           id: pair3_b_side
@@ -1988,6 +2079,19 @@ obj:
                                   - obj: {id: pair3_b_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair3_b_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair3_b_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
+                            # Tap target for an AMS HT in this section (user data set when the row is drawn).
+                            - obj:
+                                id: hit_p3b
+                                width: 100%
+                                height: 100%
+                                align: TOP_LEFT
+                                bg_opa: TRANSP
+                                border_width: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                on_click:
+                                  then:
+                                    - lambda: "intptr_t d=(intptr_t)lv_obj_get_user_data(id(hit_p3b));if(d==(intptr_t)-1)return;id(modal_ams_id)=(int)(((unsigned)d>>16)&0xFF);id(modal_tray_slot)=(int)(d&0xFF);if((unsigned)d&0x40000000u){id(slot_assign_open).execute();}else{id(open_ams_modal).execute();}"
                             # Second external spool (Ext-R beside Ext-L) -- placed at runtime, hidden otherwise.
                             - label: {id: pair3_c_noz, x: 0, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
                             - obj:
@@ -2058,6 +2162,19 @@ obj:
                                   - obj: {id: pair4_a_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair4_a_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair4_a_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
+                            # Tap target for the whole section (user data set when the row is drawn).
+                            - obj:
+                                id: hit_p4a
+                                width: 100%
+                                height: 100%
+                                align: TOP_LEFT
+                                bg_opa: TRANSP
+                                border_width: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                on_click:
+                                  then:
+                                    - lambda: "intptr_t d=(intptr_t)lv_obj_get_user_data(id(hit_p4a));if(d==(intptr_t)-1)return;id(modal_ams_id)=(int)(((unsigned)d>>16)&0xFF);id(modal_tray_slot)=(int)(d&0xFF);if((unsigned)d&0x40000000u){id(slot_assign_open).execute();}else{id(open_ams_modal).execute();}"
                       - obj: {id: pair4_div, width: 1, height: 100%, bg_color: 0x454572, bg_opa: COVER, border_width: 0, radius: 0, scrollable: false, align: CENTER}
                       - obj:
                           id: pair4_b_side
@@ -2094,6 +2211,19 @@ obj:
                                   - obj: {id: pair4_b_barf, x: 38, y: 38, width: 5, height: 0, bg_color: 0x22C55E, bg_opa: COVER, border_width: 0, radius: 2, pad_all: 0, scrollbar_mode: "OFF", align: TOP_LEFT}
                             - label: {id: pair4_b_type, x: 134, y: 40, width: 60, text: "", text_font: roboto_12, text_color: 0xDDDDEE, text_align: CENTER, align: TOP_LEFT}
                             - label: {id: pair4_b_id, x: 134, y: 54, width: 60, text: "", text_font: roboto_12, text_color: 0xBBBBCC, text_align: CENTER, align: TOP_LEFT}
+                            # Tap target for an AMS HT in this section (user data set when the row is drawn).
+                            - obj:
+                                id: hit_p4b
+                                width: 100%
+                                height: 100%
+                                align: TOP_LEFT
+                                bg_opa: TRANSP
+                                border_width: 0
+                                scrollbar_mode: "OFF"
+                                scrollable: false
+                                on_click:
+                                  then:
+                                    - lambda: "intptr_t d=(intptr_t)lv_obj_get_user_data(id(hit_p4b));if(d==(intptr_t)-1)return;id(modal_ams_id)=(int)(((unsigned)d>>16)&0xFF);id(modal_tray_slot)=(int)(d&0xFF);if((unsigned)d&0x40000000u){id(slot_assign_open).execute();}else{id(open_ams_modal).execute();}"
                             # Second external spool (Ext-R beside Ext-L) -- placed at runtime, hidden otherwise.
                             - label: {id: pair4_c_noz, x: 0, y: 4, width: 14, text: "", text_font: roboto_16, text_color: 0x4CAF50, align: TOP_LEFT}
                             - obj:
