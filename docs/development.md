@@ -111,7 +111,9 @@ URLs from an `espoolbuddy_images` substitution pinned to the same
 (under `.esphome/image/`) rather than reading them off disk. When developing
 locally, CI rewrites the components, packages and image sources to the local
 checkout before compiling — see `.github/scripts/use_local_components.py` if
-you're doing the same.
+you're doing the same. Its `--label-printer` option also adds the optional
+label printer package to a full-UI console config, which is how CI builds
+it (on the `espoolbuddy_console_scale.yaml` job).
 
 No other build tooling, no lint step, no unit tests — the closest thing to
 a test suite is a full firmware compile of every config, both locally
