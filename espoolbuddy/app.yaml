@@ -922,6 +922,15 @@ script:
             // removed the tag, then placed it again while the sticky TTL kept
             // nfc_state PRESENT (so the tag-removal clear never fired).
             id(nfc_unlinked_dismissed) = 0;
+            // Dialogs opened for the previous spool must not act on this one.
+            if (id(nfc_weight_popup_open)) {
+              id(nfc_weight_popup_open) = 0;
+              lv_obj_add_flag(id(nfc_weight_popup), LV_OBJ_FLAG_HIDDEN);
+            }
+            if (id(confirm_action) == 1) {
+              id(confirm_action) = 0;
+              lv_obj_add_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+            }
             if (!nfc_episode_active) {
               nfc_ep_saw_content = false;
               nfc_return_tab = (id(active_tab) != 1) ? id(active_tab) : -1;
@@ -963,7 +972,13 @@ script:
           static bool prev_nfc_present = false;
           static std::string prev_bl_uid;
           bool nfc_present = (s.nfc_state == bambuddy_api::NFCTagState::PRESENT);
-          if (nfc_present && (!prev_nfc_present || s.last_tag_uid != prev_bl_uid)) {
+          // scan_chime_generation bumps on every physical scan, so a storage-
+          // location tag (which leaves nfc_state / last_tag_uid alone) wakes
+          // the screen too and its "Location tag: ..." status is seen.
+          static uint32_t prev_wake_scan_gen = 0;
+          bool new_scan = s.scan_chime_generation != prev_wake_scan_gen;
+          prev_wake_scan_gen = s.scan_chime_generation;
+          if (new_scan || (nfc_present && (!prev_nfc_present || s.last_tag_uid != prev_bl_uid))) {
             id(display_backlight).turn_on().set_brightness(id(backlight_brightness_pct) / 100.0f).set_transition_length(0).perform();
             lv_disp_trig_activity(NULL);  // count a tag scan as activity so it wakes deep sleep
           }

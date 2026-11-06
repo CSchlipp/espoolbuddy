@@ -379,6 +379,24 @@ script:
             id(lite_known_uid) = "";
             id(lite_dismissed_uid) = "";
             lv_disp_trig_activity(NULL);
+            // Dialogs opened for the previous spool must not act on this one
+            // (as app.yaml), nor its action sheet.
+            if (id(lite_wp_open)) {
+              id(lite_wp_open) = 0;
+              lv_obj_add_flag(id(lite_weight_popup), LV_OBJ_FLAG_HIDDEN);
+            }
+            if (id(lite_confirm_action) == 1) {
+              id(lite_confirm_action) = 0;
+              lv_obj_add_flag(id(lite_confirm), LV_OBJ_FLAG_HIDDEN);
+            }
+            lv_obj_add_flag(id(lite_actions), LV_OBJ_FLAG_HIDDEN);
+          }
+          // Every physical scan counts as activity, a storage-location tag
+          // too (it doesn't bump nfc_scan_generation), as in app.yaml.
+          static uint32_t prev_wake_scan_gen = 0;
+          if (s.scan_chime_generation != prev_wake_scan_gen) {
+            prev_wake_scan_gen = s.scan_chime_generation;
+            lv_disp_trig_activity(NULL);
           }
 
           // ---- Build-plate-clear popup (full UI: app.yaml) ----
