@@ -29,6 +29,9 @@
 namespace esphome {
 namespace bambuddy_api {
 
+// malloc() above this size prefers PSRAM, see setup().
+static constexpr size_t MALLOC_EXTMEM_LIMIT = 4096;
+
 // ---------------------------------------------------------------------------
 // HTTP response accumulation buffer used by the ESP-IDF event handler
 // ---------------------------------------------------------------------------
@@ -118,6 +121,17 @@ static bool read_req_body(httpd_req_t *req, std::string &out) {
 
 void BambuddyAPIComponent::setup() {
   start_ms_ = millis();
+
+  // ESPHome builds with SPIRAM_USE_CAPS_ALLOC, so plain malloc() and new never
+  // use PSRAM. HTTP response bodies (a spool list can pass 20 KB, growing with
+  // the inventory) and their JSON copies then come out of
+  // internal RAM. With BLE enabled that left no 32 KB block, and the next body
+  // append aborted. Let allocations above MALLOC_EXTMEM_LIMIT prefer PSRAM;
+  // smaller ones, and anything that asks for internal or DMA memory, stay put.
+  if (heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0) {
+    heap_caps_malloc_extmem_enable(MALLOC_EXTMEM_LIMIT);
+  }
+
   ensure_device_id();
   display_state_.ip_address = get_ip_address();
 
