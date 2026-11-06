@@ -1,0 +1,38 @@
+################################################################################
+# SpoolBuddy Lite Console — desktop (ESPHome host platform) build
+#
+# Runs the Lite UI (espoolbuddy/bundles/console_lite.yaml) at the Waveshare
+# ESP32-S3-Touch-LCD-1.47's 172x320 portrait resolution in an SDL window.
+# Mouse clicks act as touches.
+#
+# Mock backend, SDL window and "Simulate ..." buttons come from
+# host_common.yaml. A typical walk through the Lite flow:
+#   Simulate Spool On Scale  -> weight settles, then "Stable"
+#   Simulate Linked Tag      -> spool card + "Insert into AMS" countdown
+#   Simulate AMS Insert      -> "AMS-A · Slot 4", clears after 4 s
+#   Simulate Assign Timeout  -> "Timed out, rescan" notice
+#   Simulate Unlinked Tag    -> "Unknown tag" card
+#   Simulate Scale Offline   -> "No scale"
+#
+# Requirements: SDL2 development files (sdl2-config on PATH), see
+# espoolbuddy_console_host.yaml.
+#
+# Run:
+#   esphome run host/espoolbuddy_console_lite_host.yaml
+################################################################################
+
+substitutions:
+  screen_width: "172"
+  screen_height: "320"
+  # Overrides espoolbuddy/assets.yaml's GitHub image base with the local copy.
+  espoolbuddy_images: ../espoolbuddy/images
+
+esphome:
+  name: espoolbuddy-lite-host
+  friendly_name: ESPoolBuddy Lite Host
+  project:
+    name: espoolbuddy.console_lite_host
+
+packages:
+  common: !include host_common.yaml
+  ui:     !include ../espoolbuddy/bundles/console_lite.yaml

@@ -1,0 +1,321 @@
+################################################################################
+# SpoolBuddy Lite Console — Waveshare ESP32-S3-Touch-LCD-1.47 with PN532 NFC
+#
+# Small, low-interaction console: shows the scale weight (pushed from an
+# espoolbuddy_scale device), scans spool tags and auto-assigns the spool to
+# the AMS slot it is loaded into. Quick Weight and a small settings panel
+# (printer, tare, brightness) are the only touch targets. See
+# docs/console-lite.md.
+#
+# Hardware (portrait, 172x320):
+#   Board:     Waveshare ESP32-S3-Touch-LCD-1.47 (ESP32-S3, 16 MB flash, 8 MB PSRAM)
+#   Display:   JD9853 over SPI (mipi_spi, vendor init)
+#              SCK=GPIO38 MOSI=GPIO39 CS=GPIO21 DC=GPIO45 RST=GPIO40
+#   Touch:     AXS5106L over I2C, INT=GPIO48 RST=GPIO47
+#   Backlight: GPIO46
+#   NFC:       PN532 in I2C mode on its own bus, with IRQ (header pins below)
+#
+# Pins marked "unverified" are best guesses that have not been checked against
+# the Waveshare schematic yet — correct them if the display, touch or
+# backlight does not come up.
+################################################################################
+
+substitutions:
+  # Branch/tag/commit fetched for the components + espoolbuddy packages
+  # below. Pin to a release tag instead of tracking main if you want
+  # reproducible builds.
+  espoolbuddy_ref: main
+  # Screen geometry consumed by espoolbuddy/lvgl_lite.yaml. Portrait, no
+  # software rotation: the display and touch configs below are both set up
+  # for the panel's native portrait orientation.
+  screen_width: "172"
+  screen_height: "320"
+  screen_rotation: "0"
+
+esphome:
+  name: espoolbuddy-lite
+  friendly_name: ESPoolBuddy Lite
+  project:
+    name: espoolbuddy.console_lite
+  on_boot:
+    - priority: 600
+      then:
+        - logger.log: "SpoolBuddy Lite booting..."
+
+esp32:
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  variant: ESP32S3
+  framework:
+    type: esp-idf
+    version: recommended
+    sdkconfig_options:
+      # Same tuning as the WT32-SC01 Plus console (see espoolbuddy_console.yaml).
+      CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_ESP_TASK_WDT_TIMEOUT_S: "30"
+      CONFIG_PM_ENABLE: "y"
+      CONFIG_FREERTOS_USE_TICKLESS_IDLE: "1"
+      CONFIG_COMPILER_OPTIMIZATION_PERF: "y"
+    advanced:
+      # ESPHome's loopTask runs lv_timer_handler(); LVGL's layout pass is
+      # recursive over the widget tree. The Lite tree is shallower than the
+      # full console's, but it uses the same 16 KB to stay well clear of a
+      # stack overflow (see espoolbuddy_console.yaml).
+      loop_task_stack_size: 16384
+
+# 8 MB PSRAM. Octal is an assumption (the LCD on GPIO38/39 leaves GPIO35-37
+# to an octal PSRAM) — unverified; switch to `mode: quad` if boot reports a
+# PSRAM init failure.
+psram:
+  mode: octal
+  speed: 80MHz
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/CSchlipp/espoolbuddy.git
+      ref: ${espoolbuddy_ref}
+      path: components
+    components: [bambuddy_api, bambuddy_nfc]
+    refresh: always
+  # AXS5106L touch controller (community component)
+  - source: github://widget/esphome-components
+    components: [ axs5106 ]
+
+packages:
+  espoolbuddy:
+    url: https://github.com/CSchlipp/espoolbuddy.git
+    ref: ${espoolbuddy_ref}
+    path: espoolbuddy
+    files: [bundles/console_lite.yaml]
+    refresh: always
+
+logger:
+  # Global level must be DEBUG so the Bambuddy components can emit DEBUG (a
+  # per-tag level may only be RAISED above the global level, never lowered).
+  # Change to DEBUG if required.
+  level: INFO
+  baud_rate: 115200
+  logs:
+    scheduler: INFO
+    component: INFO
+    sensor: INFO
+    light: INFO
+    lvgl: INFO
+    touchscreen: INFO
+    wifi: INFO
+    api: INFO
+    ota: INFO
+    mdns: INFO
+    esp-tls: WARN
+    transport_base: WARN
+    HTTP_CLIENT: WARN
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: NONE
+  # Fallback hotspot for the captive-portal WiFi setup page.
+  ap:
+    ssid: "ESPoolBuddy Lite"
+    password: !secret ap_fallback_password
+
+captive_portal:
+
+ota:
+  - platform: esphome
+    encryption:
+
+# reboot_timeout: 0s — device runs standalone; we must not reboot just because
+# Home Assistant isn't reachable.
+api:
+  encryption:
+    key: !secret api_encryption_key
+  reboot_timeout: 0s
+
+# Header clock — SNTP, same as the full console (shows --:-- until synced).
+# Set timezone: here if the build host's zone differs from the device's.
+time:
+  - platform: sntp
+    id: sntp_time
+
+# ============================================================================
+# Buses
+# ============================================================================
+spi:
+  # Display (write-only, no MISO)
+  - id: lcd_spi
+    clk_pin: GPIO38
+    mosi_pin: GPIO39
+
+i2c:
+  # Onboard AXS5106L touch controller
+  - id: i2c_bus
+    sda: GPIO42            # unverified
+    scl: GPIO41            # unverified
+    frequency: 400kHz
+  # External PN532 NFC reader. Its own bus on purpose: the NFC driver polls
+  # from a separate FreeRTOS task, so sharing the touch bus would let the two
+  # transfers collide.
+  - id: nfc_i2c
+    sda: GPIO17            # unverified — any free header GPIO pair works
+    scl: GPIO18            # unverified
+    frequency: 400kHz
+
+# ============================================================================
+# BambuddyNFC — PN532 via I2C (set the PN532's mode switches to I2C)
+# ============================================================================
+bambuddy_nfc:
+  id: nfc_reader
+  api_id: bambuddy     # id of the bambuddy_api: component below (required link)
+  interface: i2c
+  i2c_id: nfc_i2c
+  # address: 0x24      # PN532 default
+  irq_pin:
+    number: GPIO16     # unverified — any free header GPIO works
+    mode: INPUT_PULLUP # PN532 IRQ is open-drain; pull-up required
+  poll_interval: 300   # ms — used only in fallback polling mode; IRQ mode uses 10ms guard
+  miss_threshold: 3    # consecutive no-tag responses before declaring tag removed
+
+# ============================================================================
+# Sensors / buttons
+# ============================================================================
+sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    id: wifi_signal_sensor
+    update_interval: 300s
+
+  - platform: uptime
+    name: "Uptime"
+    id: uptime_sensor
+    update_interval: 300s
+
+# ============================================================================
+# Backlight
+# ============================================================================
+output:
+  - platform: ledc
+    pin:
+      number: GPIO46       # unverified
+      ignore_strapping_warning: true  # strapping pin, only sampled at reset
+    id: backlight_pwm
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    name: "Display Backlight"
+    id: display_backlight
+    restore_mode: ALWAYS_ON
+    default_transition_length: 0ms
+
+# ============================================================================
+# Display — JD9853 172x320 (portrait), vendor init via mipi_spi
+# ============================================================================
+display:
+  # The panel is a JD9853, not an ST7789. Driving it with an ST7789 init
+  # leaves its power/voltage/gamma registers wrong (washed-out, low contrast).
+  # So this uses mipi_spi with the vendor's JD9853 init, verbatim from
+  # Waveshare's ESP32-S3-Touch-LCD-1.47 Arduino demo (lcd_reg_init()), and the
+  # demo's bus settings: 40 MHz, RGB order, inversion on. mipi_spi itself adds
+  # pixel format, MADCTL (from transform/color_order), inversion, sleep-out
+  # and display-on afterwards, so those are left out of the sequence.
+  - platform: mipi_spi
+    model: CUSTOM
+    id: main_display
+    spi_id: lcd_spi
+    cs_pin: GPIO21
+    dc_pin:
+      number: GPIO45
+      ignore_strapping_warning: true
+    reset_pin: GPIO40
+    # GPIO38/39 are not the SPI2 IOMUX pins, so the bus goes through the GPIO
+    # matrix; the vendor demo runs at 40 MHz.
+    data_rate: 40MHz
+    invert_colors: true
+    color_order: rgb
+    auto_clear_enabled: false
+    update_interval: never
+    dimensions:
+      width: 172
+      height: 320
+      offset_width: 34
+    transform:
+      swap_xy: false
+      mirror_x: true
+      mirror_y: false
+    init_sequence:
+      # The demo only starts this after the ST7789 init has woken the panel,
+      # so wait out the reset, soft-reset and leave sleep first.
+      - delay 120ms
+      - [0x01]                      # software reset
+      - delay 120ms
+      - [0x11]                      # sleep out
+      - delay 120ms
+      - [0xDF, 0x98, 0x53]          # unlock extended command set
+      - [0xB2, 0x23]
+      - [0xB7, 0x00, 0x47, 0x00, 0x6F]
+      - [0xBB, 0x1C, 0x1A, 0x55, 0x73, 0x63, 0xF0]
+      - [0xC0, 0x44, 0xA4]
+      - [0xC1, 0x16]
+      - [0xC3, 0x7D, 0x07, 0x14, 0x06, 0xCF, 0x71, 0x72, 0x77]
+      - [0xC4, 0x00, 0x00, 0xA0, 0x79, 0x0B, 0x0A, 0x16, 0x79, 0x0B, 0x0A, 0x16, 0x82]
+      - [0xC8, 0x3F, 0x32, 0x29, 0x29, 0x27, 0x2B, 0x27, 0x28, 0x28, 0x26, 0x25, 0x17, 0x12, 0x0D, 0x04, 0x00,
+               0x3F, 0x32, 0x29, 0x29, 0x27, 0x2B, 0x27, 0x28, 0x28, 0x26, 0x25, 0x17, 0x12, 0x0D, 0x04, 0x00]   # gamma
+      - [0xD0, 0x04, 0x06, 0x6B, 0x0F, 0x00]
+      - [0xD7, 0x00, 0x30]
+      - [0xE6, 0x14]
+      - [0xDE, 0x01]                # page 1
+      - [0xB7, 0x03, 0x13, 0xEF, 0x35, 0x35]
+      - [0xC1, 0x14, 0x15, 0xC0]
+      - [0xC2, 0x06, 0x3A]
+      - [0xC4, 0x72, 0x12]
+      - [0xBE, 0x00]
+      - [0xDE, 0x02]                # page 2
+      - [0xE5, 0x00, 0x02, 0x00]
+      - [0xE5, 0x01, 0x02, 0x00]
+      - [0xDE, 0x00]                # back to page 0
+      - [0x35, 0x00]                # tearing-effect line on
+      - [0x2A, 0x00, 0x22, 0x00, 0xCD]  # column window 34..205
+      - [0x2B, 0x00, 0x00, 0x01, 0x3F]  # row window 0..319
+      - [0xDE, 0x02]                # page 2 (the demo repeats this)
+      - [0xE5, 0x00, 0x02, 0x00]
+      - [0xDE, 0x00]                # back to page 0
+
+# ============================================================================
+# Touch — AXS5106L (portrait, matches the display transform)
+# ============================================================================
+touchscreen:
+  platform: axs5106
+  id: touch_screen
+  i2c_id: i2c_bus
+  interrupt_pin: GPIO48    # unverified
+  reset_pin: GPIO47
+  calibration:
+    x_min: 0
+    y_min: 0
+    x_max: 172
+    y_max: 320
+  transform:
+    mirror_x: true
+  on_touch:
+    - script.execute: wake_backlight   # console bundle
+
+# ============================================================================
+# BambuddyAPI — backend connection
+# ============================================================================
+bambuddy_api:
+  id: bambuddy
+  backend_url: !secret bambuddy_backend_url   # Bambuddy server base URL, e.g. http://192.168.1.50:5000
+  api_key: !secret bambuddy_api_key           # from Bambuddy → Settings → Devices → this device's API key
+  hostname: "SpoolBuddy-Lite"                 # display name in Bambuddy's device list
+  backlight_id: display_backlight             # switched off by the Lite UI's sleep timer
+  scale:
+    type: remote                # weight pushed by a separate scale device (espoolbuddy_scale.yaml)
+    # timeout: 10s              # no push for this long → "No scale connected" (default: 10s)
+  heartbeat_interval: 10        # seconds — tag scan triggers an extra immediate heartbeat
+  printer_poll_interval: 15     # seconds between AMS/printer status polls to Bambuddy
+  sleep_factor: 12              # printer/AMS poll multiplier while asleep (×12: 15s→180s); the heartbeat isn't stretched; the sleep timeout itself is set on the device (Settings → Sleep)

@@ -1,0 +1,56 @@
+# ============================================================================
+# Scale logic — the status LED. Included via bundles/scale.yaml. Weight
+# stability detection and tare / calibrate live in bambuddy_api
+# (scale: type: local).
+#
+# Expects from the entry-point YAML (espoolbuddy_scale.yaml):
+#   bambuddy_api (id: bambuddy), wifi (id: wifi_comp) and a light with
+#   id status_led.
+# ============================================================================
+
+interval:
+  # Status LED.
+  #   Green = WiFi up, every console answering
+  #   Blue  = WiFi up, only some consoles answering (or a lone console not)
+  #   Red   = no WiFi, or none of several consoles answering
+  - interval: 1s
+    then:
+      - lambda: |-
+          bool wifi_ok = id(wifi_comp).is_connected();
+          size_t total = bambuddy->console_count();
+          size_t up    = wifi_ok ? bambuddy->consoles_connected(5000) : 0;
+
+          // Determine state (0=red: no WiFi or no console reachable,
+          // 1=blue: only some reachable, 2=green: all reachable). A lone
+          // console that doesn't answer stays blue, as it always has.
+          int state = !wifi_ok ? 0
+                    : up == total && total > 0 ? 2
+                    : up > 0 || total == 1 ? 1 : 0;
+
+          // Log on changes only
+          static int prev_up = -1;
+          static bool prev_wifi = false;
+          if ((int) up != prev_up || wifi_ok != prev_wifi) {
+            prev_up = (int) up;
+            prev_wifi = wifi_ok;
+            if (!wifi_ok)
+              ESP_LOGI("status_led", "No WiFi — LED red");
+            else
+              ESP_LOGI("status_led", "%u of %u console(s) reachable — LED %s",
+                       (unsigned) up, (unsigned) total,
+                       state == 0 ? "red" : state == 1 ? "blue" : "green");
+          }
+
+          float r, g, b;
+          if (state == 0) {
+            r = 1.0f; g = 0.0f; b = 0.0f;  // red   — no WiFi, or none of several consoles reachable
+          } else if (state == 1) {
+            r = 0.0f; g = 0.4f; b = 1.0f;  // blue  — some consoles (or a lone console) unreachable
+          } else {
+            r = 0.0f; g = 1.0f; b = 0.0f;  // green — all consoles reachable
+          }
+          auto call = id(status_led).turn_on();
+          call.set_rgb(r, g, b);
+          call.set_brightness(0.15f);        // dim — it's just a status dot
+          call.set_transition_length(400);
+          call.perform();

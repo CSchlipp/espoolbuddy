@@ -718,6 +718,17 @@ class BambuddyAPIComponent : public Component {
                       const TagFilamentInfo *filament = nullptr);
   void on_tag_removed(const std::string &uid);
 
+#ifdef USE_HOST
+  // ---- Desktop simulator only (implemented in host/bambuddy_api_mock.cpp) ----
+  // Drive flows that need real hardware or a backend round trip on a device,
+  // from the host YAML's "Simulate ..." buttons and the docs screenshot run.
+  void sim_ams_insert();      // load the pending spool into the first empty AMS slot
+  void sim_assign_timeout();  // expire the pending auto-assignment now
+  void sim_scale_offline();   // stop scale pushes (scale_ok = false)
+  void sim_plate_clear();     // printer waits for the build plate to be cleared
+  void sim_ams_remove();      // take the first assigned spool out of the AMS
+#endif
+
   // ---- Pending NTAG write (set by write_tag command) ----
   bool has_pending_write() const { return pending_write_active_; }
   const std::vector<uint8_t> &pending_write_data() const { return pending_write_ndef_; }

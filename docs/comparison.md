@@ -21,8 +21,8 @@ clear win, it says so.
 |---|---|---|
 | Maintained by | The Bambuddy author, as part of Bambuddy | An independent community project |
 | Compute | Raspberry Pi 4B / Pi 5 running Raspberry Pi OS | ESP32-S3 microcontroller running ESPHome firmware |
-| Screen | 7″ HDMI, 1024×600 | 3.5″ 480×320 ([WT32-SC01 Plus](console-wt32sc01.md)) or 5″ 800×480 ([Panda Touch](console-pandatouch.md)) |
-| UI | Bambuddy's own web UI in a browser kiosk | Native LVGL UI, reimplemented in firmware |
+| Screen | 7″ HDMI, 1024×600 | 3.5″ 480×320 ([WT32-SC01 Plus](console-wt32sc01.md)), 5″ 800×480 ([Panda Touch](console-pandatouch.md)) or 1.47″ 172×320 ([Lite](console-lite.md)) |
+| UI | Bambuddy's own web UI in a browser kiosk | Native LVGL UI, reimplemented in firmware: tabbed, or a compact single-screen UI on the Lite ([differences](#full-console-vs-lite)) |
 | NFC reader | PN5180 (SPI) | PN532 (SPI with IRQ, or I²C) |
 | Scale | Built in: NAU7802 ADC + load cell under the device | Separate, optional device: HX711 ADC + load cell on its own ESP32-S3. Opt-in and untested: an HX711 wired [into the console](console-builtin-scale.md), no ready-made case |
 | Form factor | One unit: screen, reader and scale together | Usually two units: a console, plus an optional scale that can sit elsewhere |
@@ -33,9 +33,10 @@ clear win, it says so.
 | Power off | Needs a proper shutdown to protect the SD card | Pull the plug at any time |
 | Battery / handheld use | Not designed for it | Supported on the WT32-SC01 Plus ([handheld case](console-wt32sc01.md#3d-printed-case)) |
 | Updates | Installer script; Bambuddy can update it remotely over SSH | ESPHome OTA, from the ESPHome dashboard or Home Assistant |
-| Approx. hardware cost (screen + reader + scale)¹ | ~120–210 USD | ~40–70 USD with WT32-SC01 Plus<br>~85–125 USD with Panda Touch |
+| Approx. hardware cost (screen + reader + scale)¹ | ~120–210 USD | ~40–70 USD with WT32-SC01 Plus<br>~85–125 USD with Panda Touch<br>~35–60 USD with Lite |
 
-¹ Rough prices as of September 2026, excluding shipping, taxes, printed
+¹ Rough prices as of September 2026 (Lite: October 2026, with the Waveshare
+ESP32-S3-Touch-LCD-1.47 at about 15–17 USD), excluding shipping, taxes, printed
 parts and tools. Actual prices vary by region and seller. The SpoolBuddy
 figure is the Bambuddy wiki's own [estimate](https://wiki.bambuddy.cool/spoolbuddy/materials/).
 
@@ -48,6 +49,36 @@ Both cover the core workflow:
 - Show live spool weight and push it to the Bambuddy inventory.
 - Toggle smart plugs and restart the device from a swipe-down quick menu.
 - Work entirely on your LAN, with no cloud account.
+
+### Full console vs. Lite
+
+The [Lite](console-lite.md) trades the tabbed UI for one screen that needs
+almost no tapping. Its screens use the full console's texts, colours, icons
+and workflows; it only leaves out what doesn't fit 1.47″. Both run the same
+firmware underneath, so everything the backend does on its own (auto-assign,
+storage-location tags, AMS-removal staging) works on both.
+
+| Feature | Full console (WT32-SC01 Plus, Panda Touch) | Lite |
+|---|---|---|
+| Live scale weight | ✅ | ✅ |
+| Scan a tag, auto-assign on AMS load | ✅ | ✅ |
+| Spool taken out of the AMS staged for weighing | ✅ | ✅ |
+| Quick Weight | ✅ | ✅ |
+| Archive prompt for an empty spool | ✅ | ✅ |
+| Add an unlinked tag to the inventory | ✅ | ✅ |
+| Link a tag to an existing spool (spool picker) | ✅ | ❌ |
+| Unlink tag / discard spool | ✅ (buttons) | ✅ (tap the spool) |
+| Storage locations: scan a location tag to assign | ✅ | ✅ |
+| Storage locations: link tags to locations | ✅ | ❌ |
+| Build-plate-clear prompt | ✅ | ✅ |
+| AMS overview, slot details, manual slot assignment | ✅ | ❌ |
+| Switch printer | ✅ | ✅ |
+| Printer power plug on/off | ✅ | ✅ |
+| Smart-plug list | ✅ | ❌ |
+| Tare / calibrate the scale | ✅ | ✅ |
+| Brightness, inactivity (sleep), NFC in sleep, clear location on AMS load | ✅ | ✅ |
+| WiFi in sleep | ✅ | ❌ |
+| Sound (chimes) | ✅ WT32-SC01 Plus only | ❌ |
 
 ### Where SpoolBuddy is ahead
 
@@ -66,7 +97,6 @@ Both cover the core workflow:
   can't accept SSH, and it answers the diagnostic commands with placeholder
   results (see the [API reference](api-reference.md#backend-commands-handled)).
   You update it through ESPHome instead.
--
 - **Settings changes without reflashing.** Backend URL and API key can be
   changed on a running Pi. On ESPoolBuddy these live in `secrets.yaml`, and a
   change from Bambuddy only lasts until the next reboot, unless you reflash.
@@ -120,6 +150,10 @@ Both cover the core workflow:
   screen;
 - already run ESPHome / Home Assistant, or already own SpoolEase hardware
   or a Panda Touch.
+
+Within ESPoolBuddy, the [Lite](console-lite.md) is the pick for a tiny,
+cheap screen next to the AMS that mostly just scans, weighs and assigns.
+Choose a full console if you want to manage spools on the device itself.
 
 Both talk to the same backend, and your spool inventory lives in Bambuddy,
 not on the device. So this isn't a permanent choice: switching later doesn't

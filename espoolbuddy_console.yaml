@@ -45,11 +45,6 @@ esphome:
     - priority: 600
       then:
         - logger.log: "SpoolBuddy booting..."
-        - lambda: bambuddy->configure_pm(false);  # lock min 80 MHz (APB stable) before display starts
-    # Apply initial tab state after NVS is up (restores printer selection + tab visibility)
-    - priority: -100
-      then:
-        - script.execute: apply_tab
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -108,7 +103,7 @@ packages:
     url: https://github.com/CSchlipp/espoolbuddy.git
     ref: ${espoolbuddy_ref}
     path: espoolbuddy
-    files: [version.yaml, app.yaml, assets.yaml, lvgl.yaml]
+    files: [bundles/console_full.yaml]
     refresh: always
 
 logger:
@@ -258,21 +253,6 @@ sensor:
     update_interval: 300s
 
 # ============================================================================
-# Buttons
-# ============================================================================
-button:
-  - platform: template
-    name: "Tare Scale"
-    id: tare_button
-    on_press:
-      then:
-        - lambda: bambuddy->request_tare();
-
-  - platform: restart
-    name: "Restart"
-    id: restart_button
-
-# ============================================================================
 # Backlight
 # ============================================================================
 output:
@@ -318,10 +298,7 @@ touchscreen:
     interrupt_pin: GPIO7
     update_interval: 16ms
     on_touch:
-      - lambda: |-
-          id(display_backlight).turn_on()
-            .set_brightness(id(backlight_brightness_pct) / 100.0f)
-            .set_transition_length(0).perform();
+      - script.execute: wake_backlight   # console bundle
 
 
 # ============================================================================

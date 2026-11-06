@@ -79,6 +79,10 @@ console_url:
   - "http://espoolbuddy-console-2.local"
 ```
 
+A [Lite console](console-lite.md) has no load cell of its own and gets
+its weight this way, so add its URL (`http://espoolbuddy-lite.local` by
+default) to the list.
+
 With several consoles, the scale's status LED is green while all of them
 answer, blue while only some do and red while none do.
 Tare, Calibrate and tag writes work from any of the consoles.

@@ -1,0 +1,228 @@
+################################################################################
+# Shared desktop-simulator setup (ESPHome host platform)
+#
+# Not run on its own — included by the two simulator entry points:
+#   espoolbuddy_console_host.yaml       full tabbed UI  (bundles/console_full.yaml), 800x480
+#   espoolbuddy_console_lite_host.yaml  lite UI         (bundles/console_lite.yaml), 172x320
+# Each of those sets screen_width/screen_height, the device name and which UI
+# bundle to include; everything else (mock backend, SDL window, simulate
+# buttons) lives here so the two can't drift apart.
+#
+# There is no backend, NFC reader or scale: the real bambuddy_api
+# implementation is ESP32-only, so host/bambuddy_api_mock.cpp is compiled in
+# its place (via esphome: includes: below). It fills the UI with demo
+# printers, AMS units, spools, storage locations and smart plugs, and applies
+# UI actions locally. The "Simulate ..." buttons below drive the NFC, scale
+# and AMS flows; press them from Home Assistant / the ESPHome dashboard
+# (native API on localhost:6053).
+################################################################################
+
+substitutions:
+  # The SDL window is created at the target resolution directly, so no
+  # software rotation is needed (the WT32-SC01 Plus needs 90).
+  screen_rotation: "0"
+  # (espoolbuddy_images — the local image base — is set in each entry file:
+  # only the top-level file's substitutions reliably override assets.yaml's.)
+
+esphome:
+  includes:
+    - bambuddy_api_mock.cpp
+  on_boot:
+    # SDL (X11/Xwayland) drops the click that focuses its window, so coming
+    # from another window every first tap did nothing. Let it through.
+    - priority: 800
+      then:
+        - lambda: 'SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");'
+
+host:
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [bambuddy_api]
+
+logger:
+  level: DEBUG
+  logs:
+    scheduler: INFO
+    component: INFO
+    lvgl: INFO
+    touchscreen: INFO
+
+# Unencrypted: only reachable on this machine's network, and saves needing a
+# secrets.yaml just to run the simulator.
+api:
+  reboot_timeout: 0s
+
+# Header clock — same id the device configs give their SNTP clock.
+time:
+  - platform: host
+    id: sntp_time
+
+# ============================================================================
+# Display + touch — SDL window, mouse acts as the touchscreen
+# ============================================================================
+display:
+  - platform: sdl
+    id: main_display
+    dimensions:
+      width: ${screen_width}
+      height: ${screen_height}
+    auto_clear_enabled: false
+    update_interval: never
+    # Press "s" in the window to save a screenshot (host/.esphome/snapshots/).
+    snapshot_key: SDLK_s
+
+touchscreen:
+  - platform: sdl
+    id: touch_screen
+    on_touch:
+      - script.execute: wake_backlight   # console bundle
+
+# ============================================================================
+# Backlight — no physical one; a template output keeps the dim/sleep state
+# machine working (it only logs the level here).
+# ============================================================================
+output:
+  - platform: template
+    id: backlight_out
+    type: float
+    write_action:
+      - logger.log:
+          level: DEBUG
+          format: "Backlight %.0f%%"
+          args: ["state * 100.0f"]
+
+light:
+  - platform: monochromatic
+    output: backlight_out
+    name: "Display Backlight"
+    id: display_backlight
+    restore_mode: ALWAYS_ON
+    default_transition_length: 0ms
+
+# ============================================================================
+# Buttons
+# ============================================================================
+# Tare and Restart come from the console bundle.
+button:
+  # NFC simulation (there is no reader on the host). 04A1B2C3D4E5F6 is linked
+  # to demo spool #39 by the mock; any other UID resolves as unlinked.
+  - platform: template
+    name: "Simulate Linked Tag"
+    on_press:
+      - lambda: bambuddy->on_tag_scanned("04A1B2C3D4E5F6", "", 0x00, "ntag");
+
+  - platform: template
+    name: "Simulate Unlinked Tag"
+    on_press:
+      - lambda: bambuddy->on_tag_scanned("04DEADBEEF0001", "", 0x00, "ntag");
+
+  # Unknown tags that carry spool data (same payloads as the docs screenshots).
+  - platform: template
+    name: "Simulate Unknown Bambu Tag"
+    on_press:
+      - lambda: |-
+          bambuddy_api::TagFilamentInfo tf;
+          tf.valid         = true;
+          tf.format        = "bambu_lab";
+          tf.brand         = "Bambu Lab";
+          tf.material      = "PLA";
+          tf.detailed_type = "PLA Matte";
+          tf.subtype       = "Matte";
+          tf.color_hex     = "E4BD68FF";
+          tf.color_name    = "Desert Tan";
+          tf.spool_weight  = 1000;
+          tf.diameter      = 1.75f;
+          bambuddy->on_tag_scanned("5A3F9C21", "B2C4E6F80A1C3E5F7092B4D6F8A0C2E4",
+                                   0x08, "mifare_classic", &tf);
+
+  - platform: template
+    name: "Simulate Unknown OpenTag3D Tag"
+    on_press:
+      - lambda: |-
+          bambuddy_api::TagFilamentInfo tf;
+          tf.valid           = true;
+          tf.format          = "open_tag_3d";
+          tf.brand           = "eSUN";
+          tf.material        = "PETG";
+          tf.subtype         = "CF";
+          tf.detailed_type   = "PETG CF";
+          tf.color_hex       = "2B5BA8";
+          tf.color_name      = "Ocean Blue";
+          tf.spool_weight    = 1000;
+          tf.diameter        = 1.75f;
+          tf.nozzle_temp_min = 240;
+          tf.nozzle_temp_max = 260;
+          bambuddy->on_tag_scanned("04B7E2A91C3D80", "", 0x00, "ntag", &tf);
+
+  - platform: template
+    name: "Simulate Tag Removed"
+    on_press:
+      - lambda: bambuddy->on_tag_removed("");
+
+  # AMS simulation: after a linked tag scan, "insert" the spool into the first
+  # empty AMS slot of the selected printer — what the device's auto-assign
+  # does when the AMS reports a newly loaded tray.
+  - platform: template
+    name: "Simulate AMS Insert"
+    on_press:
+      - lambda: bambuddy->sim_ams_insert();
+
+  - platform: template
+    name: "Simulate Assign Timeout"
+    on_press:
+      - lambda: bambuddy->sim_assign_timeout();
+
+  # A known spool taken out of the AMS is staged like a fresh scan.
+  - platform: template
+    name: "Simulate AMS Remove"
+    on_press:
+      - lambda: bambuddy->sim_ams_remove();
+
+  # Storage-location tag (linked to the demo location "Shelf A"): assigns the
+  # staged spool to that location.
+  - platform: template
+    name: "Simulate Location Tag"
+    on_press:
+      - lambda: bambuddy->on_tag_scanned("04AABBCCDDEE01", "", 0x00, "ntag");
+
+  # Printer finished and waits for the build plate to be cleared.
+  - platform: template
+    name: "Simulate Plate Clear Request"
+    on_press:
+      - lambda: bambuddy->sim_plate_clear();
+
+  # Scale simulation (stands in for weight pushes from espoolbuddy_scale).
+  - platform: template
+    name: "Simulate Spool On Scale"
+    on_press:
+      - lambda: bambuddy->on_scale_reading(1023.4f, false);
+      - delay: 1s
+      - lambda: bambuddy->on_scale_reading(1023.4f, true);
+
+  # An empty spool (below the demo spools' 250 g core weight): Quick Weight
+  # then records 0 g left and the UI proposes archiving the spool.
+  - platform: template
+    name: "Simulate Empty Spool On Scale"
+    on_press:
+      - lambda: bambuddy->on_scale_reading(240.0f, true);
+
+  - platform: template
+    name: "Simulate Scale Empty"
+    on_press:
+      - lambda: bambuddy->on_scale_reading(0.0f, true);
+
+  - platform: template
+    name: "Simulate Scale Offline"
+    on_press:
+      - lambda: bambuddy->sim_scale_offline();
+
+# ============================================================================
+# BambuddyAPI — mock backend on this platform (see header)
+# ============================================================================
+bambuddy_api:
+  id: bambuddy
+  hostname: "SpoolBuddy-Host"
+  backlight_id: display_backlight

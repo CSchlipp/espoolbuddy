@@ -1,0 +1,183 @@
+################################################################################
+# Documentation screenshots — scripted run of the Lite UI simulator
+#
+# Don't run this directly; use host/update_screenshots.py, which compiles it,
+# runs it and copies the results into docs/images/ui/lite/.
+#
+# Builds espoolbuddy_console_lite_host.yaml unchanged and adds a boot sequence
+# that drives the mock through every Lite feature (scale readings, tag scans,
+# AMS insert/remove, location tag, popups, action sheet, settings), saves a
+# snapshot of each screen to .esphome/snapshots/espoolbuddy-docs-lite/, then
+# exits.
+#
+# The screens both UIs have use the same names, steps and demo data as
+# docs_screenshots.yaml (SHARED in update_screenshots.py), so the full and
+# Lite screenshots of a screen always show the same situation — keep the two
+# files in step.
+#
+# To add a screen: add a step below, then `- delay: 1200ms` +
+# `- snapshot.take`, and list the name in update_screenshots.py. Each step
+# starts from the previous step's state. lite_refresh runs every 400 ms, so a
+# 1200 ms delay is always enough for the UI to catch up; status messages stay
+# in the header for 6 s.
+################################################################################
+
+packages:
+  host: !include espoolbuddy_console_lite_host.yaml
+
+esphome:
+  # Separate build dir and snapshot folder from the interactive simulator.
+  name: espoolbuddy-docs-lite
+  on_boot:
+    - priority: -200
+      then:
+        - delay: 3s  # first full draw
+
+        # ==== Weighing ====
+        - lambda: 'bambuddy->on_scale_reading(1023.4f, true);'
+        - delay: 1200ms
+        # The Lite shows weight and the waiting hint on one screen, so its
+        # "scale" and "nfc-waiting" screenshots are the same view.
+        - snapshot.take: {id: main_display, filename: scale}
+        - snapshot.take: {id: main_display, filename: nfc-waiting}
+
+        - lambda: 'bambuddy->on_scale_reading(1019.8f, false);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: scale-settling}
+
+        - lambda: 'bambuddy->sim_scale_offline();'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: scale-no-scale}
+        - lambda: 'bambuddy->on_scale_reading(1023.4f, true);'
+
+        # ==== Scan + auto-assign ====
+        - lambda: 'bambuddy->on_tag_scanned("04A1B2C3D4E5F6", "", 0x00, "ntag");'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: nfc-spool}
+
+        # Quick Weight, stable reading: recorded directly
+        - lambda: 'lv_obj_send_event(id(lite_btn_weight), LV_EVENT_CLICKED, nullptr);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: quick-weight}
+
+        # Quick Weight, reading not stable yet: "Update Spool Weight" popup
+        - lambda: 'bambuddy->on_scale_reading(1020.1f, false);'
+        - delay: 500ms
+        - lambda: 'lv_obj_send_event(id(lite_btn_weight), LV_EVENT_CLICKED, nullptr);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: weight-popup}
+        - lambda: 'lv_obj_send_event(id(lite_wp_cancel), LV_EVENT_CLICKED, nullptr);'
+        - lambda: 'bambuddy->on_scale_reading(1023.4f, true);'
+
+        # Storage-location tag while the spool is shown
+        - lambda: 'bambuddy->on_tag_scanned("04AABBCCDDEE01", "", 0x00, "ntag");'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: location}
+
+        # Tap the spool: actions, then the unlink confirm (cancelled)
+        - lambda: 'lv_obj_send_event(id(lite_spool), LV_EVENT_CLICKED, nullptr);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: spool-actions}
+        - lambda: 'lv_obj_send_event(id(lite_act_unlink), LV_EVENT_CLICKED, nullptr);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: unlink-confirm}
+        - lambda: 'lv_obj_send_event(id(lite_confirm_cancel), LV_EVENT_CLICKED, nullptr);'
+
+        # Loaded into the AMS → assigned
+        - lambda: 'bambuddy->sim_ams_insert();'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: assigned}
+        - delay: 4s  # component clears the spool 4 s after the assignment
+
+        # A spool taken out of the AMS is staged like a scan
+        - lambda: 'bambuddy->sim_ams_remove();'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: ams-removed}
+
+        # It's empty: Quick Weight records it, then the archive proposal (kept)
+        - lambda: 'bambuddy->on_scale_reading(240.0f, true);'
+        - delay: 600ms
+        - lambda: 'lv_obj_send_event(id(lite_btn_weight), LV_EVENT_CLICKED, nullptr);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: archive}
+        - lambda: 'lv_obj_send_event(id(lite_archive_keep), LV_EVENT_CLICKED, nullptr);'
+        - lambda: 'bambuddy->on_scale_reading(1023.4f, true);'
+
+        # Never put back → the assignment window times out
+        - lambda: 'bambuddy->sim_assign_timeout();'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: timeout}
+
+        # ==== Unlinked tags ====
+        - lambda: 'bambuddy->on_tag_scanned("04DEADBEEF0001", "", 0x00, "ntag");'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: nfc-unlinked}
+
+        - lambda: 'lv_obj_send_event(id(lite_unlinked), LV_EVENT_CLICKED, nullptr);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: unlinked-actions}
+        - lambda: 'lv_obj_send_event(id(lite_act_cancel), LV_EVENT_CLICKED, nullptr);'
+
+        # Unlinked OpenTag3D tag -> preview of the decoded spool
+        - lambda: |-
+            bambuddy_api::TagFilamentInfo tf;
+            tf.valid           = true;
+            tf.format          = "open_tag_3d";
+            tf.brand           = "eSUN";
+            tf.material        = "PETG";
+            tf.subtype         = "CF";
+            tf.detailed_type   = "PETG CF";
+            tf.color_hex       = "2B5BA8";
+            tf.color_name      = "Ocean Blue";
+            tf.spool_weight    = 1000;
+            tf.diameter        = 1.75f;
+            tf.nozzle_temp_min = 240;
+            tf.nozzle_temp_max = 260;
+            bambuddy->on_tag_scanned("04B7E2A91C3D80", "", 0x00, "ntag", &tf);
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: nfc-unlinked-opentag3d}
+
+        # Unlinked Bambu Lab tag: decoded spool data, Add to Inventory
+        - lambda: |-
+            bambuddy_api::TagFilamentInfo tf;
+            tf.valid         = true;
+            tf.format        = "bambu_lab";
+            tf.brand         = "Bambu Lab";
+            tf.material      = "PLA";
+            tf.detailed_type = "PLA Matte";
+            tf.subtype       = "Matte";
+            tf.color_hex     = "E4BD68FF";
+            tf.color_name    = "Desert Tan";
+            tf.spool_weight  = 1000;
+            tf.diameter      = 1.75f;
+            bambuddy->on_tag_scanned("5A3F9C21", "B2C4E6F80A1C3E5F7092B4D6F8A0C2E4",
+                                     0x08, "mifare_classic", &tf);
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: nfc-unlinked-bambu}
+
+        # Added: the new spool is shown like a scanned one
+        - lambda: 'lv_obj_send_event(id(lite_btn_add), LV_EVENT_CLICKED, nullptr);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: created}
+        - lambda: 'bambuddy->sim_assign_timeout();'
+        - delay: 1s
+
+        # ==== Build plate clear ====
+        - lambda: 'bambuddy->sim_plate_clear();'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: plate-clear}
+        - lambda: 'lv_obj_send_event(id(lite_plate_confirm), LV_EVENT_CLICKED, nullptr);'
+
+        # ==== Settings ====
+        - lambda: 'lv_obj_clear_flag(id(lite_settings), LV_OBJ_FLAG_HIDDEN);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: settings}
+        - lambda: 'lv_obj_scroll_to_y(id(lite_settings_body), 1000, LV_ANIM_OFF);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: settings-more}
+        - lambda: 'lv_obj_send_event(id(lite_btn_cal), LV_EVENT_CLICKED, nullptr);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: calibrate}
+
+        - delay: 500ms
+        - lambda: 'exit(0);'

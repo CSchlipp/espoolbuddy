@@ -155,8 +155,8 @@ def _validate_roles(config):
 
 
 def _deprecated_sleep_timeout(value):
-    # The console UI (app.yaml) sets the sleep timeout from
-    # its Settings screen on every refresh, so a YAML value never took
+    # Both console UIs (app.yaml, app_lite.yaml) set the sleep timeout from
+    # their Settings screen on every refresh, so a YAML value never took
     # effect. Accepted (and ignored) so existing configs keep building.
     # TODO(next major release): replace with cv.invalid.
     _LOGGER.warning(
@@ -211,7 +211,7 @@ CONFIG_SCHEMA = cv.All(
             # device a satellite: it never talks to Bambuddy itself.
             cv.Optional(CONF_CONSOLE_URL, default=[]): cv.ensure_list(cv.string),
             # Deprecated, ignored: the sleep timeout is a Settings-screen value
-            # (sleep_timeout_min in app.yaml). See
+            # (sleep_timeout_min in app.yaml / app_lite.yaml). See
             # _deprecated_sleep_timeout above.
             cv.Optional(CONF_SLEEP_TIMEOUT): _deprecated_sleep_timeout,
             # Multiplier applied to the printer/AMS poll interval while asleep

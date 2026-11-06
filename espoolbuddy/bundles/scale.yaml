@@ -1,0 +1,14 @@
+# ============================================================================
+# Scale bundle — everything the headless scale needs besides its hardware:
+# the shared firmware version and the status LED.
+#
+# Include this one file from the scale's entry-point YAML packages block:
+#
+#   files: [bundles/scale.yaml]
+#
+# Configs copied before this bundle existed list `files: [version.yaml]` and
+# carry the status LED inline; those keep working unchanged.
+# ============================================================================
+packages:
+  version: !include ../version.yaml
+  app:     !include ../app_scale.yaml

@@ -3,23 +3,40 @@
 # Using the device
 
 Screenshots are from the 480×320 WT32-SC01 Plus console with demo data. The
-Panda Touch shows the same screens at 800×480.
+Panda Touch shows the same screens at 800×480. The
+[Lite console](console-lite.md#using-it) has its own single-screen UI; its
+page shows the same situations, with the same demo data, on the Lite.
+Scanning, auto-assign, Quick Weight, the archive and build-plate prompts,
+storage-location tags and sleep all work the same way there. Its page walks
+through every screen.
 
 - **Scan a tag**: hold an NFC tag (Bambu Lab spool tag, or your own NTAG
   213/215/216) near the console's or scale's PN532 antenna. The console
-  jumps to the NFC tab automatically on a new scan.
+  jumps to the NFC tab automatically on a new scan; with no tag on the reader
+  that tab shows *Place spool tag on reader*.
 
-  <img src="images/ui/nfc-spool.png" alt="NFC tab showing a scanned spool: name, colour, remaining weight, and Unlink Tag / Quick Weight / Discard buttons" width="360">
+  <img src="images/ui/full/nfc-waiting.png" alt="NFC tab waiting for a tag: NFC icon and Place spool tag on reader" width="360">
+  <img src="images/ui/full/nfc-spool.png" alt="NFC tab showing a scanned spool: name, colour, remaining weight, and Unlink Tag / Quick Weight / Discard buttons" width="360">
 
 - **Scan + load auto-assigns the AMS slot**: after scanning a tag linked to
   a known spool, loading that physical spool into any AMS slot within the
   next 60 s automatically assigns the spool to that slot in Bambuddy and
-  configures it — no manual assignment step needed.
+  configures it — no manual assignment step needed. The countdown runs in the
+  top-right corner, and a green **Assigned:** banner names the slot once it's
+  done. If nothing is loaded in time, the header shows *Timed out — rescan to
+  assign*.
+
+  <img src="images/ui/full/assigned.png" alt="Spool view with the green banner Assigned: AMS-A · Slot 4" width="360">
+  <img src="images/ui/full/timeout.png" alt="NFC tab back to Place spool tag on reader, with Timed out — rescan to assign in the header" width="360">
+
 - **Removing a spool from the AMS behaves like scanning it**: when a known,
   already-loaded spool is taken out of an AMS slot, ESPoolBuddy treats that
   exactly like the tag being scanned again (same chime, same jump to the NFC
   tab). You can immediately load it into the same or a different slot and
   that slot gets assigned/configured automatically, same as a fresh scan.
+
+  <img src="images/ui/full/ams-removed.png" alt="Spool view of a Bambu Lab PLA Matte Charcoal spool #42 just taken out of the AMS, with a 60s countdown" width="360">
+
 - **Storage locations**: from Settings → **Storage Locations**
   you can link an NFC tag to any storage location already created in
   Bambuddy — tap **Scan to Link** on a location, a popup confirms it's
@@ -46,7 +63,8 @@ Panda Touch shows the same screens at 800×480.
   the location's `identifier` field in Bambuddy, which Bambuddy itself does
   not use yet.
 
-  <img src="images/ui/settings-storage.png" alt="Settings → Storage Locations: each location with its spool count and a Scan to Link or Unlink button" width="360">
+  <img src="images/ui/full/location.png" alt="Spool view with a purple Shelf A badge and Assigned to Shelf A in the header" width="360">
+  <img src="images/ui/full/settings-storage.png" alt="Settings → Storage Locations: each location with its spool count and a Scan to Link or Unlink button" width="360">
 
 - **Unknown tag → create a spool entry**: scanning a tag with no matching
   spool in Bambuddy opens the unlinked-tag panel with an **Add to
@@ -74,9 +92,14 @@ Panda Touch shows the same screens at 800×480.
   decoded from the tag (plus the manufacturer for OpenTag3D). Tags without
   decodable filament data show a grey spool and "No filament info on tag".
 
-  <img src="images/ui/nfc-unlinked.png" alt="NFC tab for an unlinked NTAG: grey spool icon, New generic NFC Tag discovered, No filament info on tag and its UID, with Add to Inventory, Assign Spool and Discard buttons" width="360">
-  <img src="images/ui/nfc-unlinked-bambu.png" alt="NFC tab for an unlinked Bambu Lab tag: spool icon tinted in the tag colour, New Bambu Lab Tag discovered, with material, colour name and weight decoded from the tag above its UID" width="360">
-  <img src="images/ui/nfc-unlinked-opentag3d.png" alt="NFC tab for an unlinked OpenTag3D tag: spool icon tinted in the tag colour, New OpenTag3D discovered, with manufacturer, material, colour name and weight decoded from the tag above its UID" width="360">
+  <img src="images/ui/full/nfc-unlinked.png" alt="NFC tab for an unlinked NTAG: grey spool icon, New generic NFC Tag discovered, No filament info on tag and its UID, with Add to Inventory, Assign Spool and Discard buttons" width="360">
+  <img src="images/ui/full/nfc-unlinked-bambu.png" alt="NFC tab for an unlinked Bambu Lab tag: spool icon tinted in the tag colour, New Bambu Lab Tag discovered, with material, colour name and weight decoded from the tag above its UID" width="360">
+  <img src="images/ui/full/nfc-unlinked-opentag3d.png" alt="NFC tab for an unlinked OpenTag3D tag: spool icon tinted in the tag colour, New OpenTag3D discovered, with manufacturer, material, colour name and weight decoded from the tag above its UID" width="360">
+
+  After **Add to Inventory** the new spool is shown like a scanned one, with
+  *Created spool #N* in the header:
+
+  <img src="images/ui/full/created.png" alt="Spool view of the new Bambu Lab PLA Matte Desert Tan spool #43, with Created spool #43 in the header" width="360">
 
 - **Unknown tag → link to an existing spool**: from that same panel, use
   **Assign Spool** instead to link the tag to an existing, untagged spool.
@@ -84,13 +107,38 @@ Panda Touch shows the same screens at 800×480.
   selection, but you're not limited to those — a numeric field with ±1/10
   steppers lets you type/dial in any spool ID directly.
 
-  <img src="images/ui/nfc-picker.png" alt="Spool picker: a grid of the 9 most recent spools plus an ID field with ±1/±10 steppers" width="360">
+  <img src="images/ui/full/nfc-picker.png" alt="Spool picker: a grid of the 9 most recent spools plus an ID field with ±1/±10 steppers" width="360">
 
 - **Weigh a spool**: place it on the scale — the weight and a "stable"
   indicator show on the console once the reading settles (~750 ms after it
-  stops changing).
+  stops changing). While it is still moving it reads *Settling*; with no
+  scale reporting it reads *No scale connected*.
 
-  <img src="images/ui/scale.png" alt="Scale tab: current weight, stable indicator, Tare and Calibrate buttons" width="360">
+  <img src="images/ui/full/scale.png" alt="Scale tab: current weight, stable indicator, Tare and Calibrate buttons" width="360">
+  <img src="images/ui/full/scale-settling.png" alt="Scale tab: 1019.8 g, Settling" width="360">
+  <img src="images/ui/full/scale-no-scale.png" alt="Scale tab: No scale connected" width="360">
+
+  **Calibrate** asks for a known weight on the empty scale: set it with the
+  ±1/10/100 buttons and confirm.
+
+  <img src="images/ui/full/calibrate.png" alt="Calibrate Scale popup: reference weight 100 g with -100 to +100 steps, Cancel and Calibrate" width="360">
+
+- **Quick Weight**: with a spool shown and the scale stable, the **Quick
+  Weight** button shows the filament and total weight (e.g. *773g (1023g)*);
+  one tap records it in Bambuddy (*Weight saved*). If the reading isn't stable
+  yet, the **Update Spool Weight** popup shows it live and **Update** records
+  it. When the weight says the spool is empty, the console offers to archive
+  it (**Archive** / **Keep**).
+
+  <img src="images/ui/full/quick-weight.png" alt="Spool view: Quick Weight button reading 773g (1023g) and Weight saved in the header" width="360">
+  <img src="images/ui/full/weight-popup.png" alt="Update Spool Weight popup: PLA · Gold, current scale reading 1020 g, Update and Cancel" width="360">
+  <img src="images/ui/full/archive.png" alt="Spool Empty popup: PLA Matte · Bambu Lab, Archive this spool?, Archive and Keep" width="360">
+
+- **Unlink or discard**: **Unlink Tag** removes the tag from the spool after
+  a confirmation; the tag then shows as unlinked when scanned again.
+  **Discard** clears the spool from the screen.
+
+  <img src="images/ui/full/unlink-confirm.png" alt="Are you sure? Unlink this tag from its spool? with Cancel and Unlink" width="360">
 
 - **Write a tag**: trigger `write_tag` from the Bambuddy dashboard, then
   present a blank/writable NTAG to the console or scale within the timeout.
@@ -106,8 +154,8 @@ Panda Touch shows the same screens at 800×480.
   and to clear its assignment; tapping an empty slot lets you assign a spool
   to it by ID.
 
-  <img src="images/ui/ams.png" alt="AMS tab: AMS units with spool colours, material, spool IDs, remaining-filament bars, temperature and humidity" width="360">
-  <img src="images/ui/ams-slot.png" alt="AMS slot detail: spool brand and material, colour, temperature range, AMS and slot, weight bar and Clear Assignment button" width="360">
+  <img src="images/ui/full/ams.png" alt="AMS tab: AMS units with spool colours, material, spool IDs, remaining-filament bars, temperature and humidity" width="360">
+  <img src="images/ui/full/ams-slot.png" alt="AMS slot detail: spool brand and material, colour, temperature range, AMS and slot, weight bar and Clear Assignment button" width="360">
 
 - **Swipe between AMS pages**: on the AMS tab, swipe left for the next page and
   right for the previous one — the same thing the prev/next buttons do, and
@@ -120,7 +168,7 @@ Panda Touch shows the same screens at 800×480.
   prev/next buttons. Defaults to the max for your console, which looks the
   same as before this setting existed.
 
-  <img src="images/ui/settings-features.png" alt="Settings → Features: Rows/Page and Clear Location on AMS Load toggles" width="360">
+  <img src="images/ui/full/settings-features.png" alt="Settings → Features: Rows/Page and Clear Location on AMS Load toggles" width="360">
 
 - **Plate-clear popup**: when Bambuddy's queue is waiting for you to confirm
   the build plate is empty after a print, the console shows a full-screen
@@ -132,6 +180,9 @@ Panda Touch shows the same screens at 800×480.
   unrelated to Bambuddy's camera-based plate detection. The console re-reads
   it every poll interval, so a change in Bambuddy takes effect within one 
   poll interval (30 s by default).
+
+  <img src="images/ui/full/plate-clear.png" alt="Build Plate Clear popup: Please confirm that the build plate has been cleared, with Discard and Confirm" width="360">
+
 - **Header clock format**: follows Bambuddy's **Time format** setting.
   **12h** shows `2:05 PM`; **24h** and **System** both show `14:05`, since
   the console has no system locale to follow. Like the plate-clear setting,
@@ -155,7 +206,7 @@ Panda Touch shows the same screens at 800×480.
   playing a chime at the level you pick. The drawer stays out of the way while a dialog is open or the
   screen is asleep.
 
-  <img src="images/ui/quick-settings.png" alt="Quick settings drawer with Power and Printer tiles" width="360">
+  <img src="images/ui/full/quick-settings.png" alt="Quick settings drawer with Power and Printer tiles" width="360">
 
 - **Sleep**: the console dims its backlight after 60 s idle and can go into
   a deep-idle "sleep" tier (backlight off, reduced network cadence) after a

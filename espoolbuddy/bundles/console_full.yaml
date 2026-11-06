@@ -1,0 +1,57 @@
+# ============================================================================
+# Full console UI bundle — the tabbed AMS / NFC / Scale / Settings interface
+# for 480x320 and larger panels (WT32-SC01 Plus, Panda Touch).
+#
+# Include this one file from an entry-point YAML's packages block:
+#
+#   files: [bundles/console_full.yaml]
+#
+# It is the four files consoles have always listed one by one, plus the boot
+# hooks, Tare/Restart buttons and backlight wake those configs carried inline.
+# So `files: [version.yaml, app.yaml, assets.yaml, lvgl.yaml]` with that
+# inline YAML keeps working too.
+# For small panels use bundles/console_lite.yaml instead (never both — they
+# share globals and the bambuddy_api component but declare different LVGL
+# widget trees).
+# ============================================================================
+packages:
+  version: !include ../version.yaml
+  app:     !include ../app.yaml
+  assets:  !include ../assets.yaml
+  lvgl:    !include ../lvgl.yaml
+
+# ----------------------------------------------------------------------------
+# Console wiring every board needs. It lives here, not in app.yaml, because
+# configs that still list the four files above carry it inline themselves.
+# ----------------------------------------------------------------------------
+esphome:
+  on_boot:
+    - priority: 600
+      then:
+        - lambda: bambuddy->configure_pm(false);  # lock min 80 MHz (APB stable) before display starts
+    # Apply initial tab state after NVS is up (restores printer selection + tab visibility)
+    - priority: -100
+      then:
+        - script.execute: apply_tab
+
+script:
+  # Called from the touchscreen's on_touch: any touch turns the backlight
+  # back on at the brightness set on the Settings screen.
+  - id: wake_backlight
+    then:
+      - lambda: |-
+          id(display_backlight).turn_on()
+            .set_brightness(id(backlight_brightness_pct) / 100.0f)
+            .set_transition_length(0).perform();
+
+button:
+  - platform: template
+    name: "Tare Scale"
+    id: tare_button
+    on_press:
+      then:
+        - lambda: bambuddy->request_tare();
+
+  - platform: restart
+    name: "Restart"
+    id: restart_button

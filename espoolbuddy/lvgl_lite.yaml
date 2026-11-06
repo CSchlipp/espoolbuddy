@@ -1,0 +1,1638 @@
+# ============================================================================
+# LVGL — ESPoolBuddy Lite UI (small portrait panels, e.g. 172x320)
+#
+# One screen with the full console UI's NFC/Scale flow condensed onto it.
+# Texts, colours, icons and behaviour are taken from the full UI (lvgl.yaml,
+# lvgl/tab_nfc.yaml, app.yaml) — keep it that way: change the Lite only where
+# the 172 px width forces it. Logic lives in app_lite.yaml.
+#
+#   Header      30 px      printer icon · clock (status messages take this slot
+#                          for 6 s, as in the full header) · cog
+#   Weight      fixed      Scale-tab weight + Stable / Settling / No scale connected
+#   Body        flex_grow  NFC icon + "Place spool tag on reader", the spool
+#                          view (as the full NFC tab's spool box) or the
+#                          unlinked-tag view
+#   Action      fixed      Quick Weight, Add to Inventory, or the "Assigned:"
+#                          banner (the full UI's action row / assign banner)
+#
+# Overlays (later = on top): settings (quick-settings tiles + compact rows),
+# spool action sheet (Unlink Tag / Discard — the full UI's action row does not
+# fit 172 px side by side), Quick Weight popup, archive proposal, confirm,
+# calibration, build-plate-clear popup, wake guard.
+#
+# The root obj is not a flex container: the main column and the overlays are
+# stacked full-size children.
+# ============================================================================
+
+# Lite-only assets. Kept here, not in assets.yaml, because only the Lite needs
+# them; everything else comes from assets.yaml like the full UI.
+image:
+  # Spool "shine" layer at the Lite's 45 px spool size (the full UI uses 80 px).
+  - platform: file
+    file: ${espoolbuddy_images}/spool_shine.png
+    id: img_spool_shine_45
+    type: grayscale
+    transparency: alpha_channel
+    resize: 45x45
+
+font:
+  # Lite-specific text fonts: Roboto Medium, and 14 px for the smallest text.
+  # The full UI's Roboto Regular (assets.yaml roboto_*) renders too thin to
+  # read on the 1.47" panel. Glyph sets as in assets.yaml.
+  - file: "gfonts://Roboto@500"
+    id: lite_14
+    size: 14
+    bpp: 4
+    glyphs: &lite_glyphs " !\"#%&'()*+,-./0123456789:;=?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]_abcdefghijklmnopqrstuvwxyz°–—·¡¢£¤¥¦§¨©ª«¬®¯±²³´µ¶¸¹º»¼½¾¿ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ"
+  - file: "gfonts://Roboto@500"
+    id: lite_16
+    size: 16
+    bpp: 4
+    glyphs: *lite_glyphs
+  - file: "gfonts://Roboto@500"
+    id: lite_20
+    size: 20
+    bpp: 4
+    glyphs: *lite_glyphs
+  - file: "gfonts://Roboto@500"
+    id: lite_28
+    size: 28
+    bpp: 4
+    glyphs: " !#%&'()+,-./0123456789:?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz°¡¢£¤¥¦§¨©ª«¬®¯±²³´µ¶·¸¹º»¼½¾¿ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ"
+  - file: "gfonts://Roboto@700"
+    id: lite_40
+    size: 40
+    bpp: 4
+    glyphs: " 0123456789.,-+gk°"
+  - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
+    id: mdi_lite_24
+    size: 24
+    bpp: 4
+    glyphs:
+      - "\U000F01D9"   # dots-vertical: "tap for actions" on the spool views
+  - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
+    id: mdi_lite_20
+    size: 20
+    bpp: 4
+    glyphs:
+      - "\U000F0374"   # minus (settings steppers)
+      - "\U000F0415"   # plus
+      - "\U000F05A8"   # white-balance-sunny (brightness)
+      - "\U000F04B2"   # sleep (inactivity)
+  - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
+    id: mdi_lite_48
+    size: 48
+    bpp: 4
+    glyphs:
+      - "\U000F0396"   # nfc (waiting for a tag)
+
+lvgl:
+  displays:
+    - main_display
+  touchscreens:
+    - touch_screen
+  # A full-frame buffer is only ~110 KB at 172x320 and keeps every redraw a
+  # single blit (same reasoning as lvgl.yaml).
+  buffer_size: 100%
+  color_depth: 16
+  rotation: ${screen_rotation}
+  bg_color: 0x12121A
+  default_font: lite_16
+
+  # Same names and values as lvgl.yaml's style_definitions.
+  style_definitions:
+    - id: sty_bar
+      bg_color: 0x0D0D16
+      bg_opa: COVER
+      border_width: 0
+      pad_all: 0
+    - id: sty_card
+      bg_color: 0x1B1B2A
+      bg_opa: COVER
+      border_width: 0
+      radius: 6
+      pad_all: 0
+    - id: sty_accent_btn
+      bg_color: 0x1A2A50
+      border_color: 0x4A7ACC
+      border_width: 1
+      text_color: 0x7BB4FF
+      radius: 6
+    - id: sty_location_badge
+      bg_color: 0xE4D4F7
+      border_color: 0x5B2C87
+      border_width: 1
+      text_color: 0x5B2C87
+      radius: 6
+    # Lite-only: a transparent layout container
+    - id: sty_lite_flat
+      bg_opa: TRANSP
+      border_width: 0
+      radius: 0
+      pad_all: 0
+      shadow_width: 0
+    # Lite-only: dims the screen behind a popup and swallows its touches
+    - id: sty_lite_scrim
+      bg_color: 0x000000
+      bg_opa: 60%
+      border_width: 0
+      radius: 0
+      pad_all: 6
+
+  # Same as the full UI: dim to 20 % after 60 s idle; the wake guard swallows
+  # the first touch (app_lite.yaml restores the brightness on activity).
+  on_idle:
+    timeout: 60s
+    then:
+      - light.turn_on:
+          id: display_backlight
+          brightness: 20%
+          transition_length: 2s
+      - lambda: "lv_obj_clear_flag(id(lite_wake_guard), LV_OBJ_FLAG_HIDDEN);"
+
+  pages:
+    - id: lite_page
+      widgets:
+        - obj:
+            width: ${screen_width}
+            height: ${screen_height}
+            bg_color: 0x12121A
+            border_width: 0
+            radius: 0
+            pad_all: 0
+            scrollbar_mode: "OFF"
+            scrollable: false
+            # Swipe down opens the settings, like the full UI's quick-settings
+            # drawer; swipe up closes them.
+            gesture_bubble: false
+            on_swipe_down:
+              then:
+                - lambda: |-
+                    if (lv_indev_t *indev = lv_indev_active()) lv_indev_wait_release(indev);
+                    lv_obj_clear_flag(id(lite_settings), LV_OBJ_FLAG_HIDDEN);
+            on_swipe_up:
+              then:
+                - lambda: |-
+                    if (lv_indev_t *indev = lv_indev_active()) lv_indev_wait_release(indev);
+                    lv_obj_add_flag(id(lite_settings), LV_OBJ_FLAG_HIDDEN);
+            widgets:
+              # ================================================================
+              # Main column
+              # ================================================================
+              - obj:
+                  id: lite_main
+                  width: 100%
+                  height: 100%
+                  styles: sty_lite_flat
+                  scrollable: false
+                  scrollbar_mode: "OFF"
+                  layout:
+                    type: flex
+                    flex_flow: column
+                    pad_row: 0
+                  widgets:
+                    # ---- Header (full UI: header bar) ----
+                    - obj:
+                        width: 100%
+                        height: 30
+                        styles: sty_bar
+                        pad_left: 4
+                        clickable: false
+                        scrollable: false
+                        layout:
+                          type: flex
+                          flex_flow: row
+                          flex_align_cross: center
+                          flex_align_track: center
+                        widgets:
+                          - label:
+                              id: lite_ic_printer
+                              width: 28
+                              text: "\U000F042B"
+                              text_font: mdi_24
+                              text_color: 0xB0B2E0
+                          # Clock and status share this slot, as in the full header.
+                          - obj:
+                              flex_grow: 1
+                              height: 100%
+                              styles: sty_lite_flat
+                              clickable: false
+                              scrollable: false
+                              widgets:
+                                - label:
+                                    id: lite_status
+                                    align: CENTER
+                                    width: 100%
+                                    text: ""
+                                    text_font: lite_14
+                                    text_color: 0xCCCCDD
+                                    text_align: CENTER
+                                    long_mode: SCROLL_CIRCULAR
+                                    hidden: true
+                                - label:
+                                    id: lite_clock
+                                    align: CENTER
+                                    width: 100%
+                                    text: "--:--"
+                                    text_font: lite_16
+                                    text_color: 0xE0E0FF
+                                    text_align: CENTER
+                                    long_mode: SCROLL_CIRCULAR
+                          - button:
+                              id: lite_btn_settings
+                              width: 36
+                              height: 30
+                              styles: sty_lite_flat
+                              on_click:
+                                then:
+                                  - lambda: 'lv_obj_clear_flag(id(lite_settings), LV_OBJ_FLAG_HIDDEN);'
+                              widgets:
+                                - label:
+                                    align: CENTER
+                                    text: "\U000F0493"
+                                    text_font: mdi_30
+                                    text_color: 0xB0B2E0
+
+                    # ---- Weight (full UI: Scale tab) ----
+                    - obj:
+                        width: 100%
+                        height: 80
+                        styles: sty_lite_flat
+                        clickable: false
+                        scrollable: false
+                        layout:
+                          type: flex
+                          flex_flow: column
+                          flex_align_main: center
+                          flex_align_cross: center
+                          flex_align_track: center
+                          pad_row: 2
+                        widgets:
+                          - label:
+                              id: lite_weight
+                              width: 100%
+                              text: ""
+                              text_font: lite_40
+                              text_color: 0x4ECDC4
+                              text_align: CENTER
+                          - label:
+                              id: lite_weight_stable
+                              width: 100%
+                              text: "No scale connected"
+                              text_font: lite_16
+                              text_color: 0xB4B4D0
+                              text_align: CENTER
+
+                    # ---- Body (full UI: NFC tab) ----
+                    - obj:
+                        width: 100%
+                        flex_grow: 1
+                        styles: sty_lite_flat
+                        pad_left: 6
+                        pad_right: 6
+                        pad_bottom: 6
+                        clickable: false
+                        scrollable: false
+                        scrollbar_mode: "OFF"
+                        widgets:
+                          # Nothing on the reader. Lite-specific: an NFC icon and a
+                          # short hint read better on the small screen than the
+                          # full UI's large "Waiting for tag..." text.
+                          - obj:
+                              id: lite_waiting
+                              width: 100%
+                              height: 100%
+                              styles: sty_lite_flat
+                              clickable: false
+                              scrollable: false
+                              layout:
+                                type: flex
+                                flex_flow: column
+                                flex_align_main: center
+                                flex_align_cross: center
+                                flex_align_track: center
+                                pad_row: 4
+                              widgets:
+                                - label:
+                                    text: "\U000F0396"
+                                    text_font: mdi_lite_48
+                                    text_color: 0x7070A8
+                                - label:
+                                    id: lite_waiting_text
+                                    width: 100%
+                                    text: "Place spool tag\non reader"
+                                    text_font: lite_16
+                                    text_color: 0xB0B2E0
+                                    text_align: CENTER
+
+                          # ---- Spool view (full UI: nfc_spool_box). Tap → actions ----
+                          - obj:
+                              id: lite_spool
+                              width: 100%
+                              height: 100%
+                              styles: sty_card
+                              pressed:
+                                bg_color: 0x252538
+                              pad_all: 6
+                              hidden: true
+                              scrollable: false
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - script.execute: lite_open_actions
+                              layout:
+                                type: flex
+                                flex_flow: column
+                                flex_align_main: center
+                                flex_align_cross: center
+                                flex_align_track: center
+                                pad_row: 2
+                              widgets:
+                                # Spool icon: fill (filament colour) + hub + shine
+                                - obj:
+                                    width: 45
+                                    height: 45
+                                    styles: sty_lite_flat
+                                    clickable: false
+                                    scrollable: false
+                                    widgets:
+                                      - image:
+                                          id: lite_spool_fill
+                                          src: img_spool_fill_45
+                                          align: CENTER
+                                          image_recolor: 0x6666AA
+                                          image_recolor_opa: COVER
+                                      - obj:
+                                          align: CENTER
+                                          width: 17
+                                          height: 17
+                                          radius: 9
+                                          pad_all: 0
+                                          bg_color: 0x12121A
+                                          bg_opa: COVER
+                                          border_width: 1
+                                          border_color: 0x555577
+                                          clickable: false
+                                          scrollable: false
+                                      - image:
+                                          src: img_spool_shine_45
+                                          align: CENTER
+                                - label:
+                                    id: lite_material
+                                    width: 100%
+                                    height: 24
+                                    text: ""
+                                    text_font: lite_20
+                                    text_color: 0xFFFFFF
+                                    text_align: CENTER
+                                    long_mode: SCROLL_CIRCULAR   # scroll when too long
+                                - label:
+                                    id: lite_colorname
+                                    width: 100%
+                                    height: 20
+                                    text: ""
+                                    text_font: lite_16
+                                    text_color: 0xDDDDEE
+                                    text_align: CENTER
+                                    long_mode: SCROLL_CIRCULAR   # scroll when too long
+                                - label:
+                                    id: lite_spool_weight
+                                    height: 20
+                                    text: ""
+                                    text_font: lite_16
+                                    text_color: 0xCCCCDD
+                                - obj:
+                                    id: lite_progress_track
+                                    width: 70%
+                                    height: 5
+                                    pad_all: 0
+                                    radius: 2
+                                    border_width: 0
+                                    bg_color: 0x2A2A45
+                                    bg_opa: COVER
+                                    clickable: false
+                                    scrollable: false
+                                    hidden: true
+                                    widgets:
+                                      - obj:
+                                          id: lite_progress_fill
+                                          align: LEFT_MID
+                                          width: 0
+                                          height: 5
+                                          pad_all: 0
+                                          radius: 2
+                                          border_width: 0
+                                          bg_color: 0x22C55E
+                                          bg_opa: COVER
+                                          clickable: false
+                                # Corner details, outside the flex flow (as the full
+                                # UI's absolutely placed spool id / TTL / tag icons).
+                                - image:
+                                    id: lite_icon_bambu
+                                    src: img_icon_bambu
+                                    floating: true
+                                    align: TOP_LEFT
+                                    x: 10
+                                    hidden: true
+                                - image:
+                                    id: lite_icon_opentag3d
+                                    src: img_icon_opentag3d
+                                    floating: true
+                                    align: TOP_LEFT
+                                    x: 10
+                                    hidden: true
+                                - image:
+                                    id: lite_icon_nfc
+                                    src: img_icon_nfc
+                                    floating: true
+                                    align: TOP_LEFT
+                                    x: 10
+                                    hidden: true
+                                - label:
+                                    id: lite_ttl
+                                    floating: true
+                                    align: TOP_RIGHT
+                                    text: ""
+                                    text_font: lite_14
+                                    text_color: 0xFFAA44
+                                    hidden: true
+                                - label:
+                                    id: lite_spoolid
+                                    floating: true
+                                    align: BOTTOM_RIGHT
+                                    text: ""
+                                    text_font: lite_14
+                                    text_color: 0xA8A8C8
+                                - obj:
+                                    id: lite_location_badge
+                                    floating: true
+                                    align: TOP_MID
+                                    x: 48
+                                    y: 22
+                                    width: SIZE_CONTENT
+                                    height: 20
+                                    styles: sty_location_badge
+                                    pad_left: 5
+                                    pad_right: 5
+                                    pad_top: 0
+                                    pad_bottom: 0
+                                    clickable: false
+                                    scrollable: false
+                                    hidden: true
+                                    widgets:
+                                      - label:
+                                          id: lite_location_text
+                                          align: CENTER
+                                          width: SIZE_CONTENT
+                                          text: ""
+                                          text_font: lite_14
+                                          text_color: 0x5B2C87
+                                - label:
+                                    floating: true
+                                    align: TOP_LEFT
+                                    x: -8
+                                    y: -2
+                                    text: "\U000F01D9"
+                                    text_font: mdi_lite_24
+                                    text_color: 0x9A9AC0
+
+                          # ---- Unlinked tag (full UI: nfc_unlinked_panel). Tap → actions ----
+                          - obj:
+                              id: lite_unlinked
+                              width: 100%
+                              height: 100%
+                              styles: sty_card
+                              pressed:
+                                bg_color: 0x252538
+                              pad_all: 6
+                              hidden: true
+                              scrollable: false
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - script.execute: lite_open_actions
+                              layout:
+                                type: flex
+                                flex_flow: column
+                                flex_align_main: center
+                                flex_align_cross: center
+                                flex_align_track: center
+                                pad_row: 3
+                              widgets:
+                                - obj:
+                                    width: 45
+                                    height: 45
+                                    styles: sty_lite_flat
+                                    clickable: false
+                                    scrollable: false
+                                    widgets:
+                                      - image:
+                                          id: lite_unlinked_fill
+                                          src: img_spool_fill_45
+                                          align: CENTER
+                                          image_recolor: 0x444466
+                                          image_recolor_opa: COVER
+                                      - obj:
+                                          align: CENTER
+                                          width: 17
+                                          height: 17
+                                          radius: 9
+                                          pad_all: 0
+                                          bg_color: 0x12121A
+                                          bg_opa: COVER
+                                          border_width: 1
+                                          border_color: 0x555577
+                                          clickable: false
+                                          scrollable: false
+                                      - image:
+                                          src: img_spool_shine_45
+                                          align: CENTER
+                                - label:
+                                    id: lite_unlinked_title
+                                    width: 100%
+                                    text: "New generic NFC Tag discovered"
+                                    text_font: lite_16
+                                    text_color: 0xD2D2E0
+                                    text_align: CENTER
+                                    long_mode: WRAP
+                                - label:
+                                    id: lite_unlinked_info
+                                    width: 100%
+                                    height: 20
+                                    text: ""
+                                    text_font: lite_16
+                                    text_color: 0xDDDDEE
+                                    text_align: CENTER
+                                    long_mode: SCROLL_CIRCULAR   # scroll when too long
+                                - label:
+                                    id: lite_unlinked_uid
+                                    width: 100%
+                                    text: ""
+                                    text_font: lite_14
+                                    text_color: 0xC0C0E0
+                                    text_align: CENTER
+                                - label:
+                                    id: lite_unlinked_ttl
+                                    floating: true
+                                    align: TOP_RIGHT
+                                    text: ""
+                                    text_font: lite_14
+                                    text_color: 0x9C9CD8
+                                - label:
+                                    floating: true
+                                    align: TOP_LEFT
+                                    x: -8
+                                    y: -2
+                                    text: "\U000F01D9"
+                                    text_font: mdi_lite_24
+                                    text_color: 0x9A9AC0
+
+                    # ---- Action area (full UI: action rows / assign banner) ----
+                    - obj:
+                        id: lite_action
+                        width: 100%
+                        height: 56
+                        styles: sty_lite_flat
+                        pad_left: 6
+                        pad_right: 6
+                        pad_bottom: 6
+                        hidden: true
+                        clickable: false
+                        scrollable: false
+                        widgets:
+                          - button:
+                              id: lite_btn_weight
+                              width: 100%
+                              height: 100%
+                              bg_color: 0x0D1E2B
+                              border_color: 0x2A6A82
+                              border_width: 1
+                              radius: 5
+                              shadow_width: 0
+                              hidden: true
+                              on_click:
+                                then:
+                                  - script.execute: lite_quick_weight
+                              widgets:
+                                - label:
+                                    id: lite_weight_btn_lbl
+                                    width: 100%
+                                    align: CENTER
+                                    text: "Quick Weight"
+                                    text_font: lite_16
+                                    text_color: 0x4ECDC4
+                                    text_align: CENTER
+                          - button:
+                              id: lite_btn_add
+                              width: 100%
+                              height: 100%
+                              bg_color: 0x0D2B14
+                              border_color: 0x4CAF50
+                              border_width: 2
+                              radius: 6
+                              shadow_width: 0
+                              hidden: true
+                              on_click:
+                                then:
+                                  - script.execute: lite_add_to_inventory
+                              widgets:
+                                - label:
+                                    align: CENTER
+                                    text: "Add to Inventory"
+                                    text_font: lite_16
+                                    text_color: 0x4CAF50
+                          - obj:
+                              id: lite_assign_banner
+                              width: 100%
+                              height: 100%
+                              bg_color: 0x1A3520
+                              bg_opa: COVER
+                              border_color: 0x4CAF50
+                              border_width: 1
+                              radius: 6
+                              pad_all: 2
+                              hidden: true
+                              clickable: false
+                              scrollable: false
+                              widgets:
+                                - label:
+                                    id: lite_assign_text
+                                    align: CENTER
+                                    width: 100%
+                                    text: ""
+                                    text_font: lite_16
+                                    text_color: 0x4CAF50
+                                    text_align: CENTER
+                                    long_mode: WRAP
+
+              # ================================================================
+              # Settings (full UI: quick-settings tiles + Settings rows)
+              # ================================================================
+              - obj:
+                  id: lite_settings
+                  width: 100%
+                  height: 100%
+                  bg_color: 0x12121A
+                  bg_opa: COVER
+                  border_width: 0
+                  radius: 0
+                  pad_all: 0
+                  hidden: true
+                  scrollable: false
+                  scrollbar_mode: "OFF"
+                  layout:
+                    type: flex
+                    flex_flow: column
+                    pad_row: 8
+                  widgets:
+                    - obj:
+                        width: 100%
+                        height: 30
+                        styles: sty_bar
+                        pad_left: 8
+                        clickable: false
+                        scrollable: false
+                        layout:
+                          type: flex
+                          flex_flow: row
+                          flex_align_cross: center
+                          flex_align_track: center
+                        widgets:
+                          - label:
+                              flex_grow: 1
+                              text: "Settings"
+                              text_font: lite_20
+                              text_color: 0x7B9EFF
+                          - button:
+                              id: lite_btn_settings_close
+                              width: 36
+                              height: 30
+                              styles: sty_lite_flat
+                              on_click:
+                                then:
+                                  - lambda: 'lv_obj_add_flag(id(lite_settings), LV_OBJ_FLAG_HIDDEN);'
+                              widgets:
+                                - label:
+                                    align: CENTER
+                                    text: "\U000F0156"
+                                    text_font: mdi_24
+                                    text_color: 0xB0B2E0
+
+                    - obj:
+                        id: lite_settings_body
+                        width: 100%
+                        flex_grow: 1
+                        styles: sty_lite_flat
+                        pad_left: 6
+                        # Wider right padding = a gutter for the scrollbar, so
+                        # it never draws over the rows.
+                        pad_right: 12
+                        pad_bottom: 10
+                        scrollable: true
+                        scroll_dir: VER
+                        scrollbar_mode: AUTO
+                        scrollbar:
+                          width: 4
+                          pad_right: 3
+                          radius: 2
+                          bg_color: 0x454572
+                          bg_opa: COVER
+                        layout:
+                          type: flex
+                          flex_flow: column
+                          pad_row: 8
+                        # Compact one-row-per-setting layout for the small screen.
+                        # Colours and tile styles follow the full UI; its
+                        # label-above-control rows, slider and segment buttons
+                        # would make this list twice as long at 172 px.
+                        widgets:
+                          # ---- Tiles: Printer | Power (full UI quick settings) ----
+                          - obj:
+                              width: 100%
+                              height: 96
+                              styles: sty_lite_flat
+                              clickable: false
+                              scrollable: false
+                              layout:
+                                type: flex
+                                flex_flow: row
+                                pad_column: 6
+                              widgets:
+                                - button:
+                                    id: lite_tile_printer
+                                    flex_grow: 1
+                                    height: 100%
+                                    styles: sty_card
+                                    border_color: 0x454572
+                                    border_width: 1
+                                    pad_all: 4
+                                    shadow_width: 0
+                                    layout:
+                                      type: flex
+                                      flex_flow: column
+                                      flex_align_main: center
+                                      flex_align_cross: center
+                                      flex_align_track: center
+                                      pad_row: 1
+                                    on_click:
+                                      then:
+                                        - lambda: |-
+                                            int n = id(printer_count);
+                                            if (n <= 1) return;
+                                            int nx = (id(selected_printer_idx) + 1) % n;
+                                            id(selected_printer_idx) = nx;
+                                            bambuddy->set_selected_printer(nx);
+                                        - script.execute: lite_refresh
+                                    widgets:
+                                      - label: {id: lite_printer_icon, text: "\U000F042B", text_font: mdi_30, text_color: 0x9A9AC0}
+                                      - label: {text: "Printer", text_font: lite_16, text_color: 0xDDDDEE}
+                                      - label: {id: lite_printer_name, width: 100%, height: 17, text: "No printers", text_font: lite_14,
+                                                text_color: 0xD2D2E0, text_align: CENTER, long_mode: DOT}
+                                      - label: {id: lite_printer_sub, width: 100%, height: 17, text: "", text_font: lite_14,
+                                                text_color: 0xB0B2E0, text_align: CENTER}
+                                - button:
+                                    id: lite_tile_plug
+                                    flex_grow: 1
+                                    height: 100%
+                                    styles: sty_card
+                                    border_color: 0x454572
+                                    border_width: 1
+                                    pad_all: 4
+                                    shadow_width: 0
+                                    hidden: true
+                                    layout:
+                                      type: flex
+                                      flex_flow: column
+                                      flex_align_main: center
+                                      flex_align_cross: center
+                                      flex_align_track: center
+                                      pad_row: 1
+                                    on_click:
+                                      then:
+                                        - lambda: |-
+                                            if (bambuddy->snapshot().power_plug_id > 0)
+                                              bambuddy->toggle_power_plug();
+                                        - script.execute: lite_refresh
+                                    widgets:
+                                      - label: {id: lite_plug_icon, text: "\U000F06A5", text_font: mdi_30, text_color: 0x9A9AC0}
+                                      - label: {text: "Power", text_font: lite_16, text_color: 0xDDDDEE}
+                                      - label: {id: lite_plug_sub, width: 100%, height: 17, text: "-", text_font: lite_14,
+                                                text_color: 0xD2D2E0, text_align: CENTER, long_mode: DOT}
+
+                          # ---- Tare | Calibrate (full UI: Scale tab buttons) ----
+                          - obj:
+                              width: 100%
+                              height: 44
+                              styles: sty_lite_flat
+                              clickable: false
+                              scrollable: false
+                              layout:
+                                type: flex
+                                flex_flow: row
+                                pad_column: 6
+                              widgets:
+                                - button:
+                                    id: lite_btn_tare
+                                    flex_grow: 1
+                                    height: 100%
+                                    styles: sty_accent_btn
+                                    shadow_width: 0
+                                    on_click:
+                                      then:
+                                        - lambda: 'bambuddy->request_tare();'
+                                    widgets:
+                                      - label: {align: CENTER, text: "Tare", text_font: lite_16, text_color: 0x7BB4FF}
+                                - button:
+                                    id: lite_btn_cal
+                                    flex_grow: 1
+                                    height: 100%
+                                    styles: sty_accent_btn
+                                    shadow_width: 0
+                                    on_click:
+                                      then:
+                                        - script.execute: lite_cal_open
+                                    widgets:
+                                      - label: {align: CENTER, text: "Calibrate", text_font: lite_16, text_color: 0x7BB4FF}
+
+                          # ---- Brightness  [-]  ☀ 100%  [+] ----
+                          - obj:
+                              width: 100%
+                              height: 44
+                              styles: sty_card
+                              clickable: false
+                              scrollable: false
+                              layout:
+                                type: flex
+                                flex_flow: row
+                                flex_align_main: space_between
+                                flex_align_cross: center
+                                flex_align_track: center
+                              widgets:
+                                - button:
+                                    id: lite_btn_bright_down
+                                    width: 44
+                                    height: 100%
+                                    styles: sty_lite_flat
+                                    on_click:
+                                      then:
+                                        - script.execute: {id: lite_brightness_step, delta: -25}
+                                    widgets:
+                                      - label: {align: CENTER, text: "\U000F0374", text_font: mdi_lite_20, text_color: 0xDDDDEE}
+                                - obj:
+                                    width: SIZE_CONTENT
+                                    height: SIZE_CONTENT
+                                    styles: sty_lite_flat
+                                    clickable: false
+                                    scrollable: false
+                                    layout: {type: flex, flex_flow: row, flex_align_cross: center, pad_column: 4}
+                                    widgets:
+                                      - label: {text: "\U000F05A8", text_font: mdi_lite_20, text_color: 0xFFB74D}
+                                      - label: {id: lite_brightness_val, text: "100%", text_font: lite_16, text_color: 0xDDDDEE}
+                                - button:
+                                    id: lite_btn_bright_up
+                                    width: 44
+                                    height: 100%
+                                    styles: sty_lite_flat
+                                    on_click:
+                                      then:
+                                        - script.execute: {id: lite_brightness_step, delta: 25}
+                                    widgets:
+                                      - label: {align: CENTER, text: "\U000F0415", text_font: mdi_lite_20, text_color: 0xDDDDEE}
+
+                          # ---- Inactivity  [-]  zᶻ 10 min  [+] ----
+                          - obj:
+                              width: 100%
+                              height: 44
+                              styles: sty_card
+                              clickable: false
+                              scrollable: false
+                              layout:
+                                type: flex
+                                flex_flow: row
+                                flex_align_main: space_between
+                                flex_align_cross: center
+                                flex_align_track: center
+                              widgets:
+                                - button:
+                                    id: lite_btn_sleep_minus
+                                    width: 44
+                                    height: 100%
+                                    styles: sty_lite_flat
+                                    on_click:
+                                      then:
+                                        - script.execute: {id: lite_sleep_step, delta: -5}
+                                    widgets:
+                                      - label: {align: CENTER, text: "\U000F0374", text_font: mdi_lite_20, text_color: 0xDDDDEE}
+                                - obj:
+                                    width: SIZE_CONTENT
+                                    height: SIZE_CONTENT
+                                    styles: sty_lite_flat
+                                    clickable: false
+                                    scrollable: false
+                                    layout: {type: flex, flex_flow: row, flex_align_cross: center, pad_column: 4}
+                                    widgets:
+                                      - label: {text: "\U000F04B2", text_font: mdi_lite_20, text_color: 0x7B9EFF}
+                                      - label: {id: lite_sleep_lbl, text: "10 min", text_font: lite_16, text_color: 0xDDDDEE}
+                                - button:
+                                    id: lite_btn_sleep_plus
+                                    width: 44
+                                    height: 100%
+                                    styles: sty_lite_flat
+                                    on_click:
+                                      then:
+                                        - script.execute: {id: lite_sleep_step, delta: 5}
+                                    widgets:
+                                      - label: {align: CENTER, text: "\U000F0415", text_font: mdi_lite_20, text_color: 0xDDDDEE}
+
+                          # ---- NFC in sleep: tap cycles Off / Slow / On ----
+                          - button:
+                              id: lite_btn_nfc_sleep
+                              width: 100%
+                              height: 44
+                              styles: sty_card
+                              pad_left: 10
+                              pad_right: 10
+                              shadow_width: 0
+                              layout:
+                                type: flex
+                                flex_flow: row
+                                flex_align_main: space_between
+                                flex_align_cross: center
+                                flex_align_track: center
+                              on_click:
+                                then:
+                                  - script.execute: lite_nfc_sleep_cycle
+                              widgets:
+                                - label: {text: "NFC in sleep", text_font: lite_16, text_color: 0xDDDDEE}
+                                - label: {id: lite_nfc_sleep_lbl, text: "Slow", text_font: lite_16, text_color: 0x4ECDC4}
+
+                          # ---- Clear Location on AMS Load: tap toggles ----
+                          - button:
+                              id: lite_btn_clearloc
+                              width: 100%
+                              height: 52
+                              styles: sty_card
+                              pad_left: 10
+                              pad_right: 10
+                              shadow_width: 0
+                              layout:
+                                type: flex
+                                flex_flow: row
+                                flex_align_main: space_between
+                                flex_align_cross: center
+                                flex_align_track: center
+                              on_click:
+                                then:
+                                  - script.execute: lite_clearloc_toggle
+                              widgets:
+                                - obj:
+                                    width: SIZE_CONTENT
+                                    height: SIZE_CONTENT
+                                    styles: sty_lite_flat
+                                    clickable: false
+                                    scrollable: false
+                                    layout: {type: flex, flex_flow: column, pad_row: 0}
+                                    widgets:
+                                      - label: {text: "Clear Location", text_font: lite_16, text_color: 0xDDDDEE}
+                                      - label: {text: "on AMS Load", text_font: lite_14, text_color: 0xB0B2E0}
+                                - label: {id: lite_clearloc_lbl, text: "On", text_font: lite_16, text_color: 0x4ECDC4}
+
+                          # ---- Connectivity (full UI: header icons) + version ----
+                          - obj:
+                              width: 100%
+                              height: SIZE_CONTENT
+                              styles: sty_lite_flat
+                              pad_top: 4
+                              clickable: false
+                              scrollable: false
+                              layout:
+                                type: flex
+                                flex_flow: column
+                                flex_align_cross: center
+                                flex_align_track: center
+                                pad_row: 2
+                              widgets:
+                                - obj:
+                                    width: SIZE_CONTENT
+                                    height: SIZE_CONTENT
+                                    styles: sty_lite_flat
+                                    clickable: false
+                                    scrollable: false
+                                    layout: {type: flex, flex_flow: row, flex_align_cross: center, pad_column: 4}
+                                    widgets:
+                                      - label: {id: lite_ic_wifi, width: 28, text: "\U000F05AA", text_font: mdi_24, text_color: 0xB0B2E0}
+                                      - label: {id: lite_ic_api, width: 28, text: "\U000F0164", text_font: mdi_24, text_color: 0xB0B2E0}
+                                      - label: {id: lite_ic_scale, width: 28, text: "\U000F0472", text_font: mdi_24, text_color: 0xB0B2E0}
+                                - label:
+                                    id: lite_version
+                                    text: ""
+                                    text_font: lite_14
+                                    text_color: 0xB0B2E0
+
+              # ================================================================
+              # Spool action sheet. The full UI shows these as an action row
+              # (Unlink Tag | Quick Weight | Discard); three buttons do not fit
+              # 172 px, so here a tap on the spool view opens them.
+              # ================================================================
+              - obj:
+                  id: lite_actions
+                  width: 100%
+                  height: 100%
+                  styles: sty_lite_scrim
+                  hidden: true
+                  scrollable: false
+                  scrollbar_mode: "OFF"
+                  on_click:
+                    then:
+                      - lambda: 'lv_obj_add_flag(id(lite_actions), LV_OBJ_FLAG_HIDDEN);'
+                  widgets:
+                    - obj:
+                        align: BOTTOM_MID
+                        width: 100%
+                        height: SIZE_CONTENT
+                        bg_color: 0x1A1A2C
+                        bg_opa: COVER
+                        border_color: 0x8585B8
+                        border_width: 2
+                        radius: 12
+                        pad_all: 8
+                        scrollable: false
+                        layout:
+                          type: flex
+                          flex_flow: column
+                          pad_row: 6
+                        widgets:
+                          - button:
+                              id: lite_act_unlink
+                              width: 100%
+                              height: 44
+                              bg_color: 0x2A1A1A
+                              border_color: 0x9C3A3A
+                              border_width: 2
+                              radius: 6
+                              shadow_width: 0
+                              on_click:
+                                then:
+                                  - script.execute: lite_ask_unlink
+                              widgets:
+                                - label: {align: CENTER, text: "Unlink Tag", text_font: lite_16, text_color: 0xFF8888}
+                          - button:
+                              id: lite_act_discard
+                              width: 100%
+                              height: 44
+                              bg_color: 0x2A1A28
+                              border_color: 0x5A2A40
+                              border_width: 1
+                              radius: 6
+                              shadow_width: 0
+                              on_click:
+                                then:
+                                  - script.execute: lite_discard
+                              widgets:
+                                - label: {align: CENTER, text: "Discard", text_font: lite_16, text_color: 0xE0708C}
+                          - button:
+                              id: lite_act_cancel
+                              width: 100%
+                              height: 40
+                              bg_color: 0x1E2040
+                              border_color: 0x8585B8
+                              border_width: 2
+                              radius: 6
+                              shadow_width: 0
+                              on_click:
+                                then:
+                                  - lambda: 'lv_obj_add_flag(id(lite_actions), LV_OBJ_FLAG_HIDDEN);'
+                              widgets:
+                                - label: {align: CENTER, text: "Cancel", text_font: lite_16, text_color: 0xDDDDEE}
+
+              # ================================================================
+              # Quick Weight popup (full UI: nfc_weight_popup)
+              # ================================================================
+              - obj:
+                  id: lite_weight_popup
+                  width: 100%
+                  height: 100%
+                  styles: sty_lite_scrim
+                  hidden: true
+                  scrollable: false
+                  scrollbar_mode: "OFF"
+                  widgets:
+                    - obj:
+                        align: CENTER
+                        width: 100%
+                        height: SIZE_CONTENT
+                        bg_color: 0x0A0A1A
+                        bg_opa: COVER
+                        border_color: 0x2A6A82
+                        border_width: 2
+                        radius: 0
+                        pad_top: 12
+                        pad_bottom: 8
+                        pad_left: 6
+                        pad_right: 6
+                        scrollable: false
+                        layout:
+                          type: flex
+                          flex_flow: column
+                          flex_align_cross: center
+                          flex_align_track: center
+                          pad_row: 6
+                        widgets:
+                          - label: {width: 100%, text: "Update Spool Weight", text_font: lite_20, text_color: 0xFFFFFF,
+                                    text_align: CENTER, long_mode: WRAP}
+                          - label: {id: lite_wp_material, width: 100%, height: 20, text: "", text_font: lite_16,
+                                    text_color: 0xCCCCDD, text_align: CENTER, long_mode: DOT}
+                          - label: {text: "Current scale reading:", text_font: lite_14, text_color: 0x9C9CD8}
+                          - label: {id: lite_wp_weight, text: "---", text_font: lite_40, text_color: 0x4ECDC4}
+                          - label: {id: lite_wp_stable, height: 17, text: "", text_font: lite_14, text_color: 0x8CC0AE}
+                          # Two rows, as in the archive popup.
+                          - obj:
+                              width: 100%
+                              height: SIZE_CONTENT
+                              styles: sty_lite_flat
+                              clickable: false
+                              scrollable: false
+                              layout:
+                                type: flex
+                                flex_flow: column
+                                pad_row: 6
+                              widgets:
+                                - button:
+                                    id: lite_wp_update
+                                    width: 100%
+                                    height: 40
+                                    bg_color: 0x0D2B14
+                                    border_color: 0x4CAF50
+                                    border_width: 2
+                                    radius: 6
+                                    shadow_width: 0
+                                    on_click:
+                                      then:
+                                        - script.execute: lite_wp_save
+                                    widgets:
+                                      - label: {align: CENTER, text: "Update", text_font: lite_16, text_color: 0x4CAF50}
+                                - button:
+                                    id: lite_wp_cancel
+                                    width: 100%
+                                    height: 40
+                                    bg_color: 0x1E2040
+                                    border_color: 0x8585B8
+                                    border_width: 1
+                                    radius: 6
+                                    shadow_width: 0
+                                    on_click:
+                                      then:
+                                        - lambda: |-
+                                            id(lite_wp_open) = 0;
+                                            lv_obj_add_flag(id(lite_weight_popup), LV_OBJ_FLAG_HIDDEN);
+                                    widgets:
+                                      - label: {align: CENTER, text: "Cancel", text_font: lite_16, text_color: 0xD2D2E0}
+
+              # ================================================================
+              # Archive proposal (full UI: nfc_archive_proposal_popup)
+              # ================================================================
+              - obj:
+                  id: lite_archive
+                  width: 100%
+                  height: 100%
+                  styles: sty_lite_scrim
+                  hidden: true
+                  scrollable: false
+                  scrollbar_mode: "OFF"
+                  widgets:
+                    - obj:
+                        align: CENTER
+                        width: 100%
+                        height: SIZE_CONTENT
+                        bg_color: 0x0A0A1A
+                        bg_opa: COVER
+                        border_color: 0x6A3A28
+                        border_width: 2
+                        radius: 0
+                        pad_top: 12
+                        pad_bottom: 8
+                        pad_left: 6
+                        pad_right: 6
+                        scrollable: false
+                        layout:
+                          type: flex
+                          flex_flow: column
+                          flex_align_cross: center
+                          flex_align_track: center
+                          pad_row: 6
+                        widgets:
+                          - label: {text: "\U000F003C", text_font: mdi_30, text_color: 0xE0A060}
+                          - label: {text: "Spool Empty", text_font: lite_20, text_color: 0xFFFFFF}
+                          - label: {id: lite_archive_info, width: 100%, height: 20, text: "", text_font: lite_16,
+                                    text_color: 0xCCCCDD, text_align: CENTER, long_mode: DOT}
+                          - label: {text: "Archive this spool?", text_font: lite_14, text_color: 0x9C9CD8}
+                          # Two rows: "Archive" and "Keep" side by side are too
+                          # cramped at 172 px.
+                          - obj:
+                              width: 100%
+                              height: SIZE_CONTENT
+                              styles: sty_lite_flat
+                              clickable: false
+                              scrollable: false
+                              layout:
+                                type: flex
+                                flex_flow: column
+                                pad_row: 6
+                              widgets:
+                                - button:
+                                    id: lite_archive_ok
+                                    width: 100%
+                                    height: 40
+                                    bg_color: 0x0D2B14
+                                    border_color: 0x4CAF50
+                                    border_width: 2
+                                    radius: 6
+                                    shadow_width: 0
+                                    on_click:
+                                      then:
+                                        - lambda: |-
+                                            lv_obj_add_flag(id(lite_archive), LV_OBJ_FLAG_HIDDEN);
+                                            int sid = bambuddy->snapshot().current_filament.spool_id;
+                                            if (sid > 0) bambuddy->archive_spool(sid);
+                                    widgets:
+                                      - label: {align: CENTER, text: "Archive", text_font: lite_16, text_color: 0x4CAF50}
+                                - button:
+                                    id: lite_archive_keep
+                                    width: 100%
+                                    height: 40
+                                    bg_color: 0x1E2040
+                                    border_color: 0x8585B8
+                                    border_width: 1
+                                    radius: 6
+                                    shadow_width: 0
+                                    on_click:
+                                      then:
+                                        - lambda: |-
+                                            lv_obj_add_flag(id(lite_archive), LV_OBJ_FLAG_HIDDEN);
+                                            bambuddy->dismiss_archive_proposal();
+                                    widgets:
+                                      - label: {align: CENTER, text: "Keep", text_font: lite_16, text_color: 0xD2D2E0}
+
+              # ================================================================
+              # Confirm (full UI: confirm_modal) — used for Unlink Tag
+              # ================================================================
+              - obj:
+                  id: lite_confirm
+                  width: 100%
+                  height: 100%
+                  styles: sty_lite_scrim
+                  hidden: true
+                  scrollable: false
+                  scrollbar_mode: "OFF"
+                  widgets:
+                    - obj:
+                        align: CENTER
+                        width: 100%
+                        height: SIZE_CONTENT
+                        bg_color: 0x1A1A2C
+                        bg_opa: COVER
+                        border_color: 0x8585B8
+                        border_width: 2
+                        radius: 12
+                        pad_all: 10
+                        scrollable: false
+                        layout:
+                          type: flex
+                          flex_flow: column
+                          pad_row: 10
+                        widgets:
+                          - label: {text: "Are you sure?", text_font: lite_20, text_color: 0x7BB4FF}
+                          - label: {id: lite_confirm_msg, width: 100%, text: "", text_font: lite_16,
+                                    text_color: 0xDDDDEE, long_mode: WRAP}
+                          # Two rows, as in the archive popup.
+                          - obj:
+                              width: 100%
+                              height: SIZE_CONTENT
+                              styles: sty_lite_flat
+                              clickable: false
+                              scrollable: false
+                              layout:
+                                type: flex
+                                flex_flow: column
+                                pad_row: 6
+                              widgets:
+                                - button:
+                                    id: lite_confirm_cancel
+                                    width: 100%
+                                    height: 40
+                                    bg_color: 0x1E2040
+                                    border_color: 0x8585B8
+                                    border_width: 2
+                                    radius: 6
+                                    shadow_width: 0
+                                    on_click:
+                                      then:
+                                        - lambda: |-
+                                            id(lite_confirm_action) = 0;
+                                            lv_obj_add_flag(id(lite_confirm), LV_OBJ_FLAG_HIDDEN);
+                                    widgets:
+                                      - label: {align: CENTER, text: "Cancel", text_font: lite_16, text_color: 0xDDDDEE}
+                                - button:
+                                    id: lite_confirm_ok
+                                    width: 100%
+                                    height: 40
+                                    bg_color: 0x3D0A0A
+                                    border_color: 0xCC3333
+                                    border_width: 2
+                                    radius: 6
+                                    shadow_width: 0
+                                    on_click:
+                                      then:
+                                        - script.execute: lite_confirm_accept
+                                    widgets:
+                                      - label: {id: lite_confirm_ok_lbl, align: CENTER, text: "Confirm", text_font: lite_16, text_color: 0xFF8888}
+
+              # ================================================================
+              # Calibration (full UI: cal_modal). The step buttons are 3 rows of
+              # 2 instead of one row of 6 so they stay big enough to hit.
+              # ================================================================
+              - obj:
+                  id: lite_cal
+                  width: 100%
+                  height: 100%
+                  styles: sty_lite_scrim
+                  hidden: true
+                  scrollable: false
+                  scrollbar_mode: "OFF"
+                  widgets:
+                    - obj:
+                        align: CENTER
+                        width: 100%
+                        height: SIZE_CONTENT
+                        bg_color: 0x1A1A2C
+                        bg_opa: COVER
+                        border_color: 0x8585B8
+                        border_width: 2
+                        radius: 12
+                        pad_all: 6
+                        scrollable: false
+                        layout:
+                          type: flex
+                          flex_flow: column
+                          flex_align_cross: center
+                          flex_align_track: center
+                          pad_row: 5
+                        widgets:
+                          - label: {text: "Calibrate Scale", text_font: lite_20, text_color: 0x7BB4FF}
+                          - label: {width: 100%, text: "Place known weight on scale, then confirm.", text_font: lite_14,
+                                    text_color: 0xD2D2E0, text_align: CENTER, long_mode: WRAP}
+                          - label: {id: lite_cal_weight, text: "100 g", text_font: lite_28, text_color: 0x7BB4FF}
+                          - obj:
+                              width: 100%
+                              height: 38
+                              styles: sty_lite_flat
+                              clickable: false
+                              scrollable: false
+                              layout: {type: flex, flex_flow: row, pad_column: 6}
+                              widgets:
+                                - button:
+                                    id: lite_btn_cal_m1
+                                    flex_grow: 1
+                                    height: 100%
+                                    bg_color: 0x252540
+                                    border_color: 0x8585B8
+                                    border_width: 1
+                                    radius: 6
+                                    shadow_width: 0
+                                    on_click: {then: [{script.execute: {id: lite_cal_step, delta: -1}}]}
+                                    widgets:
+                                      - label: {align: CENTER, text: "-1", text_font: lite_16, text_color: 0xDDDDEE}
+                                - button:
+                                    id: lite_btn_cal_p1
+                                    flex_grow: 1
+                                    height: 100%
+                                    bg_color: 0x252540
+                                    border_color: 0x8585B8
+                                    border_width: 1
+                                    radius: 6
+                                    shadow_width: 0
+                                    on_click: {then: [{script.execute: {id: lite_cal_step, delta: 1}}]}
+                                    widgets:
+                                      - label: {align: CENTER, text: "+1", text_font: lite_16, text_color: 0xDDDDEE}
+                          - obj:
+                              width: 100%
+                              height: 38
+                              styles: sty_lite_flat
+                              clickable: false
+                              scrollable: false
+                              layout: {type: flex, flex_flow: row, pad_column: 6}
+                              widgets:
+                                - button:
+                                    id: lite_btn_cal_m10
+                                    flex_grow: 1
+                                    height: 100%
+                                    bg_color: 0x252540
+                                    border_color: 0x8585B8
+                                    border_width: 1
+                                    radius: 6
+                                    shadow_width: 0
+                                    on_click: {then: [{script.execute: {id: lite_cal_step, delta: -10}}]}
+                                    widgets:
+                                      - label: {align: CENTER, text: "-10", text_font: lite_16, text_color: 0xDDDDEE}
+                                - button:
+                                    id: lite_btn_cal_p10
+                                    flex_grow: 1
+                                    height: 100%
+                                    bg_color: 0x252540
+                                    border_color: 0x8585B8
+                                    border_width: 1
+                                    radius: 6
+                                    shadow_width: 0
+                                    on_click: {then: [{script.execute: {id: lite_cal_step, delta: 10}}]}
+                                    widgets:
+                                      - label: {align: CENTER, text: "+10", text_font: lite_16, text_color: 0xDDDDEE}
+                          - obj:
+                              width: 100%
+                              height: 38
+                              styles: sty_lite_flat
+                              clickable: false
+                              scrollable: false
+                              layout: {type: flex, flex_flow: row, pad_column: 6}
+                              widgets:
+                                - button:
+                                    id: lite_btn_cal_m100
+                                    flex_grow: 1
+                                    height: 100%
+                                    bg_color: 0x252540
+                                    border_color: 0x8585B8
+                                    border_width: 1
+                                    radius: 6
+                                    shadow_width: 0
+                                    on_click: {then: [{script.execute: {id: lite_cal_step, delta: -100}}]}
+                                    widgets:
+                                      - label: {align: CENTER, text: "-100", text_font: lite_16, text_color: 0xDDDDEE}
+                                - button:
+                                    id: lite_btn_cal_p100
+                                    flex_grow: 1
+                                    height: 100%
+                                    bg_color: 0x252540
+                                    border_color: 0x8585B8
+                                    border_width: 1
+                                    radius: 6
+                                    shadow_width: 0
+                                    on_click: {then: [{script.execute: {id: lite_cal_step, delta: 100}}]}
+                                    widgets:
+                                      - label: {align: CENTER, text: "+100", text_font: lite_16, text_color: 0xDDDDEE}
+                          - obj:
+                              width: 100%
+                              height: 1
+                              pad_all: 0
+                              border_width: 0
+                              bg_color: 0x454572
+                              bg_opa: COVER
+                              clickable: false
+                          - obj:
+                              width: 100%
+                              height: 40
+                              styles: sty_lite_flat
+                              clickable: false
+                              scrollable: false
+                              layout: {type: flex, flex_flow: row, pad_column: 6}
+                              widgets:
+                                - button:
+                                    id: lite_btn_cal_cancel
+                                    flex_grow: 1
+                                    height: 100%
+                                    bg_color: 0x2A1A1A
+                                    border_color: 0xCC3333
+                                    border_width: 2
+                                    radius: 6
+                                    shadow_width: 0
+                                    on_click:
+                                      then:
+                                        - lambda: 'lv_obj_add_flag(id(lite_cal), LV_OBJ_FLAG_HIDDEN);'
+                                    widgets:
+                                      - label: {align: CENTER, text: "Cancel", text_font: lite_16, text_color: 0xFF8888}
+                                - button:
+                                    id: lite_btn_cal_go
+                                    flex_grow: 1
+                                    height: 100%
+                                    bg_color: 0x1E2040
+                                    border_color: 0x4ECDC4
+                                    border_width: 2
+                                    radius: 6
+                                    shadow_width: 0
+                                    on_click:
+                                      then:
+                                        - lambda: |-
+                                            lv_obj_add_flag(id(lite_cal), LV_OBJ_FLAG_HIDDEN);
+                                            bambuddy->request_calibration(id(cal_ref_weight));
+                                    widgets:
+                                      - label: {align: CENTER, text: "Calibrate", text_font: lite_16, text_color: 0x4ECDC4}
+
+              # ================================================================
+              # Build plate clear (full UI: plate_clear_popup)
+              # ================================================================
+              - obj:
+                  id: lite_plate
+                  width: 100%
+                  height: 100%
+                  styles: sty_lite_scrim
+                  hidden: true
+                  scrollable: false
+                  scrollbar_mode: "OFF"
+                  widgets:
+                    - obj:
+                        align: CENTER
+                        width: 100%
+                        height: SIZE_CONTENT
+                        bg_color: 0x1B5E20
+                        bg_opa: COVER
+                        border_color: 0x4CAF50
+                        border_width: 3
+                        radius: 16
+                        pad_left: 8
+                        pad_right: 8
+                        pad_top: 14
+                        pad_bottom: 14
+                        scrollable: false
+                        layout:
+                          type: flex
+                          flex_flow: column
+                          flex_align_cross: center
+                          flex_align_track: center
+                          pad_row: 10
+                        widgets:
+                          - label: {text: "\U000F1276", text_font: mdi_48, text_color: 0xFFFFFF}
+                          - label: {width: 100%, text: "Build Plate Clear", text_font: lite_28, text_color: 0xFFFFFF,
+                                    text_align: CENTER, long_mode: WRAP}
+                          - label: {width: 100%, text: "Please confirm that the build plate has been cleared.",
+                                    text_font: lite_16, text_color: 0xE8F5E9, text_align: CENTER, long_mode: WRAP}
+                          - obj:
+                              width: 100%
+                              height: 40
+                              styles: sty_lite_flat
+                              clickable: false
+                              scrollable: false
+                              layout:
+                                type: flex
+                                flex_flow: row
+                                pad_column: 8
+                              widgets:
+                                - button:
+                                    id: lite_plate_discard
+                                    flex_grow: 1
+                                    height: 100%
+                                    bg_color: 0x0F3D14
+                                    border_color: 0xA5D6A7
+                                    border_width: 2
+                                    radius: 6
+                                    shadow_width: 0
+                                    on_click:
+                                      then:
+                                        - lambda: |-
+                                            id(plate_clear_popup_open) = 0;
+                                            id(plate_clear_dismissed) = 1;
+                                            lv_obj_add_flag(id(lite_plate), LV_OBJ_FLAG_HIDDEN);
+                                            bambuddy->dismiss_plate_clear_popup();
+                                    widgets:
+                                      - label: {align: CENTER, text: "Discard", text_font: lite_16, text_color: 0xE8F5E9}
+                                - button:
+                                    id: lite_plate_confirm
+                                    flex_grow: 1
+                                    height: 100%
+                                    bg_color: 0xFFFFFF
+                                    border_color: 0xFFFFFF
+                                    border_width: 2
+                                    radius: 6
+                                    shadow_width: 0
+                                    on_click:
+                                      then:
+                                        - lambda: |-
+                                            id(plate_clear_popup_open) = 0;
+                                            lv_obj_add_flag(id(lite_plate), LV_OBJ_FLAG_HIDDEN);
+                                            bambuddy->confirm_plate_cleared();
+                                    widgets:
+                                      - label: {align: CENTER, text: "Confirm", text_font: lite_16, text_color: 0x1B5E20}
+
+              # ================================================================
+              # Wake guard (topmost) — absorbs the first touch while dimmed or
+              # asleep, as in the full UI.
+              # ================================================================
+              - obj:
+                  id: lite_wake_guard
+                  width: 100%
+                  height: 100%
+                  bg_opa: TRANSP
+                  border_width: 0
+                  radius: 0
+                  pad_all: 0
+                  scrollbar_mode: "OFF"
+                  scrollable: false
+                  hidden: true
+                  on_click:
+                    then:
+                      - lambda: |-
+                          lv_obj_add_flag(id(lite_wake_guard), LV_OBJ_FLAG_HIDDEN);
+                          // Waking from Dim (not sleep): restore brightness. Sleep
+                          // wake is handled by lite_refresh.
+                          if (!id(lite_is_sleeping)) {
+                            id(display_backlight).turn_on()
+                              .set_brightness(id(backlight_brightness_pct) / 100.0f)
+                              .set_transition_length(150).perform();
+                          }

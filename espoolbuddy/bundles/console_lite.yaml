@@ -1,0 +1,49 @@
+# ============================================================================
+# Lite console UI bundle — single-screen, low-interaction UI for small
+# portrait panels (172x320 Waveshare ESP32-S3-Touch-LCD-1.47).
+#
+# Include this one file from an entry-point YAML's packages block:
+#
+#   files: [bundles/console_lite.yaml]
+#
+# Shows the scale weight, the spool on the NFC reader and its auto-assign
+# status, with Quick Weight and a small settings panel (printer cycle, tare,
+# brightness) as the only touch targets. Use bundles/console_full.yaml for the
+# tabbed UI.
+# ============================================================================
+packages:
+  version: !include ../version.yaml
+  assets:  !include ../assets.yaml
+  app:     !include ../app_lite.yaml
+  lvgl:    !include ../lvgl_lite.yaml
+
+# ----------------------------------------------------------------------------
+# Console wiring every board needs, same as in console_full.yaml.
+# ----------------------------------------------------------------------------
+esphome:
+  on_boot:
+    - priority: 600
+      then:
+        - lambda: bambuddy->configure_pm(false);  # lock min 80 MHz (APB stable) before display starts
+
+script:
+  # Called from the touchscreen's on_touch: any touch turns the backlight
+  # back on at the brightness set on the Settings screen.
+  - id: wake_backlight
+    then:
+      - lambda: |-
+          id(display_backlight).turn_on()
+            .set_brightness(id(backlight_brightness_pct) / 100.0f)
+            .set_transition_length(0).perform();
+
+button:
+  - platform: template
+    name: "Tare Scale"
+    id: tare_button
+    on_press:
+      then:
+        - lambda: bambuddy->request_tare();
+
+  - platform: restart
+    name: "Restart"
+    id: restart_button

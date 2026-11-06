@@ -41,10 +41,6 @@ esphome:
     - priority: 600
       then:
         - logger.log: "SpoolBuddy booting..."
-        - lambda: bambuddy->configure_pm(false);
-    - priority: -100
-      then:
-        - script.execute: apply_tab
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -100,7 +96,7 @@ packages:
     url: https://github.com/CSchlipp/espoolbuddy.git
     ref: ${espoolbuddy_ref}
     path: espoolbuddy
-    files: [version.yaml, app.yaml, assets.yaml, lvgl.yaml]
+    files: [bundles/console_full.yaml]
     refresh: always
 
 logger:
@@ -240,21 +236,6 @@ sensor:
     update_interval: 300s
 
 # ============================================================================
-# Buttons
-# ============================================================================
-button:
-  - platform: template
-    name: "Tare Scale"
-    id: tare_button
-    on_press:
-      then:
-        - lambda: bambuddy->request_tare();
-
-  - platform: restart
-    name: "Restart"
-    id: restart_button
-
-# ============================================================================
 # Backlight — Panda Touch backlight PWM
 # ============================================================================
 output:
@@ -335,10 +316,7 @@ touchscreen:
     interrupt_pin: GPIO40
     reset_pin: GPIO41
     on_touch:
-      - lambda: |-
-          id(display_backlight).turn_on()
-            .set_brightness(id(backlight_brightness_pct) / 100.0f)
-            .set_transition_length(0).perform();
+      - script.execute: wake_backlight   # console bundle
 
 # ============================================================================
 # BambuddyAPI — No speaker on Panda Touch, so speaker_id is omitted
