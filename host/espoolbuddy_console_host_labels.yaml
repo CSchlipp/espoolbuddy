@@ -1,0 +1,30 @@
+# The desktop simulator with a label printer: Print Label writes the label to
+# label.pbm (next to where you run it) instead of a printer, placed in an
+# M220's 576-dot row the way the console would print it.
+#
+#   ESPOOLBUDDY_LABEL_PNG=~/Downloads/label.png \
+#     esphome run host/espoolbuddy_console_host_labels.yaml
+#
+# There's no Bambuddy to draw labels, so every spool gets the PNG that
+# ESPOOLBUDDY_LABEL_PNG names: save one from Bambuddy's label dialog (PNG,
+# 203 dpi, black and white). Kept out of the plain simulator so the docs
+# screenshots don't show the Print Label button.
+
+packages:
+  console: !include espoolbuddy_console_host.yaml
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [label_printer, label_printer_file]
+
+label_printer_file:
+  id: label_file
+  path: label.pbm
+
+label_printer:
+  id: spool_label_printer
+  api_id: bambuddy
+  driver_id: label_file
+  transport_id: label_file

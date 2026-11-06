@@ -33,12 +33,14 @@ espoolbuddy/
 │   ├── label_printer/                 #   Label printing core: job, PNG decode, driver/transport interfaces
 │   ├── phomemo/                       #   Phomemo M series protocol (a label printer driver)
 │   ├── label_printer_ble/             #   Bluetooth LE transport for label printers
+│   ├── label_printer_file/            #   Simulator's label printer: writes a PBM image
 │   └── bambuddy_nfc/                  #   PN532 driver + Bambu MIFARE key derivation (C++)
 │       ├── bambuddy_nfc.*             #     Bus-independent reader logic (abstract base class)
 │       ├── bambuddy_nfc_spi.*         #     SPI transport (`interface: spi`, default)
 │       └── bambuddy_nfc_i2c.*         #     I2C transport (`interface: i2c`)
 ├── host/                              # Desktop simulator of the console UIs (see below)
 │   ├── espoolbuddy_console_host.yaml  #   Host-platform entry point, full UI (SDL window)
+│   ├── espoolbuddy_console_host_labels.yaml # The same with a label printer that writes to a file
 │   ├── espoolbuddy_console_lite_host.yaml # Host-platform entry point, Lite UI at 172x320
 │   ├── host_common.yaml               #   Shared by both: mock, SDL display/touch, simulate buttons
 │   ├── bambuddy_api_mock.cpp          #   Mock backend with demo data, replaces bambuddy_api.cpp
@@ -196,6 +198,16 @@ packages. That's why `espoolbuddy_images` (the local image path) is set in
 each entry file rather than in `host_common.yaml`, since `assets.yaml` would
 otherwise override it.
 
+`host/espoolbuddy_console_host_labels.yaml` is the simulator with a label
+printer: Print Label writes the label to `label.pbm` in the current directory,
+placed in an M220's 576-dot row as the console would print it. There's no
+Bambuddy to draw labels, so the mock serves every spool the PNG named by the
+`ESPOOLBUDDY_LABEL_PNG` environment variable (save one from Bambuddy's label
+dialog as a 203 dpi black-and-white PNG):
+
+```
+ESPOOLBUDDY_LABEL_PNG=~/Downloads/label.png esphome run host/espoolbuddy_console_host_labels.yaml
+```
 
 **LVGL lists are static YAML by default.** Every list/grid in the UI (the
 NFC spool picker, the printer picker, the AMS grid) is hand-unrolled in YAML

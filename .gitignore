@@ -15,3 +15,6 @@ secrets.yaml
 .idea/
 *.pyc
 __pycache__/
+
+# Simulator label printer output (host/espoolbuddy_console_host_labels.yaml)
+label.pbm
