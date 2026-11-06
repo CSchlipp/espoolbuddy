@@ -46,7 +46,7 @@ permissions:
 
 jobs:
   compile:
-    name: Compile ${{ matrix.config }}${{ matrix.legacy && ' (copied pre-bundle config)' || '' }}
+    name: Compile ${{ matrix.config }}${{ matrix.legacy && ' (copied pre-bundle config)' || '' }}${{ matrix.label_printer && ' + label printer' || '' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -70,6 +70,11 @@ jobs:
         # frozen console config from before the bundle files (four-file
         # package list, boot hooks and buttons inline) — what existing users'
         # copied configs still look like — so they can't silently break.
+        #
+        # The Console/Scale build also adds the optional label printer
+        # package (espoolbuddy/label_printer_m220.yaml), the way a user adds
+        # it next to the bundle. It's the fullest config, so it's the one
+        # that would hit flash or RAM limits first.
         config:
           - espoolbuddy_console.yaml
           - espoolbuddy_console_pandatouch.yaml
@@ -80,6 +85,8 @@ jobs:
         include:
           - config: espoolbuddy_console_legacy.yaml
             legacy: true
+          - config: espoolbuddy_console_scale.yaml
+            label_printer: true
 
     steps:
       - name: Checkout
@@ -98,7 +105,7 @@ jobs:
         run: cp .github/legacy/espoolbuddy_console.yaml ${{ matrix.config }}
 
       - name: Build local components + packages + images instead of the GitHub main source
-        run: python .github/scripts/use_local_components.py ${{ matrix.config }}
+        run: python .github/scripts/use_local_components.py ${{ matrix.label_printer && '--label-printer' || '' }} ${{ matrix.config }}
 
       - name: Cache PlatformIO toolchain & frameworks
         uses: actions/cache@v4

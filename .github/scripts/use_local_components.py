@@ -22,7 +22,12 @@ bundle the same way (files: [bundles/scale.yaml]); its legacy form,
 files: [version.yaml], is accepted as well. CI proves the legacy console
 layout still builds with .github/legacy/espoolbuddy_console.yaml.
 
-Usage: use_local_components.py <config.yaml> [...]
+With --label-printer it also adds the optional label printer package
+(espoolbuddy/label_printer_m220.yaml) to each full-UI console config and points
+that package's components at the local checkout, so CI builds the label
+printer on top of an existing config instead of a separate one.
+
+Usage: use_local_components.py [--label-printer] <config.yaml> [...]
 """
 import pathlib
 import sys
@@ -97,6 +102,47 @@ IMAGES_GIT = (
 IMAGES_LOCAL = "  espoolbuddy_images: espoolbuddy/images"
 
 
+# The optional label printer package: its own external_components block, and
+# the include that adds it next to the full UI bundle.
+LABEL_PRINTER_YAML = pathlib.Path("espoolbuddy/label_printer_m220.yaml")
+
+LABEL_PRINTER_GIT = """external_components:
+  - source:
+      type: git
+      url: https://github.com/CSchlipp/espoolbuddy.git
+      ref: ${espoolbuddy_ref}
+      path: components
+    components: [label_printer, label_printer_phomemo, label_printer_ble]
+    refresh: always"""
+
+LABEL_PRINTER_LOCAL = """external_components:
+  - source:
+      type: local
+      path: ./components
+    components: [label_printer, label_printer_phomemo, label_printer_ble]"""
+
+LABEL_PRINTER_INCLUDE = "\n  label_printer: !include espoolbuddy/label_printer_m220.yaml"
+
+
+def rewrite_label_printer(path: pathlib.Path) -> None:
+    """Point the label printer package's components at the local checkout."""
+    text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+
+    if LABEL_PRINTER_LOCAL in text:
+        print(f"Label printer components already local in {path}")
+        return
+
+    if LABEL_PRINTER_GIT not in text:
+        sys.exit(
+            f"::error file={path}::expected external_components git block not "
+            f"found. If the label printer package's block changed, update "
+            f"LABEL_PRINTER_GIT in .github/scripts/use_local_components.py to match."
+        )
+
+    path.write_text(text.replace(LABEL_PRINTER_GIT, LABEL_PRINTER_LOCAL), encoding="utf-8")
+    print(f"Rewrote label printer components -> local source in {path}")
+
+
 def rewrite_assets(path: pathlib.Path) -> None:
     """Point assets.yaml's image base at the local checkout.
 
@@ -120,7 +166,7 @@ def rewrite_assets(path: pathlib.Path) -> None:
     print(f"Rewrote image base -> local source in {path}")
 
 
-def rewrite(path: pathlib.Path) -> None:
+def rewrite(path: pathlib.Path, label_printer: bool = False) -> None:
     text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
 
     if GIT_BLOCK not in text:
@@ -134,7 +180,19 @@ def rewrite(path: pathlib.Path) -> None:
     console = next(((g, l) for g, l in CONSOLE_PACKAGES if g in text), None)
     is_console = console is not None
     if is_console:
-        text = text.replace(*console)
+        git, local = console
+        if label_printer:
+            # Only the full UI (the bundle or the legacy file list) has a
+            # Print Label button to wire up; the Lite UI has none.
+            if local == PACKAGES_LOCAL_LITE:
+                sys.exit(
+                    f"::error file={path}::--label-printer needs a full-UI "
+                    f"console config; the Lite UI has no Print Label button."
+                )
+            local += LABEL_PRINTER_INCLUDE
+        text = text.replace(git, local)
+    elif label_printer:
+        sys.exit(f"::error file={path}::--label-printer needs a console config.")
     elif (scale := next(((g, l) for g, l in SCALE_PACKAGES if g in text), None)):
         text = text.replace(*scale)
     else:
@@ -150,10 +208,16 @@ def rewrite(path: pathlib.Path) -> None:
 
     if is_console:
         rewrite_assets(path.parent / ASSETS_YAML)
+    if label_printer:
+        print(f"Added the label printer package to {path}")
+        rewrite_label_printer(path.parent / LABEL_PRINTER_YAML)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        sys.exit("usage: use_local_components.py <config.yaml> [...]")
-    for arg in sys.argv[1:]:
-        rewrite(pathlib.Path(arg))
+    args = sys.argv[1:]
+    label_printer = "--label-printer" in args
+    configs = [a for a in args if a != "--label-printer"]
+    if not configs:
+        sys.exit("usage: use_local_components.py [--label-printer] <config.yaml> [...]")
+    for arg in configs:
+        rewrite(pathlib.Path(arg), label_printer)

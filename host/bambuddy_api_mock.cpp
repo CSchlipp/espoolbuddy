@@ -12,6 +12,8 @@
 #ifdef USE_HOST
 #include "esphome/core/hal.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <deque>
 
 namespace esphome {
@@ -405,6 +407,43 @@ void BambuddyAPIComponent::record_scale_weight(int spool_id, float total_grams) 
     display_state_.spool_assign_expiry_ms = pending_assign_expiry_ms_;
   }
   set_status("Weight saved");
+}
+
+// Labels (host/espoolbuddy_console_host_labels.yaml): there's no Bambuddy to
+// draw one, so every spool gets the PNG named by ESPOOLBUDDY_LABEL_PNG, e.g. a
+// label saved from Bambuddy's label dialog. Without it a request fails.
+void BambuddyAPIComponent::request_label_png(int spool_id, const std::string &tmpl, const std::string &fields,
+                                             int dpi) {
+  label_png_.clear();
+  label_png_state_ = LABEL_FAILED;
+  const char *path = getenv("ESPOOLBUDDY_LABEL_PNG");
+  if (path == nullptr || *path == '\0') {
+    ESP_LOGW(TAG, "Label for spool %d: set ESPOOLBUDDY_LABEL_PNG to a PNG to print one", spool_id);
+    return;
+  }
+  FILE *f = fopen(path, "rb");
+  if (f == nullptr) {
+    ESP_LOGW(TAG, "Label for spool %d: can't read %s", spool_id, path);
+    return;
+  }
+  char buf[4096];
+  size_t n;
+  while ((n = fread(buf, 1, sizeof(buf), f)) > 0) label_png_.append(buf, n);
+  fclose(f);
+  ESP_LOGI(TAG, "Label for spool %d (%s, %s, %d dpi): %s (%u bytes)", spool_id, tmpl.c_str(),
+           fields.empty() ? "default fields" : fields.c_str(), dpi, path, (unsigned) label_png_.size());
+  label_png_state_ = LABEL_READY;
+}
+void BambuddyAPIComponent::cancel_label_png() {
+  label_png_.clear();
+  label_png_state_ = LABEL_NONE;
+}
+BambuddyAPIComponent::LabelFetch BambuddyAPIComponent::poll_label_png(std::string &png) {
+  LabelFetch state = label_png_state_;
+  if (state == LABEL_READY) png = std::move(label_png_);
+  label_png_.clear();
+  label_png_state_ = LABEL_NONE;
+  return state;
 }
 
 void BambuddyAPIComponent::archive_spool(int spool_id) {

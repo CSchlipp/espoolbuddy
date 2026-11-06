@@ -577,6 +577,9 @@ void BambuddyAPIComponent::http_task_loop() {
         case HttpJob::SET_SPOOL_LOCATION:
           api_set_spool_location(job.i1, job.i2);
           break;
+        case HttpJob::FETCH_LABEL_PNG:
+          api_fetch_label_png(job.i1, job.s1, job.s2, job.i2);
+          break;
         case HttpJob::FETCH_POWER_PLUG:
           api_get_power_plug();
           break;
@@ -4915,6 +4918,98 @@ void BambuddyAPIComponent::archive_spool(int spool_id) {
   job.kind = HttpJob::ARCHIVE_SPOOL;
   job.i1   = spool_id;
   enqueue_job(job);
+}
+
+void BambuddyAPIComponent::request_label_png(int spool_id, const std::string &tmpl,
+                                             const std::string &fields, int dpi) {
+  if (spool_id <= 0) return;
+  lock_state();
+  label_png_.clear();
+  label_png_.shrink_to_fit();
+  label_png_state_ = LABEL_PENDING;
+  label_png_spool_ = spool_id;
+  unlock_state();
+  HttpJob job;
+  job.kind = HttpJob::FETCH_LABEL_PNG;
+  job.i1   = spool_id;
+  job.i2   = dpi;
+  job.s1   = tmpl;
+  job.s2   = fields;
+  if (!enqueue_job(job)) {
+    // The queue is full: say so now rather than after the caller's timeout.
+    lock_state();
+    if (label_png_spool_ == spool_id && label_png_state_ == LABEL_PENDING) label_png_state_ = LABEL_FAILED;
+    unlock_state();
+  }
+}
+
+void BambuddyAPIComponent::cancel_label_png() {
+  // A fetch still in flight finds the spool no longer pending and drops its PNG.
+  lock_state();
+  label_png_.clear();
+  label_png_.shrink_to_fit();
+  label_png_state_ = LABEL_NONE;
+  label_png_spool_ = 0;
+  unlock_state();
+}
+
+BambuddyAPIComponent::LabelFetch BambuddyAPIComponent::poll_label_png(std::string &png) {
+  lock_state();
+  LabelFetch state = label_png_state_;
+  if (state == LABEL_READY) {
+    png = std::move(label_png_);
+    label_png_.clear();
+  }
+  if (state == LABEL_READY || state == LABEL_FAILED) label_png_state_ = LABEL_NONE;
+  unlock_state();
+  return state;
+}
+
+void BambuddyAPIComponent::api_fetch_label_png(int spool_id, const std::string &tmpl,
+                                               const std::string &fields, int dpi) {
+  // Monochrome drops the colour swatch, which a thermal head can only print as
+  // a grey block, and widens the text instead. One spool on a roll template is
+  // one page, so Bambuddy answers with a single PNG at the head's resolution.
+  char head[128];
+  snprintf(head, sizeof(head),
+           "{\"spool_ids\":[%d],\"template\":\"%s\",\"format\":\"png\",\"dpi\":%d,\"monochrome\":true",
+           spool_id, esc(tmpl).c_str(), dpi);
+  std::string body = head;
+  // The lines to print. Without "fields" Bambuddy prints its default set (and
+  // a Bambuddy that predates the choice ignores the key and does the same).
+  if (!fields.empty()) {
+    body += ",\"fields\":[";
+    size_t start = 0;
+    while (start <= fields.size()) {
+      size_t comma = fields.find(',', start);
+      if (comma == std::string::npos) comma = fields.size();
+      if (comma > start) {
+        if (body.back() != '[') body += ',';
+        body += '"';
+        body += esc(fields.substr(start, comma - start));
+        body += '"';
+      }
+      start = comma + 1;
+    }
+    body += ']';
+  }
+  body += '}';
+  std::string resp;
+  bool ok = http_post_api(spoolman_inventory_ ? "/spoolman/labels" : "/inventory/labels", body.c_str(), resp);
+  // Only a PNG counts: a sheet template would come back as a zip.
+  static const uint8_t PNG_SIG[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
+  if (ok && (resp.size() < 8 || memcmp(resp.data(), PNG_SIG, 8) != 0)) {
+    ESP_LOGW(TAG, "Label for spool %d is not a PNG (%u bytes)", spool_id, (unsigned) resp.size());
+    ok = false;
+  }
+  ESP_LOGI(TAG, "Label for spool %d: %s (%u bytes)", spool_id, ok ? "ok" : "failed", (unsigned) resp.size());
+  lock_state();
+  // A newer request replaces this one; drop the stale answer.
+  if (label_png_spool_ == spool_id && label_png_state_ == LABEL_PENDING) {
+    if (ok) label_png_ = std::move(resp);
+    label_png_state_ = ok ? LABEL_READY : LABEL_FAILED;
+  }
+  unlock_state();
 }
 
 void BambuddyAPIComponent::api_archive_spool(int spool_id) {

@@ -644,6 +644,18 @@ class BambuddyAPIComponent : public Component {
   // Archive a spool; dismiss_archive_proposal() cancels without action.
   void archive_spool(int spool_id);
 
+  // Spool label as a PNG drawn by Bambuddy (POST /inventory/labels, or
+  // /spoolman/labels), for a label printer module. request_label_png() queues
+  // the fetch; poll_label_png() reports its state and, once READY, moves the
+  // PNG into `png` and resets to NONE. One label at a time: a new request
+  // replaces the one in hand.
+  enum LabelFetch : uint8_t { LABEL_NONE, LABEL_PENDING, LABEL_READY, LABEL_FAILED };
+  // fields: Bambuddy label field names, comma-separated; empty = Bambuddy's default set.
+  void request_label_png(int spool_id, const std::string &tmpl, const std::string &fields, int dpi);
+  LabelFetch poll_label_png(std::string &png);
+  // Gives up on the fetch (the caller timed out); a late answer is dropped.
+  void cancel_label_png();
+
   // Build-plate-clear confirmation popup (gated by a runtime settings toggle
   // in the YAML). confirm_plate_cleared() optimistically clears the local
   // flag and notifies the backend via POST /api/v1/printers/{id}/clear-plate.
@@ -918,6 +930,7 @@ class BambuddyAPIComponent : public Component {
       SET_SPOOL_LOCATION,      // PATCH /inventory/spools/{id}; spoolman: PATCH /spoolman/inventory/spools/{id} {"location_id": id|null}
       FETCH_POWER_PLUG,        // GET /smart-plugs/ → find the selected printer's power plug
       CONTROL_POWER_PLUG,      // POST /smart-plugs/{id}/control {"action": "on"|"off"}
+      FETCH_LABEL_PNG,         // POST /inventory/labels; spoolman: POST /spoolman/labels → label_png_
       // Satellite push: satellite → console (only processed when satellite())
       // (weight is NOT a job kind — see weight_push_dirty_ — because pushing
       // it as a queued one-shot job could silently drop readings that arrive
@@ -1130,6 +1143,11 @@ class BambuddyAPIComponent : public Component {
                     const std::string &tray_uuid, const std::string &tag_type);
   void api_update_spool_weight(int spool_id, float remaining_g);
   void api_archive_spool(int spool_id);
+  void api_fetch_label_png(int spool_id, const std::string &tmpl, const std::string &fields, int dpi);
+  // Guarded by state_mutex_; see request_label_png().
+  std::string label_png_;
+  LabelFetch label_png_state_{LABEL_NONE};
+  int label_png_spool_{0};
   // POST /api/v1/printers/{id}/clear-plate — notifies the backend the build
   // plate has been physically cleared.
   void api_clear_plate(const std::string &printer_id);

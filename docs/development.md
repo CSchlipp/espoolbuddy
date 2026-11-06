@@ -24,17 +24,23 @@ espoolbuddy/
 │   ├── app_lite.yaml                  #   Lite UI logic (one refresh script, sleep, Quick Weight)
 │   ├── lvgl_lite.yaml                 #   Lite UI widget tree (172x320 portrait, single screen)
 │   ├── assets.yaml                    #   Fonts (MDI webfont) and image declarations
+│   ├── label_printer_m220.yaml        #   Optional package: Phomemo M220 label printer
 │   ├── images/                        #   PNG icons (spool fill/shine/empty, AMS icons)
 │                                      #   downloaded from GitHub at compile time, see below
 │   └── lvgl/                          #   Per-tab LVGL definitions (AMS tab, NFC tab)
 ├── components/                        # Shared ESPHome external_components
 │   ├── bambuddy_api/                  #   HTTP client/server + Bambuddy API protocol (C++)
+│   ├── label_printer/                 #   Label printing core: job, PNG decode, driver/transport interfaces
+│   ├── label_printer_ble/             #   Bluetooth LE transport for label printers
+│   ├── label_printer_file/            #   Simulator's label printer: writes a PBM image
+│   ├── label_printer_phomemo/         #   Phomemo M series protocol (a label printer driver)
 │   └── bambuddy_nfc/                  #   PN532 driver + Bambu MIFARE key derivation (C++)
 │       ├── bambuddy_nfc.*             #     Bus-independent reader logic (abstract base class)
 │       ├── bambuddy_nfc_spi.*         #     SPI transport (`interface: spi`, default)
 │       └── bambuddy_nfc_i2c.*         #     I2C transport (`interface: i2c`)
 ├── host/                              # Desktop simulator of the console UIs (see below)
 │   ├── espoolbuddy_console_host.yaml  #   Host-platform entry point, full UI (SDL window)
+│   ├── espoolbuddy_console_host_labels.yaml # The same with a label printer that writes to a file
 │   ├── espoolbuddy_console_lite_host.yaml # Host-platform entry point, Lite UI at 172x320
 │   ├── host_common.yaml               #   Shared by both: mock, SDL display/touch, simulate buttons
 │   ├── bambuddy_api_mock.cpp          #   Mock backend with demo data, replaces bambuddy_api.cpp
@@ -61,6 +67,20 @@ reports it to the backend — but the YAML needs only one link: `bambuddy_nfc`'s
 `api_id`. Its code generation calls `set_api_component()` on itself and
 `set_nfc_component()` on the API component, so a configured reader is always
 wired up completely.
+
+**Label printing is three components.** `label_printer` holds the print job
+(fetch the PNG from Bambuddy, decode it into a 1-bit raster placed in the
+print row, send it, wait for the result), the result codes and the button
+text; it's all the UI talks to (`label_printer::global_label_printer`, under
+`USE_LABEL_PRINTER`). A *driver* is a printer's protocol: it describes the
+printer as data (resolution, head width, write size and pacing, its Bluetooth
+profile) and turns the raster into the printer's bytes, a chunk at a time
+straight from the raster. A *transport* gets those bytes to the printer and
+owns flow control: `label_printer_ble` connects through a `ble_client`,
+switches Bluetooth on only for a print, and finds and remembers the printer
+by the driver's advertisement rule. `label_printer_phomemo` is the only
+driver so far. A new printer model is a driver, a new way to reach one (USB,
+network) is a transport, and neither needs a change to the core or the UI.
 
 `espoolbuddy_console.yaml`, `espoolbuddy_console_pandatouch.yaml` and
 `espoolbuddy_console_scale.yaml` pull in the same
@@ -91,7 +111,9 @@ URLs from an `espoolbuddy_images` substitution pinned to the same
 (under `.esphome/image/`) rather than reading them off disk. When developing
 locally, CI rewrites the components, packages and image sources to the local
 checkout before compiling — see `.github/scripts/use_local_components.py` if
-you're doing the same.
+you're doing the same. Its `--label-printer` option also adds the optional
+label printer package to a full-UI console config, which is how CI builds
+it (on the `espoolbuddy_console_scale.yaml` job).
 
 No other build tooling, no lint step, no unit tests — the closest thing to
 a test suite is a full firmware compile of every config, both locally
@@ -177,6 +199,17 @@ Substitutions in the two host entry files take precedence over those from
 packages. That's why `espoolbuddy_images` (the local image path) is set in
 each entry file rather than in `host_common.yaml`, since `assets.yaml` would
 otherwise override it.
+
+`host/espoolbuddy_console_host_labels.yaml` is the simulator with a label
+printer: Print Label writes the label to `label.pbm` in the current directory,
+placed in an M220's 576-dot row as the console would print it. There's no
+Bambuddy to draw labels, so the mock serves every spool the PNG named by the
+`ESPOOLBUDDY_LABEL_PNG` environment variable (save one from Bambuddy's label
+dialog as a 203 dpi black-and-white PNG):
+
+```
+ESPOOLBUDDY_LABEL_PNG=~/Downloads/label.png esphome run host/espoolbuddy_console_host_labels.yaml
+```
 
 **LVGL lists are static YAML by default.** Every list/grid in the UI (the
 NFC spool picker, the printer picker, the AMS grid) is hand-unrolled in YAML
