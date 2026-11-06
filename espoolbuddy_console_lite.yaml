@@ -318,4 +318,4 @@ bambuddy_api:
     # timeout: 10s              # no push for this long → "No scale connected" (default: 10s)
   heartbeat_interval: 10        # seconds — tag scan triggers an extra immediate heartbeat
   printer_poll_interval: 15     # seconds between AMS/printer status polls to Bambuddy
-  sleep_factor: 12              # heartbeat/poll multiplier while asleep; the sleep timeout itself is set on the device (Settings → Sleep)
+  sleep_factor: 12              # printer/AMS poll multiplier while asleep (×12: 15s→180s); the heartbeat isn't stretched; the sleep timeout itself is set on the device (Settings → Sleep)
