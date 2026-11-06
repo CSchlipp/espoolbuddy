@@ -198,21 +198,21 @@ button:
   - platform: template
     name: "Simulate Spool On Scale"
     on_press:
-      - lambda: bambuddy->on_scale_reading(1023.4f, false);
+      - lambda: bambuddy->sim_scale_reading(1023.4f, false);
       - delay: 1s
-      - lambda: bambuddy->on_scale_reading(1023.4f, true);
+      - lambda: bambuddy->sim_scale_reading(1023.4f, true);
 
   # An empty spool (below the demo spools' 250 g core weight): Quick Weight
   # then records 0 g left and the UI proposes archiving the spool.
   - platform: template
     name: "Simulate Empty Spool On Scale"
     on_press:
-      - lambda: bambuddy->on_scale_reading(240.0f, true);
+      - lambda: bambuddy->sim_scale_reading(240.0f, true);
 
   - platform: template
     name: "Simulate Scale Empty"
     on_press:
-      - lambda: bambuddy->on_scale_reading(0.0f, true);
+      - lambda: bambuddy->sim_scale_reading(0.0f, true);
 
   - platform: template
     name: "Simulate Scale Offline"

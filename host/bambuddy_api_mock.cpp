@@ -558,6 +558,8 @@ void BambuddyAPIComponent::request_calibration(float reference_weight_g) {
 }
 
 // ---- Simulator-only hooks ----
+void BambuddyAPIComponent::sim_scale_reading(float gross, bool stable) { on_scale_reading(gross, stable); }
+
 // What api_get_ams()'s auto-assign block does on a device when the AMS reports
 // a newly loaded, unassigned tray while a spool is pending.
 void BambuddyAPIComponent::sim_ams_insert() {

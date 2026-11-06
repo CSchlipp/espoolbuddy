@@ -34,21 +34,21 @@ esphome:
         - delay: 3s  # first full draw
 
         # ==== Weighing ====
-        - lambda: 'bambuddy->on_scale_reading(1023.4f, true);'
+        - lambda: 'bambuddy->sim_scale_reading(1023.4f, true);'
         - delay: 1200ms
         # The Lite shows weight and the waiting hint on one screen, so its
         # "scale" and "nfc-waiting" screenshots are the same view.
         - snapshot.take: {id: main_display, filename: scale}
         - snapshot.take: {id: main_display, filename: nfc-waiting}
 
-        - lambda: 'bambuddy->on_scale_reading(1019.8f, false);'
+        - lambda: 'bambuddy->sim_scale_reading(1019.8f, false);'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: scale-settling}
 
         - lambda: 'bambuddy->sim_scale_offline();'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: scale-no-scale}
-        - lambda: 'bambuddy->on_scale_reading(1023.4f, true);'
+        - lambda: 'bambuddy->sim_scale_reading(1023.4f, true);'
 
         # ==== Scan + auto-assign ====
         - lambda: 'bambuddy->on_tag_scanned("04A1B2C3D4E5F6", "", 0x00, "ntag");'
@@ -61,13 +61,13 @@ esphome:
         - snapshot.take: {id: main_display, filename: quick-weight}
 
         # Quick Weight, reading not stable yet: "Update Spool Weight" popup
-        - lambda: 'bambuddy->on_scale_reading(1020.1f, false);'
+        - lambda: 'bambuddy->sim_scale_reading(1020.1f, false);'
         - delay: 500ms
         - lambda: 'lv_obj_send_event(id(lite_btn_weight), LV_EVENT_CLICKED, nullptr);'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: weight-popup}
         - lambda: 'lv_obj_send_event(id(lite_wp_cancel), LV_EVENT_CLICKED, nullptr);'
-        - lambda: 'bambuddy->on_scale_reading(1023.4f, true);'
+        - lambda: 'bambuddy->sim_scale_reading(1023.4f, true);'
 
         # Storage-location tag while the spool is shown
         - lambda: 'bambuddy->on_tag_scanned("04AABBCCDDEE01", "", 0x00, "ntag");'
@@ -95,13 +95,13 @@ esphome:
         - snapshot.take: {id: main_display, filename: ams-removed}
 
         # It's empty: Quick Weight records it, then the archive proposal (kept)
-        - lambda: 'bambuddy->on_scale_reading(240.0f, true);'
+        - lambda: 'bambuddy->sim_scale_reading(240.0f, true);'
         - delay: 600ms
         - lambda: 'lv_obj_send_event(id(lite_btn_weight), LV_EVENT_CLICKED, nullptr);'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: archive}
         - lambda: 'lv_obj_send_event(id(lite_archive_keep), LV_EVENT_CLICKED, nullptr);'
-        - lambda: 'bambuddy->on_scale_reading(1023.4f, true);'
+        - lambda: 'bambuddy->sim_scale_reading(1023.4f, true);'
 
         # Never put back → the assignment window times out
         - lambda: 'bambuddy->sim_assign_timeout();'

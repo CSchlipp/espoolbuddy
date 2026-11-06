@@ -33,7 +33,7 @@ esphome:
     - priority: -200
       then:
         - delay: 3s  # first full draw + boot-time apply_tab
-        - lambda: 'bambuddy->on_scale_reading(1023.4f, true);'
+        - lambda: 'bambuddy->sim_scale_reading(1023.4f, true);'
 
         # ==== AMS tab (full UI only) ====
         - lambda: |-
@@ -61,14 +61,14 @@ esphome:
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: scale}
 
-        - lambda: 'bambuddy->on_scale_reading(1019.8f, false);'
+        - lambda: 'bambuddy->sim_scale_reading(1019.8f, false);'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: scale-settling}
 
         - lambda: 'bambuddy->sim_scale_offline();'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: scale-no-scale}
-        - lambda: 'bambuddy->on_scale_reading(1023.4f, true);'
+        - lambda: 'bambuddy->sim_scale_reading(1023.4f, true);'
 
         # ==== Scan + auto-assign (NFC tab) ====
         - lambda: 'id(active_tab) = 1;'
@@ -86,13 +86,13 @@ esphome:
         - snapshot.take: {id: main_display, filename: quick-weight}
 
         # Quick Weight, reading not stable yet: "Update Spool Weight" popup
-        - lambda: 'bambuddy->on_scale_reading(1020.1f, false);'
+        - lambda: 'bambuddy->sim_scale_reading(1020.1f, false);'
         - delay: 500ms
         - lambda: 'lv_obj_send_event(id(btn_nfc_weight), LV_EVENT_CLICKED, nullptr);'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: weight-popup}
         - lambda: 'lv_obj_send_event(id(btn_nfc_wp_cancel), LV_EVENT_CLICKED, nullptr);'
-        - lambda: 'bambuddy->on_scale_reading(1023.4f, true);'
+        - lambda: 'bambuddy->sim_scale_reading(1023.4f, true);'
 
         # Storage-location tag while the spool is shown
         - lambda: 'bambuddy->on_tag_scanned("04AABBCCDDEE01", "", 0x00, "ntag");'
@@ -117,7 +117,7 @@ esphome:
         - snapshot.take: {id: main_display, filename: ams-removed}
 
         # It's empty: Quick Weight records it, then the archive proposal (kept)
-        - lambda: 'bambuddy->on_scale_reading(240.0f, true);'
+        - lambda: 'bambuddy->sim_scale_reading(240.0f, true);'
         - delay: 600ms
         - lambda: 'lv_obj_send_event(id(btn_nfc_weight), LV_EVENT_CLICKED, nullptr);'
         - delay: 1200ms
@@ -126,7 +126,7 @@ esphome:
             // "Keep" (the button has no id)
             lv_obj_add_flag(id(nfc_archive_proposal_popup), LV_OBJ_FLAG_HIDDEN);
             bambuddy->dismiss_archive_proposal();
-        - lambda: 'bambuddy->on_scale_reading(1023.4f, true);'
+        - lambda: 'bambuddy->sim_scale_reading(1023.4f, true);'
 
         # Never put back → the assignment window times out
         - lambda: 'bambuddy->sim_assign_timeout();'
