@@ -31,9 +31,9 @@ espoolbuddy/
 ├── components/                        # Shared ESPHome external_components
 │   ├── bambuddy_api/                  #   HTTP client/server + Bambuddy API protocol (C++)
 │   ├── label_printer/                 #   Label printing core: job, PNG decode, driver/transport interfaces
-│   ├── phomemo/                       #   Phomemo M series protocol (a label printer driver)
 │   ├── label_printer_ble/             #   Bluetooth LE transport for label printers
 │   ├── label_printer_file/            #   Simulator's label printer: writes a PBM image
+│   ├── label_printer_phomemo/         #   Phomemo M series protocol (a label printer driver)
 │   └── bambuddy_nfc/                  #   PN532 driver + Bambu MIFARE key derivation (C++)
 │       ├── bambuddy_nfc.*             #     Bus-independent reader logic (abstract base class)
 │       ├── bambuddy_nfc_spi.*         #     SPI transport (`interface: spi`, default)
@@ -78,9 +78,9 @@ profile) and turns the raster into the printer's bytes, a chunk at a time
 straight from the raster. A *transport* gets those bytes to the printer and
 owns flow control: `label_printer_ble` connects through a `ble_client`,
 switches Bluetooth on only for a print, and finds and remembers the printer
-by the driver's advertisement rule. `phomemo` is the only driver so far. A
-new printer model is a driver, a new way to reach one (USB, network) is a
-transport, and neither needs a change to the core or the UI.
+by the driver's advertisement rule. `label_printer_phomemo` is the only
+driver so far. A new printer model is a driver, a new way to reach one (USB,
+network) is a transport, and neither needs a change to the core or the UI.
 
 `espoolbuddy_console.yaml`, `espoolbuddy_console_pandatouch.yaml` and
 `espoolbuddy_console_scale.yaml` pull in the same

@@ -39,7 +39,7 @@ external_components:
       url: https://github.com/CSchlipp/espoolbuddy.git
       ref: ${espoolbuddy_ref}
       path: components
-    components: [label_printer, phomemo, label_printer_ble]
+    components: [label_printer, label_printer_phomemo, label_printer_ble]
     refresh: always
 
 # Bluetooth is off except while a label prints: the stack takes about 58 KB
@@ -65,7 +65,7 @@ ble_client:
 
 # The printer's protocol, how its bytes travel, and the label printer that
 # ties them to Bambuddy and the UI.
-phomemo:
+label_printer_phomemo:
   id: label_driver
   model: m220
 

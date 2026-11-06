@@ -3,7 +3,7 @@
 #include "esphome/components/label_printer/driver.h"
 
 
-namespace esphome::phomemo {
+namespace esphome::label_printer_phomemo {
 
 // The Phomemo M series protocol: ESC/POS-like commands and a raster image,
 // written to characteristic ff02, with "printed" reported on ff03. Models
@@ -39,4 +39,4 @@ class PhomemoDriver : public label_printer::LabelDriver {
   uint8_t done_match_{0};  // bytes of the "printed" status matched so far
 };
 
-}  // namespace esphome::phomemo
+}  // namespace esphome::label_printer_phomemo

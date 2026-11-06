@@ -1,4 +1,4 @@
-#include "phomemo.h"
+#include "label_printer_phomemo.h"
 
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
@@ -6,9 +6,9 @@
 #include <algorithm>
 #include <cstring>
 
-namespace esphome::phomemo {
+namespace esphome::label_printer_phomemo {
 
-static const char *const TAG = "phomemo";
+static const char *const TAG = "label_printer_phomemo";
 
 using label_printer::Result;
 
@@ -130,4 +130,4 @@ void PhomemoDriver::end() {
   this->part_pos_ = 0;
 }
 
-}  // namespace esphome::phomemo
+}  // namespace esphome::label_printer_phomemo

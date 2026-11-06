@@ -13,8 +13,8 @@ from esphome.components.label_printer import LabelDriver
 CODEOWNERS = ["@CSchlipp"]
 DEPENDENCIES = ["label_printer"]
 
-phomemo_ns = cg.esphome_ns.namespace("phomemo")
-PhomemoDriver = phomemo_ns.class_("PhomemoDriver", LabelDriver)
+label_printer_phomemo_ns = cg.esphome_ns.namespace("label_printer_phomemo")
+PhomemoDriver = label_printer_phomemo_ns.class_("PhomemoDriver", LabelDriver)
 Model = PhomemoDriver.enum("Model")
 
 MODELS = {"m220": Model.M220}

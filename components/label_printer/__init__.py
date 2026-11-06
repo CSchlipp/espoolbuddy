@@ -2,8 +2,8 @@
 
 Bambuddy draws the label (POST /inventory/labels as a PNG at the printer's
 resolution); this component turns the PNG into a 1-bit raster and hands it to
-a driver (the printer's protocol: phomemo) over a transport (how the bytes
-travel: label_printer_ble). The UI talks only to this component. See
+a driver (the printer's protocol: label_printer_phomemo) over a transport
+(how the bytes travel: label_printer_ble). The UI talks only to this component. See
 espoolbuddy/label_printer_m220.yaml for a package that wires the three together.
 """
 
