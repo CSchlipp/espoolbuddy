@@ -11,8 +11,13 @@ Works with the WT32-SC01 Plus and Panda Touch console builds. It's what the cons
 [load cell wired to itself](console-builtin-scale.md) (optional).
 
 Just want a scale in Home Assistant, without a console? Then you don't need
-`bambuddy_api` at all: delete its block and the `bambuddy_nfc` block, and the
-HX711 sensor still shows up in Home Assistant.
+`bambuddy_api` at all: delete its block, the `bambuddy_nfc` block, and the
+**Spool weight** template sensor with the `interval:` that feeds it. The HX711
+sensor (**Load cell raw**) still shows up in Home Assistant: enable it, and
+replace its `calibrate_linear` placeholder with two weights you've measured.
+
+With `bambuddy_api`, Home Assistant gets **Spool weight**: the tared,
+calibrated grams, updated once a load has settled.
 
 ## Bill of materials
 
@@ -112,7 +117,7 @@ heartbeat (within ~1 s); the scale stores the resulting slope/offset itself,
 so it survives reboots. If the scale is offline, or its HX711 stops
 delivering readings, the console shows **No scale connected** and sends
 nothing. A command the scale couldn't pick up within 15 s is dropped rather
-than applied later. The **Tare Scale** button the scale exposes to Home
+than applied later. The **Tare** button the scale exposes to Home
 Assistant tares it directly.
 
 ## How the firmware reads the load cell

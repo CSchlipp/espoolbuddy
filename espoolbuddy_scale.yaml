@@ -153,7 +153,7 @@ bambuddy_nfc:
 # ============================================================================
 button:
   - platform: template
-    name: "Tare Scale"
+    name: "Tare"
     id: tare_button
     # local_tare() waits for a settled ADC reading, uses it as the new zero-point
     # and saves it to NVS.  No network call needed.
@@ -166,18 +166,21 @@ button:
     id: restart_button
 
 # ============================================================================
-# HX711 scale sensor — weight in grams
+# HX711 scale sensor. Its readings are only coarsely scaled: bambuddy_api
+# applies the tare and calibration, so Home Assistant gets the real grams from
+# "Spool weight" below. This one is a diagnostic for debugging the load cell.
 # ============================================================================
 sensor:
   - platform: hx711
-    name: "Spool Weight"
+    name: "Load cell raw"
     id: spool_weight
+    entity_category: diagnostic
+    disabled_by_default: true
     dout_pin: GPIO5
     clk_pin: GPIO4
     gain: 128
     update_interval: 200ms   # 10 SPS = 100 ms/conv; 200 ms gives 100 ms margin
                               # so scheduler jitter (WiFi TX, NFC) never races the ADC
-    unit_of_measurement: "g"
     accuracy_decimals: 1
     filters:
       # 1. Median(5): reject spike outliers before they enter the averager.
@@ -206,15 +209,66 @@ sensor:
       #    times "stable" from the absence of these emissions (stable_after).
       - delta: 0.3
 
+  # Tared, calibrated weight, published only once a load has settled (and
+  # again when it changes by 0.5 g or more), so Home Assistant records one
+  # value per weighing instead of every wobble. Unknown while the load cell
+  # isn't delivering readings.
+  - platform: template
+    name: "Spool weight"
+    id: spool_weight_net
+    device_class: weight
+    state_class: measurement
+    unit_of_measurement: "g"
+    accuracy_decimals: 1
+
   - platform: wifi_signal
-    name: "WiFi Signal"
+    name: "WiFi signal"
     id: wifi_signal_sensor
+    disabled_by_default: true
     update_interval: 60s
 
+  # When the device last booted. Reset reason below says why.
   - platform: uptime
-    name: "Uptime"
+    name: "Last boot"
     id: uptime_sensor
-    update_interval: 10s
+    type: timestamp
+
+# Why the device last restarted (power-on, software, panic, brownout,
+# watchdog, ...). The debug component publishes it once at boot.
+debug:
+  update_interval: never
+
+text_sensor:
+  - platform: debug
+    reset_reason:
+      name: "Reset reason"
+
+# SNTP clock, only so Last boot can be a timestamp.
+time:
+  - platform: sntp
+    id: sntp_time
+
+interval:
+  - interval: 500ms
+    then:
+      - lambda: |-
+          float grams; bool stable, ok;
+          bambuddy->get_net_weight(grams, stable, ok);
+          static float last = NAN;
+          static bool unknown = false;
+          if (!ok) {
+            if (!unknown) {
+              id(spool_weight_net).publish_state(NAN);
+              unknown = true;
+              last = NAN;
+            }
+            return;
+          }
+          unknown = false;
+          if (stable && (std::isnan(last) || fabsf(grams - last) >= 0.5f)) {
+            id(spool_weight_net).publish_state(grams);
+            last = grams;
+          }
 
 # ============================================================================
 # On-board WS2812 RGB LED — status indicator, driven by the scale bundle
