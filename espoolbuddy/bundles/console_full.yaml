@@ -19,6 +19,7 @@ packages:
   app:     !include ../app.yaml
   assets:  !include ../assets.yaml
   lvgl:    !include ../lvgl.yaml
+  health:  !include ../health.yaml
 
 # ----------------------------------------------------------------------------
 # Console wiring every board needs. It lives here, not in app.yaml, because
