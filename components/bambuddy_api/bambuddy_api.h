@@ -800,6 +800,19 @@ class BambuddyAPIComponent : public Component {
     unlock_state();
   }
 
+  // Like get_weight(), but always net grams, for the scale's Home Assistant
+  // weight sensor. A satellite keeps the gross reading in display_state_ and
+  // applies tare and factor only when it pushes (api_scale_push_weight()), so
+  // apply them here the same way. ok follows the weight source's liveness.
+  void get_net_weight(float &grams, bool &stable, bool &ok) {
+    lock_state();
+    grams  = display_state_.weight_grams;
+    if (satellite()) grams = (grams - tare_offset_) * calibration_factor_;
+    stable = display_state_.weight_stable;
+    ok     = scale_connected();
+    unlock_state();
+  }
+
   // Thread-safe setter for the NFC health flag (called from the NFC task).
   void set_nfc_ok(bool ok) {
     lock_state();

@@ -243,14 +243,26 @@ bambuddy_nfc:
 # ============================================================================
 sensor:
   - platform: wifi_signal
-    name: "WiFi Signal"
+    name: "WiFi signal"
     id: wifi_signal_sensor
+    disabled_by_default: true
     update_interval: 300s
 
+  # When the device last booted. Reset reason below says why.
   - platform: uptime
-    name: "Uptime"
+    name: "Last boot"
     id: uptime_sensor
-    update_interval: 300s
+    type: timestamp
+
+# Why the device last restarted (power-on, software, panic, brownout,
+# watchdog, ...). The debug component publishes it once at boot.
+debug:
+  update_interval: never
+
+text_sensor:
+  - platform: debug
+    reset_reason:
+      name: "Reset reason"
 
 # ============================================================================
 # Backlight
@@ -271,6 +283,7 @@ light:
     output: backlight_pwm
     name: "Display Backlight"
     id: display_backlight
+    internal: true
     restore_mode: ALWAYS_ON
     default_transition_length: 0ms
 

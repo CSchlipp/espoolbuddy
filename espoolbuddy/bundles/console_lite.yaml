@@ -38,7 +38,7 @@ script:
 
 button:
   - platform: template
-    name: "Tare Scale"
+    name: "Tare"
     id: tare_button
     on_press:
       then:
