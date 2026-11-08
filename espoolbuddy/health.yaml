@@ -1,67 +1,30 @@
 # ============================================================================
-# Console health — diagnostic binary sensors for Home Assistant.
-# Included by both console bundles.
+# Device health — the diagnostics every ESPoolBuddy device reports to Home
+# Assistant. Included by all three bundles. Consoles add the binary sensors in
+# health_console.yaml; the scale's are in app_scale.yaml.
 #
-# A console that has lost Bambuddy or its NFC reader otherwise still looks
-# healthy in HA, because WiFi and uptime are fine. These mirror the flags the
-# console already tracks, so nothing new is polled. All of them are
-# read-outs: the console works the same with no HA connected.
-#
-# Expects bambuddy_api (id: bambuddy).
+# Expects a time component (Last boot is a timestamp). Every entry point
+# declares one (sntp_time).
 # ============================================================================
-esphome:
-  on_boot:
-    # Hide the sensors for hardware this console doesn't have, so HA doesn't
-    # get an entity that stays unknown forever. Runs long before any API
-    # client connects and lists the entities.
-    - priority: -100
-      then:
-        - lambda: |-
-            if (!bambuddy->has_nfc()) id(health_nfc).set_internal(true);
-            if (!bambuddy->has_scale()) id(health_scale).set_internal(true);
+sensor:
+  - platform: wifi_signal
+    name: "WiFi signal"
+    id: wifi_signal_sensor
+    disabled_by_default: true
+    update_interval: 300s
 
-binary_sensor:
-  - platform: template
-    name: "Bambuddy connection"
-    id: health_bambuddy
-    device_class: connectivity
-    entity_category: diagnostic
+  # When the device last booted. Reset reason below says why.
+  - platform: uptime
+    name: "Last boot"
+    id: uptime_sensor
+    type: timestamp
 
-  # The printer selected on the console, as Bambuddy reports it.
-  - platform: template
-    name: "Printer connection"
-    id: health_printer
-    device_class: connectivity
-    entity_category: diagnostic
+# Why the device last restarted (power-on, software, panic, brownout,
+# watchdog, ...). The debug component publishes it once at boot.
+debug:
+  update_interval: never
 
-  # "problem" class: on = something is wrong. Hidden on a console with no NFC
-  # reader or no scale configured (see on_boot above).
-  - platform: template
-    name: "NFC reader status"
-    id: health_nfc
-    device_class: problem
-    entity_category: diagnostic
-
-  - platform: template
-    name: "Scale status"
-    id: health_scale
-    device_class: problem
-    entity_category: diagnostic
-
-interval:
-  # Binary sensors publish only on change, so a short interval costs nothing
-  # in HA traffic.
-  - interval: 2s
-    then:
-      - lambda: |-
-          bool backend_ok, printer_ok, nfc_ok, scale_ok;
-          bambuddy->get_health(backend_ok, printer_ok, nfc_ok, scale_ok);
-          id(health_bambuddy).publish_state(backend_ok);
-          id(health_printer).publish_state(printer_ok);
-          // The PN532 and a remote scale take a few seconds to come up after
-          // boot. Hold off on "problem" until then, so a restart doesn't flap
-          // the sensors (and any HA alert on them).
-          if (millis() < 30000) return;
-          if (bambuddy->has_nfc()) id(health_nfc).publish_state(!nfc_ok);
-          if (bambuddy->has_scale())
-            id(health_scale).publish_state(!scale_ok);
+text_sensor:
+  - platform: debug
+    reset_reason:
+      name: "Reset reason"

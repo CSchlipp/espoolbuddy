@@ -17,6 +17,7 @@ packages:
   app:     !include ../app_lite.yaml
   lvgl:    !include ../lvgl_lite.yaml
   health:  !include ../health.yaml
+  health_console: !include ../health_console.yaml
 
 # ----------------------------------------------------------------------------
 # Console wiring every board needs, same as in console_full.yaml.
