@@ -25,6 +25,7 @@ espoolbuddy/
 │   ├── lvgl_lite.yaml                 #   Lite UI widget tree (172x320 portrait, single screen)
 │   ├── assets.yaml                    #   Fonts (MDI webfont) and image declarations
 │   ├── label_printer_m220.yaml        #   Optional package: Phomemo M220 label printer
+│   ├── label_printer_brother_ql.yaml  #   Optional package: Brother QL label printer on the network
 │   ├── images/                        #   PNG icons (spool fill/shine/empty, AMS icons)
 │                                      #   downloaded from GitHub at compile time, see below
 │   └── lvgl/                          #   Per-tab LVGL definitions (AMS tab, NFC tab)
@@ -32,8 +33,10 @@ espoolbuddy/
 │   ├── bambuddy_api/                  #   HTTP client/server + Bambuddy API protocol (C++)
 │   ├── label_printer/                 #   Label printing core: job, PNG decode, driver/transport interfaces
 │   ├── label_printer_ble/             #   Bluetooth LE transport for label printers
+│   ├── label_printer_tcp/             #   Network (raw TCP 9100) transport for label printers
 │   ├── label_printer_file/            #   Simulator's label printer: writes a PBM image
 │   ├── label_printer_phomemo/         #   Phomemo M series protocol (a label printer driver)
+│   ├── label_printer_brother_ql/      #   Brother QL raster protocol (a label printer driver)
 │   └── bambuddy_nfc/                  #   PN532 driver + Bambu MIFARE key derivation (C++)
 │       ├── bambuddy_nfc.*             #     Bus-independent reader logic (abstract base class)
 │       ├── bambuddy_nfc_spi.*         #     SPI transport (`interface: spi`, default)
@@ -41,6 +44,7 @@ espoolbuddy/
 ├── host/                              # Desktop simulator of the console UIs (see below)
 │   ├── espoolbuddy_console_host.yaml  #   Host-platform entry point, full UI (SDL window)
 │   ├── espoolbuddy_console_host_labels.yaml # The same with a label printer that writes to a file
+│   ├── espoolbuddy_console_host_labels_network.yaml # The same with a Brother QL on the network
 │   ├── espoolbuddy_console_lite_host.yaml # Host-platform entry point, Lite UI at 172x320
 │   ├── host_common.yaml               #   Shared by both: mock, SDL display/touch, simulate buttons
 │   ├── bambuddy_api_mock.cpp          #   Mock backend with demo data, replaces bambuddy_api.cpp
@@ -78,9 +82,14 @@ profile) and turns the raster into the printer's bytes, a chunk at a time
 straight from the raster. A *transport* gets those bytes to the printer and
 owns flow control: `label_printer_ble` connects through a `ble_client`,
 switches Bluetooth on only for a print, and finds and remembers the printer
-by the driver's advertisement rule. `label_printer_phomemo` is the only
-driver so far. A new printer model is a driver, a new way to reach one (USB,
-network) is a transport, and neither needs a change to the core or the UI.
+by the driver's advertisement rule; `label_printer_tcp` opens a raw TCP
+stream (port 9100) through ESPHome's `socket::TcpClientLink` for a print and
+closes it after. The drivers are `label_printer_phomemo` (Bluetooth) and
+`label_printer_brother_ql` (network). A new printer model is a driver, a new
+way to reach one (USB) is a transport, and neither needs a change to the core
+or the UI. A console has one printer: each printer package defines the same
+ids (`label_driver`, `label_transport`, `spool_label_printer`), so two of
+them in one config fail as duplicate ids.
 
 `espoolbuddy_console.yaml`, `espoolbuddy_console_pandatouch.yaml` and
 `espoolbuddy_console_scale.yaml` pull in the same
@@ -111,9 +120,11 @@ URLs from an `espoolbuddy_images` substitution pinned to the same
 (under `.esphome/image/`) rather than reading them off disk. When developing
 locally, CI rewrites the components, packages and image sources to the local
 checkout before compiling — see `.github/scripts/use_local_components.py` if
-you're doing the same. Its `--label-printer` option also adds the optional
-label printer package to a full-UI console config, which is how CI builds
-it (on the `espoolbuddy_console_scale.yaml` job).
+you're doing the same. Its `--label-printer=<printer>` option also adds an
+optional label printer package to a full-UI console config (`m220`, or
+`brother_ql`, which gets a placeholder `label_printer_host`).
+That's how CI builds them: the M220 on the `espoolbuddy_console_scale.yaml`
+job, the Brother QL on the `espoolbuddy_console.yaml` job.
 
 No other build tooling, no lint step, no unit tests — the closest thing to
 a test suite is a full firmware compile of every config, both locally
@@ -209,6 +220,18 @@ dialog as a 203 dpi black-and-white PNG):
 
 ```
 ESPOOLBUDDY_LABEL_PNG=~/Downloads/label.png esphome run host/espoolbuddy_console_host_labels.yaml
+```
+
+`host/espoolbuddy_console_host_labels_network.yaml` sends the label to a
+Brother QL on the network instead (`label_printer_host`, 127.0.0.1 by
+default). To check a job without a printer, catch it with netcat and decode
+it with the [brother_ql](https://pypi.org/project/brother_ql/) tool; use a
+300 dpi PNG:
+
+```
+nc -l 9100 > job.bin &
+ESPOOLBUDDY_LABEL_PNG=~/Downloads/label.png esphome run host/espoolbuddy_console_host_labels_network.yaml
+brother_ql analyse job.bin
 ```
 
 **LVGL lists are static YAML by default.** Every list/grid in the UI (the

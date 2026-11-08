@@ -58,32 +58,55 @@ void PngRasterizer::end() {
   }
 }
 
+// The most a label is shrunk to fit the row: 85%. Beyond that it's the wrong
+// template for the printer.
+static const uint32_t MIN_SCALE_PERCENT = 85;
+
 void PngRasterizer::on_init(uint32_t w, uint32_t h) {
   ESP_LOGD(TAG, "Label is %ux%u dots", (unsigned) w, (unsigned) h);
-  if (w == 0 || w > this->row_dots_ || h == 0 || h > this->max_rows_) {
+  this->num_ = this->den_ = 1;
+  // Far beyond any label; refused first so the scaling below can't overflow.
+  if (w > UINT16_MAX || h > UINT16_MAX) {
     this->ok_ = false;
     this->rejected_ = true;
     return;
   }
+  if (w > this->row_dots_ && w * MIN_SCALE_PERCENT <= (uint32_t) this->row_dots_ * 100) {
+    this->num_ = this->row_dots_;
+    this->den_ = w;
+  }
+  const uint32_t out_w = w == 0 ? 0 : this->scaled_(w - 1) + 1;
+  const uint32_t out_h = h == 0 ? 0 : this->scaled_(h - 1) + 1;
+  if (out_w == 0 || out_w > this->row_dots_ || out_h == 0 || out_h > this->max_rows_) {
+    this->ok_ = false;
+    this->rejected_ = true;
+    return;
+  }
+  if (this->num_ != this->den_) {
+    ESP_LOGI(TAG, "Shrinking the label to %ux%u dots (%u%%) to fit the printer", (unsigned) out_w, (unsigned) out_h,
+             (unsigned) (out_w * 100 / w));
+  }
   this->img_w_ = w;
   this->img_h_ = h;
-  int x0 = ((int) this->row_dots_ - (int) w) / 2 + this->x_offset_;
-  this->x0_ = std::max(0, std::min(x0, (int) (this->row_dots_ - w)));
+  int x0 = ((int) this->row_dots_ - (int) out_w) / 2 + this->x_offset_;
+  this->x0_ = std::max(0, std::min(x0, (int) (this->row_dots_ - out_w)));
   this->out_->row_bytes = this->row_dots_ / 8;
   this->out_->width = this->row_dots_;
-  this->out_->height = h;
-  this->out_->bits.assign((size_t) this->out_->row_bytes * h, 0);
+  this->out_->height = out_h;
+  this->out_->bits.assign((size_t) this->out_->row_bytes * out_h, 0);
   this->ok_ = true;
 }
 
 void PngRasterizer::on_pixel(uint32_t x, uint32_t y, const uint8_t rgba[4]) {
   if (!this->ok_ || x >= this->img_w_ || y >= this->img_h_) return;
+  if (!this->sampled_(x) || !this->sampled_(y)) return;
   // Transparent is paper; otherwise dark enough is a dot.
   if (rgba[3] < 128) return;
   uint32_t lum = (rgba[0] * 299u + rgba[1] * 587u + rgba[2] * 114u) / 1000u;
   if (lum >= 128) return;
-  uint32_t col = this->x0_ + x;
-  this->out_->bits[(size_t) y * this->out_->row_bytes + col / 8] |= 0x80 >> (col % 8);
+  const uint32_t col = this->x0_ + this->scaled_(x);
+  const uint32_t row = this->scaled_(y);
+  this->out_->bits[(size_t) row * this->out_->row_bytes + col / 8] |= 0x80 >> (col % 8);
 }
 
 }  // namespace esphome::label_printer

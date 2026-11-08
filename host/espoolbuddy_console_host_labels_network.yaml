@@ -1,0 +1,40 @@
+# The desktop simulator with a network label printer: Print Label sends the
+# label to a Brother QL on port 9100, the way the console would. Point it at
+# a real printer, or catch the job with netcat to check it without one:
+#
+#   nc -l 9100 > job.bin &
+#   ESPOOLBUDDY_LABEL_PNG=~/Downloads/label.png \
+#     esphome run host/espoolbuddy_console_host_labels_network.yaml
+#   brother_ql analyse job.bin     # pip install brother_ql
+#
+# There's no Bambuddy to draw labels, so every spool gets the PNG that
+# ESPOOLBUDDY_LABEL_PNG names: save one from Bambuddy's label dialog (PNG,
+# 300 dpi, black and white).
+
+substitutions:
+  label_printer_host: 127.0.0.1  # or the printer's address
+
+packages:
+  console: !include espoolbuddy_console_host.yaml
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [label_printer, label_printer_brother_ql, label_printer_tcp]
+
+label_printer_brother_ql:
+  id: label_driver
+  media: 62
+
+label_printer_tcp:
+  id: label_transport
+  host: ${label_printer_host}
+
+label_printer:
+  id: spool_label_printer
+  api_id: bambuddy
+  driver_id: label_driver
+  transport_id: label_transport
+  label_template: box_62x29
+  x_offset: center

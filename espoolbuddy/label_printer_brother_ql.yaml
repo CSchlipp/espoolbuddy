@@ -1,0 +1,64 @@
+# Optional: print spool labels on a Brother QL label printer on the network.
+#
+# Adds a "Print Label" button to the spool screen and the AMS slot card.
+# Bambuddy draws the label (its 62x29 mm box label by default) and the
+# console sends it to the printer's raw printing port (TCP 9100). For the
+# 300 dpi QL models with a network connection (QL-710W, QL-720NW, QL-810W,
+# QL-820NWB, or a QL-580N) and a continuous DK roll. Use it instead of
+# another label printer package, not next to one: one printer per console.
+# Add it next to the main package in your config:
+#
+#   substitutions:
+#     label_printer_host: "192.168.1.50"   # the printer's address or hostname
+#
+#   packages:
+#     espoolbuddy: ...                # as before
+#     label_printer:
+#       url: https://github.com/CSchlipp/espoolbuddy.git
+#       ref: ${espoolbuddy_ref}
+#       path: espoolbuddy
+#       files: [label_printer_brother_ql.yaml]
+#       refresh: always
+#
+# See docs/label-printer.md.
+
+substitutions:
+  label_printer_host: ""                  # required: set it in your config (see above)
+  label_printer_port: "9100"
+  label_media: "62"                       # the continuous roll's width in mm: 12, 29, 38, 50, 54 or 62
+  label_cut: "true"                       # cut after each label
+  label_template: box_62x29               # or box_40x30, which prints on a 50, 54 or 62 mm roll
+  label_x_offset: center                  # the roll is centred under the head
+  label_fields: ""                        # the lines to print; empty is Bambuddy's default set
+  # Every field Bambuddy knows, in the order it prints them; keep the ones you want:
+  # label_fields: "brand,material,hex,name,location,material_number,temps,weight,note,added,qr,spool_id"
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/CSchlipp/espoolbuddy.git
+      ref: ${espoolbuddy_ref}
+      path: components
+    components: [label_printer, label_printer_brother_ql, label_printer_tcp]
+    refresh: always
+
+# The printer's protocol, how its bytes travel, and the label printer that
+# ties them to Bambuddy and the UI.
+label_printer_brother_ql:
+  id: label_driver
+  media: ${label_media}
+  cut: ${label_cut}
+
+label_printer_tcp:
+  id: label_transport
+  host: ${label_printer_host}
+  port: ${label_printer_port}
+
+label_printer:
+  id: spool_label_printer
+  api_id: bambuddy
+  driver_id: label_driver
+  transport_id: label_transport
+  label_template: ${label_template}
+  x_offset: ${label_x_offset}
+  label_fields: ${label_fields}

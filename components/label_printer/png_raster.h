@@ -8,7 +8,9 @@ namespace esphome::label_printer {
 
 // Decodes a PNG into a LabelRaster, a slice at a time so the UI stays
 // responsive. The image is placed in the print row by an offset from the
-// centre, clamped so it stays on the head.
+// centre, clamped so it stays on the head. An image a little wider than the
+// row (Bambuddy draws the label's full width, a printer may print less of
+// it) is shrunk to fit, by dropping evenly spread rows and columns.
 class PngRasterizer {
  public:
   ~PngRasterizer() { this->end(); }
@@ -36,7 +38,15 @@ class PngRasterizer {
   bool rejected_{false};  // the header said it doesn't fit: stop decoding
   bool complete_{false};
   uint16_t img_w_{0}, img_h_{0};
+  // Scale num_/den_: 1/1, or row_dots/width when shrinking.
+  uint32_t num_{1}, den_{1};
   int x0_{0};
+
+  // Where source pixel v lands, and whether it's the one sampled there.
+  uint32_t scaled_(uint32_t v) const { return v * this->num_ / this->den_; }
+  bool sampled_(uint32_t v) const {
+    return this->den_ == this->num_ || v == (this->scaled_(v) * this->den_ + this->num_ - 1) / this->num_;
+  }
 };
 
 }  // namespace esphome::label_printer
