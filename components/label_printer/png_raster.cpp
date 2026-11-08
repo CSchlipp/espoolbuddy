@@ -65,6 +65,12 @@ static const uint32_t MIN_SCALE_PERCENT = 85;
 void PngRasterizer::on_init(uint32_t w, uint32_t h) {
   ESP_LOGD(TAG, "Label is %ux%u dots", (unsigned) w, (unsigned) h);
   this->num_ = this->den_ = 1;
+  // Far beyond any label; refused first so the scaling below can't overflow.
+  if (w > UINT16_MAX || h > UINT16_MAX) {
+    this->ok_ = false;
+    this->rejected_ = true;
+    return;
+  }
   if (w > this->row_dots_ && w * MIN_SCALE_PERCENT <= (uint32_t) this->row_dots_ * 100) {
     this->num_ = this->row_dots_;
     this->den_ = w;

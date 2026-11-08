@@ -31,8 +31,9 @@ static const uint16_t MAX_ROWS = 11811;
 // The job starts as brother_ql's does: raster mode first (a QL-8xx left in
 // P-touch Template mode reads nothing else), zeros that clear whatever a
 // half-sent job left in the printer's buffer, init, raster mode again, and a
-// status request.
-static const uint8_t CMD_INVALIDATE[200] = {};
+// status request. 400 zeros, as the QL-8xx wants (200 for older models; the
+// extra ones are ignored).
+static const uint8_t CMD_INVALIDATE[400] = {};
 static const uint8_t CMD_INIT[] = {0x1b, 0x40};                     // ESC @
 static const uint8_t CMD_RASTER_MODE[] = {0x1b, 0x69, 0x61, 0x01};  // ESC i a 1
 static const uint8_t CMD_STATUS_REQUEST[] = {0x1b, 0x69, 0x53};     // ESC i S
@@ -222,15 +223,12 @@ Result BrotherQLDriver::on_status_() {
   const uint8_t type = this->status_[18];
   ESP_LOGD(TAG, "Status: type %02X, phase %02X, errors %02X %02X, media %u mm (type %02X)", type,
            this->status_[19], err1, err2, this->status_[10], this->status_[11]);
-  switch (type) {
-    case STATUS_PRINTED:
-      return Result::PRINTED;
-    case STATUS_TURNED_OFF:
-      return Result::LOST;
-    case STATUS_ERROR:
-      break;
-    default:
-      return Result::NONE;  // a reply, a notification or a phase change
+  if (type == STATUS_TURNED_OFF) return Result::LOST;
+  // Errors count whatever the frame: the reply to the status request (type
+  // 0x00) may be the only one to report an error the printer already had.
+  if (type != STATUS_ERROR && err1 == 0 && err2 == 0) {
+    // Otherwise a reply, a notification or a phase change.
+    return type == STATUS_PRINTED ? Result::PRINTED : Result::NONE;
   }
   if (err2 & ERR2_COVER_OPEN) return Result::COVER_OPEN;
   if ((err1 & (ERR1_NO_MEDIA | ERR1_END_OF_MEDIA)) || (err2 & ERR2_FEED_ERROR)) return Result::NO_PAPER;
