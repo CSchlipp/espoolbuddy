@@ -16,12 +16,13 @@ espoolbuddy/
 │   ├── bundles/                       #   The one file each entry point lists in packages: files:
 │   │   ├── console_full.yaml          #     Console bundle: version + app + assets + lvgl + health (tabbed UI)
 │   │   ├── console_lite.yaml          #     Lite bundle: version + app_lite + assets + lvgl_lite + health
-│   │   └── scale.yaml                 #     Scale bundle: version + app_scale + health.yaml
+│   │   └── scale.yaml                 #     Scale bundle: version + app_scale + health
 │   ├── version.yaml                   #   Single SemVer version shared by every device variant
 │   ├── health.yaml                    #   Every device's HA diagnostics: WiFi signal, Last boot, Reset reason
 │   ├── health_console.yaml            #   Console health binary sensors (Bambuddy, printer, NFC, scale)
+│   ├── health_scale.yaml              #   Scale health binary sensors (console, NFC, load cell)
 │   ├── app.yaml                       #   UI logic, sleep state machine, NFC/scale wiring, sensors
-│   ├── app_scale.yaml                 #   Scale logic: status LED, health binary sensors
+│   ├── app_scale.yaml                 #   Scale logic: status LED
 │   ├── lvgl.yaml                      #   LVGL screen/widget layout (resolution-independent)
 │   ├── app_lite.yaml                  #   Lite UI logic (one refresh script, sleep, Quick Weight)
 │   ├── lvgl_lite.yaml                 #   Lite UI widget tree (172x320 portrait, single screen)

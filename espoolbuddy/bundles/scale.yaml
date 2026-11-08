@@ -13,3 +13,4 @@ packages:
   version: !include ../version.yaml
   app:     !include ../app_scale.yaml
   health:  !include ../health.yaml
+  health_scale: !include ../health_scale.yaml

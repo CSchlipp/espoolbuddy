@@ -1,7 +1,7 @@
 # ============================================================================
-# Scale logic — the status LED and the diagnostic health sensors. Included
-# via bundles/scale.yaml. Weight stability detection and tare / calibrate
-# live in bambuddy_api (scale: type: local).
+# Scale logic — the status LED. Included via bundles/scale.yaml; the HA
+# health sensors are in health_scale.yaml. Weight stability detection and
+# tare / calibrate live in bambuddy_api (scale: type: local).
 #
 # Expects from the entry-point YAML (espoolbuddy_scale.yaml):
 #   bambuddy_api (id: bambuddy), wifi (id: wifi_comp) and a light with
@@ -54,50 +54,3 @@ interval:
           call.set_brightness(0.15f);        // dim — it's just a status dot
           call.set_transition_length(400);
           call.perform();
-
-  # Health sensors for Home Assistant. Binary sensors publish only on change.
-  - interval: 2s
-    then:
-      - lambda: |-
-          // Same 5 s window as the status LED. On only when every console
-          // answers, so with several consoles one dropping out shows up.
-          size_t total = bambuddy->console_count();
-          id(health_console).publish_state(
-              total > 0 && bambuddy->consoles_connected(5000) == total);
-          // The PN532 and the load cell take a few seconds after boot. Hold
-          // off on "problem" until then so a restart doesn't flap them.
-          if (millis() < 30000) return;
-          bool backend_ok, printer_ok, nfc_ok, scale_ok;
-          bambuddy->get_health(backend_ok, printer_ok, nfc_ok, scale_ok);
-          if (bambuddy->has_nfc()) id(health_nfc).publish_state(!nfc_ok);
-          if (bambuddy->has_scale())
-            id(health_load_cell).publish_state(!scale_ok);
-
-esphome:
-  on_boot:
-    # Hide NFC Reader Status on a scale built without a reader, so HA doesn't
-    # get an entity that stays unknown forever.
-    - priority: -100
-      then:
-        - lambda: |-
-            if (!bambuddy->has_nfc()) id(health_nfc).set_internal(true);
-
-binary_sensor:
-  - platform: template
-    name: "Console connection"
-    id: health_console
-    device_class: connectivity
-    entity_category: diagnostic
-
-  # "problem" class: on = something is wrong.
-  - platform: template
-    name: "NFC reader status"
-    id: health_nfc
-    device_class: problem
-    entity_category: diagnostic
-
-  - platform: template
-    name: "Load cell status"
-    id: health_load_cell
-    device_class: problem
-    entity_category: diagnostic

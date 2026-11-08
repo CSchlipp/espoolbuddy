@@ -1,7 +1,7 @@
 # ============================================================================
 # Device health — the diagnostics every ESPoolBuddy device reports to Home
-# Assistant. Included by all three bundles. Consoles add the binary sensors in
-# health_console.yaml; the scale's are in app_scale.yaml.
+# Assistant. Included by all three bundles. The binary sensors are per device:
+# health_console.yaml for consoles, health_scale.yaml for the scale.
 #
 # Expects a time component (Last boot is a timestamp). Every entry point
 # declares one (sntp_time).
