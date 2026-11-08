@@ -46,7 +46,7 @@ permissions:
 
 jobs:
   compile:
-    name: Compile ${{ matrix.config }}${{ matrix.legacy && ' (copied pre-bundle config)' || '' }}${{ matrix.label_printer && ' + label printer' || '' }}
+    name: Compile ${{ matrix.config }}${{ matrix.legacy && ' (copied pre-bundle config)' || '' }}${{ matrix.label_printer && format(' + {0} label printer', matrix.label_printer) || '' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -71,10 +71,14 @@ jobs:
         # package list, boot hooks and buttons inline) — what existing users'
         # copied configs still look like — so they can't silently break.
         #
-        # The Console/Scale build also adds the optional label printer
-        # package (espoolbuddy/label_printer_m220.yaml), the way a user adds
-        # it next to the bundle. It's the fullest config, so it's the one
-        # that would hit flash or RAM limits first.
+        # Two builds also add an optional label printer package, the way a
+        # user adds it next to the bundle (the include entries extend those
+        # jobs rather than adding new ones):
+        # - Console/Scale + m220 (espoolbuddy/label_printer_m220.yaml): the
+        #   fullest config with the largest package (the Bluetooth stack), so
+        #   it's the one that would hit flash or RAM limits first.
+        # - Console + brother_ql (espoolbuddy/label_printer_brother_ql.yaml):
+        #   the network printer, on the plain WT32-SC01 Plus console.
         config:
           - espoolbuddy_console.yaml
           - espoolbuddy_console_pandatouch.yaml
@@ -86,7 +90,9 @@ jobs:
           - config: espoolbuddy_console_legacy.yaml
             legacy: true
           - config: espoolbuddy_console_scale.yaml
-            label_printer: true
+            label_printer: m220
+          - config: espoolbuddy_console.yaml
+            label_printer: brother_ql
 
     steps:
       - name: Checkout
@@ -105,7 +111,7 @@ jobs:
         run: cp .github/legacy/espoolbuddy_console.yaml ${{ matrix.config }}
 
       - name: Build local components + packages + images instead of the GitHub main source
-        run: python .github/scripts/use_local_components.py ${{ matrix.label_printer && '--label-printer' || '' }} ${{ matrix.config }}
+        run: python .github/scripts/use_local_components.py ${{ matrix.label_printer && format('--label-printer={0}', matrix.label_printer) || '' }} ${{ matrix.config }}
 
       - name: Cache PlatformIO toolchain & frameworks
         uses: actions/cache@v4

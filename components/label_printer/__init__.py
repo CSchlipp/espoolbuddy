@@ -29,8 +29,9 @@ CONF_X_OFFSET = "x_offset"
 CONF_LABEL_FIELDS = "label_fields"
 
 # Bambuddy's single-label templates, width across the head by length along
-# the feed. Both fit a 72 mm head; a label too wide for the configured
-# printer is refused when it arrives.
+# the feed. Both fit a 72 mm head. A label a little wider than the printer
+# prints (62 mm on a 62 mm roll whose printable area is narrower) is shrunk
+# to fit when it arrives; one far too wide is refused.
 LABEL_TEMPLATES = ["box_40x30", "box_62x29"]
 
 # Bambuddy's label lines (LabelField in its label_renderer.py), top to bottom.
