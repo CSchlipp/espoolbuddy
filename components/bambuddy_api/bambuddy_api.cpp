@@ -572,7 +572,7 @@ void BambuddyAPIComponent::http_task_loop() {
           api_get_recent_spools();
           break;
         case HttpJob::LINK_TAG_TO_SPOOL:
-          api_link_tag(job.i1, job.s1, job.s2, job.s3);
+          api_link_tag(job.i1, job.s1, job.s2, job.s3, job.s4);
           break;
         case HttpJob::CREATE_SPOOL_FROM_TAG:
           api_create_spool_from_tag(job.s1, job.s2, job.filament);
@@ -949,6 +949,7 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
   display_state_.nfc_scan_generation++;  // lets the UI detect new physical scans
   display_state_.propose_archive = false;  // new scan cancels any pending archive proposal
   display_state_.propose_nfc_write = false;  // and any write offer for the previous tag
+  display_state_.write_offer_mismatch = false;
   last_tag_source_ = TagSource::LOCAL;   // overridden to SCALE by console_http_scale_nfc_scanned
   unlock_state();
 
@@ -1319,9 +1320,12 @@ void BambuddyAPIComponent::show_tag_write_result(int spool_id, const std::string
   auto &ds = display_state_;
   const bool shown = ds.tag_write_stage != TagWriteStage::NONE && ds.tag_write_spool_id == spool_id;
   if (success && ds.last_tag_uid == uid) {
-    // The tag on the reader now carries OpenTag3D data: no further offer.
+    // The tag on the reader now carries this spool's OpenTag3D data: no
+    // further offer, and the data read at the scan is out of date.
     ds.current_filament.tag_format = "open_tag_3d";
     ds.propose_nfc_write = false;
+    ds.write_offer_mismatch = false;
+    ds.tag_filament = TagFilamentInfo{};
   }
   unlock_state();
   if (shown)
@@ -1409,6 +1413,66 @@ void BambuddyAPIComponent::end_scale_write(int spool_id, const char *msg) {
   job.b1 = false;
   job.s2 = msg;
   enqueue_job(job);
+}
+
+void BambuddyAPIComponent::check_tag_mismatch_locked() {
+  auto &ds = display_state_;
+  if (mismatch_checked_gen_ == ds.nfc_scan_generation) return;  // Skip stays skipped
+  const auto &fi = ds.current_filament;
+  const auto &tf = ds.tag_filament;
+  if (!tf.valid || tf.format != "open_tag_3d" || fi.tag_type != "ntag" ||
+      ds.nfc_state != NFCTagState::PRESENT || last_tag_source_ == TagSource::AMS)
+    return;
+  mismatch_checked_gen_ = ds.nfc_scan_generation;
+  // The tag holds the spool's value cut to its field (OpenTag3D v1: material
+  // 5 characters, brand 16), so compare against the spool's value cut the
+  // same way, ignoring case and surrounding spaces.
+  // A field the spool doesn't have is not a difference: a rewrite would only
+  // blank it on the tag.
+  auto same = [](const std::string &on_tag, const std::string &in_spool, size_t field) {
+    if (in_spool.empty()) return true;
+    auto norm = [](std::string v, size_t n) {
+      const size_t a = v.find_first_not_of(' ');
+      v = a == std::string::npos ? std::string() : v.substr(a);
+      if (v.size() > n) {
+        // Cut on a UTF-8 character boundary, as the encoder does.
+        while (n > 0 && ((unsigned char) v[n] & 0xC0) == 0x80) n--;
+        v.resize(n);
+      }
+      while (!v.empty() && v.back() == ' ') v.pop_back();
+      for (char &c : v) c = (char) tolower((unsigned char) c);
+      return v;
+    };
+    return norm(on_tag, field) == norm(in_spool, field);
+  };
+  const bool differs = !same(tf.material, fi.material_type, 5) ||
+                       !same(tf.brand, fi.brand, 16) || !same(tf.color_hex, fi.color_hex, 6);
+  if (!differs) return;
+  ESP_LOGI(TAG, "Tag data differs from spool %d: tag %s/%s/#%s, spool %s/%s/#%s", fi.spool_id,
+           tf.material.c_str(), tf.brand.c_str(), tf.color_hex.c_str(), fi.material_type.c_str(),
+           fi.brand.c_str(), fi.color_hex.c_str());
+  ds.propose_nfc_write = true;
+  ds.write_offer_mismatch = true;
+}
+
+void BambuddyAPIComponent::unlink_and_erase_current_tag() {
+  // Unlinked either way; erased only if the tag is still on this reader.
+  std::string uid;
+  if (current_tag_erasable()) {
+    lock_state();
+    uid = display_state_.last_tag_uid;
+    unlock_state();
+  } else {
+    ESP_LOGW(TAG, "Unlink + Erase: tag no longer on the reader, unlinking only");
+  }
+  unlink_current_tag(uid);
+}
+
+void BambuddyAPIComponent::on_tag_erased(const std::string &uid, bool success,
+                                         const std::string &msg) {
+  ESP_LOGI(TAG, "Tag erase: uid=%s success=%d msg=%s", uid.c_str(), success, msg.c_str());
+  set_tag_erase_stage(success ? TagWriteStage::DONE : TagWriteStage::FAILED, msg);
+  set_status(success ? "Tag erased" : "Tag not erased: " + msg);
 }
 
 // ---------------------------------------------------------------------------
@@ -1982,6 +2046,7 @@ void BambuddyAPIComponent::api_get_spool(int spool_id, bool check_empty) {
     if (check_empty && label_w > 0 && used_w >= label_w) {
       display_state_.propose_archive = true;
     }
+    check_tag_mismatch_locked();
   }
   unlock_state();
 
@@ -4834,7 +4899,8 @@ void BambuddyAPIComponent::api_update_spool_weight(int spool_id, float total_gra
 
 void BambuddyAPIComponent::api_link_tag(int spool_id, const std::string &uid,
                                         const std::string &tray_uuid,
-                                        const std::string &tag_type) {
+                                        const std::string &tag_type,
+                                        const std::string &erase_uid) {
   // uid="" means unlink; otherwise link the tag.
   bool is_unlink = uid.empty();
   std::ostringstream js;
@@ -4862,10 +4928,13 @@ void BambuddyAPIComponent::api_link_tag(int spool_id, const std::string &uid,
   }
   std::string resp;
   bool ok = http_patch_api(path, js.str(), resp);
+  // Unlink + Erase: the tag (erase_uid) is erased only once the unlink has
+  // gone through.
   if (!ok) {
     ESP_LOGW(TAG, "api_link_tag spool %d %s: failed", spool_id,
              is_unlink ? "unlink" : "link");
-    set_status(is_unlink ? "Unlink failed" : "Tag link failed");
+    set_status(!is_unlink ? "Tag link failed"
+               : erase_uid.empty() ? "Unlink failed" : "Unlink failed - tag not erased");
     return;
   }
   ESP_LOGI(TAG, "api_link_tag spool %d %s: ok", spool_id,
@@ -4875,13 +4944,18 @@ void BambuddyAPIComponent::api_link_tag(int spool_id, const std::string &uid,
     lock_state();
     display_state_.spool_selected   = false;
     display_state_.current_filament = FilamentInfo{};
-    display_state_.status_message   = "Tag unlinked";
+    display_state_.status_message   = erase_uid.empty() ? "Tag unlinked"
+                                      : "Tag unlinked - erasing it, keep it on the reader";
     display_state_.nfc_state        = NFCTagState::ABSENT;
     display_state_.spool_assign_expiry_ms = 0;
     unlinked_tag_expiry_ms_ = 0;
     display_state_.unlinked_tag_expiry_ms = 0;
     pending_assign_spool_id_ = 0;
     unlock_state();
+    if (!erase_uid.empty() && nfc_ != nullptr) {
+      nfc_->request_erase(erase_uid);
+      set_tag_erase_stage(TagWriteStage::WRITING);
+    }
   } else {
     // Arm the pending-assign TTL for AMS slot auto-assignment.
     // Seed the spool immediately so the NFC tab stays on the spool view;
@@ -5188,7 +5262,7 @@ void BambuddyAPIComponent::link_tag_to_spool(int spool_id) {
   enqueue_job(job);
 }
 
-void BambuddyAPIComponent::unlink_current_tag() {
+void BambuddyAPIComponent::unlink_current_tag(const std::string &erase_uid) {
   int spool_id;
   lock_state();
   spool_id = display_state_.current_filament.spool_id;
@@ -5197,7 +5271,8 @@ void BambuddyAPIComponent::unlink_current_tag() {
   HttpJob job;
   job.kind = HttpJob::LINK_TAG_TO_SPOOL;
   job.i1   = spool_id;
-  job.s1   = "";    // empty = unlink
+  job.s1   = "";          // empty = unlink
+  job.s4   = erase_uid;   // erased only if this unlink succeeds
   enqueue_job(job);
 }
 

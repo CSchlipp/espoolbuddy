@@ -137,7 +137,11 @@ through every screen.
   <img src="images/ui/full/archive.png" alt="Spool Empty popup: PLA Matte · Bambu Lab, Archive this spool?, Archive and Keep" width="360">
 
 - **Unlink or discard**: **Unlink Tag** removes the tag from the spool after
-  a confirmation; the tag then shows as unlinked when scanned again.
+  a confirmation; the tag then shows as unlinked when scanned again. For an
+  NTAG on the console's reader that holds data (an OpenTag3D record, say), the
+  confirmation also offers **Unlink + Erase**: once the unlink has gone
+  through, the tag's NDEF message is emptied, so it can be reused for another
+  spool. Keep the tag on the reader until the popup says *Tag erased*.
   **Discard** clears the spool from the screen.
 
   <img src="images/ui/full/unlink-confirm.png" alt="Are you sure? Unlink this tag from its spool? with Cancel and Unlink" width="360">
@@ -148,7 +152,9 @@ through every screen.
   to a spool (**Assign Spool**) or create a spool from it (**Add to
   Inventory**), the console offers **Write the spool to this tag?**. A tag
   holding other NDEF data asks *Overwrite this tag with the spool?*, and one
-  that already carries OpenTag3D data isn't offered. Tap **Write** and keep
+  that already carries OpenTag3D data isn't offered, unless that data
+  disagrees with the spool in Bambuddy (material, brand or colour): scanning
+  it then offers *Tag data differs from the spool. Rewrite it?*. Tap **Write** and keep
   the tag on the reader: a popup follows the write and tells you when it's
   done or why it failed. **Cancel** stops a write that is still waiting for a
   tag; after 60 s without one it gives up by itself.

@@ -257,11 +257,7 @@ obj:
                     hidden: true
                     on_click:
                       then:
-                        - lambda: |-
-                            id(confirm_action) = 1;
-                            lv_label_set_text(id(confirm_msg), "Unlink this tag from its spool?");
-                            lv_label_set_text(id(confirm_ok_lbl), "Unlink");
-                            lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+                        - script.execute: {id: confirm_open, action: 1, message: "Unlink this tag from its spool?", ok_label: "Unlink"}
                     widgets:
                       - label:
                           text: "Unlink Tag"
