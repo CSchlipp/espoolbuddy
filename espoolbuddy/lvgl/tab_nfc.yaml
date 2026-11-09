@@ -411,15 +411,17 @@ obj:
                     text_align: CENTER
                     align: LEFT_MID
 
-          # ---- "Write NFC tag?" proposal overlay ----
-          # Shown after linking a writable (non-Bambu) tag to a
-          # spool. Overlays the bottom action row.
+          # ---- "Write the spool to this tag?" proposal overlay ----
+          # Shown after an NTAG without OpenTag3D data was linked to a spool
+          # or used to create one (propose_tag_write()). Overlays the bottom
+          # action row. Write asks Bambuddy to queue the write; the tag write
+          # modal (lvgl.yaml) follows it from there.
           - obj:
               id: nfc_write_banner
               align: BOTTOM_MID
               y: -6
               width: 100%
-              height: 40
+              height: 50  # the action row's height, so it covers the row
               bg_color: 0x0D1E30
               border_color: 0x3A6A9C
               border_width: 2
@@ -436,8 +438,9 @@ obj:
               hidden: true
               widgets:
                 - label:
+                    id: nfc_write_banner_text
                     flex_grow: 1
-                    text: "Write spool to NFC tag?"
+                    text: "Write the spool to this tag?"
                     text_font: roboto_12
                     text_color: 0xAABBDD
                     text_align: LEFT
@@ -453,8 +456,7 @@ obj:
                     on_click:
                       then:
                         - lambda: |-
-                            bambuddy->dismiss_nfc_write_proposal();
-                            // TODO: trigger NFC write action here
+                            bambuddy->request_tag_write();
                     widgets:
                       - label: {text: "Write", text_font: roboto_12, text_color: 0x4CAF50, align: CENTER}
                 - button:

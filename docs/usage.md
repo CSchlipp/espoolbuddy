@@ -140,9 +140,25 @@ through every screen.
 
   <img src="images/ui/full/unlink-confirm.png" alt="Are you sure? Unlink this tag from its spool? with Cancel and Unlink" width="360">
 
-- **Write a tag**: pick the spool on Bambuddy's SpoolBuddy **Write** page
-  (`/spoolbuddy/write-tag`), then present an NTAG213, NTAG215 or NTAG216 to
-  the console or scale within 60 s. Whatever is on the tag is overwritten.
+- **Write a tag**: the console can write the spool to an NTAG213, NTAG215 or
+  NTAG216 as an [OpenTag3D](https://opentag3d.info) record, which other
+  readers (phones, printers) can read without Bambuddy. After you link a tag
+  to a spool (**Assign Spool**) or create a spool from it (**Add to
+  Inventory**), the console offers **Write the spool to this tag?**. A tag
+  holding other NDEF data asks *Overwrite this tag with the spool?*, and one
+  that already carries OpenTag3D data isn't offered. Tap **Write** and keep
+  the tag on the reader: a popup follows the write and tells you when it's
+  done or why it failed. **Cancel** stops a write that is still waiting for a
+  tag; after 60 s without one it gives up by itself.
+
+  The same popup shows for writes started from Bambuddy's SpoolBuddy
+  **Write** page (`/spoolbuddy/write-tag`), which also covers tags linked
+  earlier. Whatever is on the tag is overwritten; Bambu Lab tags are never
+  written.
+
+  <img src="images/ui/full/tag-write-offer.png" alt="Spool view of eSUN PLA Plus Bone White spool #36 with the banner Write the spool to this tag? and Write / Skip buttons" width="360">
+  <img src="images/ui/full/tag-write-waiting.png" alt="Popup Write spool #36: Place the tag on the console's reader (60 s), with a Cancel button" width="360">
+  <img src="images/ui/full/tag-write-done.png" alt="Popup Tag written: Spool #36 is on the tag, with an OK button" width="360">
 - **AMS / printer status**: the console's AMS tab shows live slot/filament
   state polled from Bambuddy, along with each AMS unit's temperature,
   humidity, and its custom name if one was set in Bambuddy (falls back to a
