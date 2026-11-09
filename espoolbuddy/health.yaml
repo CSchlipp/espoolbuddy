@@ -1,0 +1,30 @@
+# ============================================================================
+# Device health — the diagnostics every ESPoolBuddy device reports to Home
+# Assistant. Included by all three bundles. The binary sensors are per device:
+# health_console.yaml for consoles, health_scale.yaml for the scale.
+#
+# Expects a time component (Last boot is a timestamp). Every entry point
+# declares one (sntp_time).
+# ============================================================================
+sensor:
+  - platform: wifi_signal
+    name: "WiFi signal"
+    id: wifi_signal_sensor
+    disabled_by_default: true
+    update_interval: 300s
+
+  # When the device last booted. Reset reason below says why.
+  - platform: uptime
+    name: "Last boot"
+    id: uptime_sensor
+    type: timestamp
+
+# Why the device last restarted (power-on, software, panic, brownout,
+# watchdog, ...). The debug component publishes it once at boot.
+debug:
+  update_interval: never
+
+text_sensor:
+  - platform: debug
+    reset_reason:
+      name: "Reset reason"

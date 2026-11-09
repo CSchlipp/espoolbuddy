@@ -311,28 +311,6 @@ sensor:
       # stays small: about 0.09 g, just above the settled noise.
       - delta: 100
 
-  - platform: wifi_signal
-    name: "WiFi signal"
-    id: wifi_signal_sensor
-    disabled_by_default: true
-    update_interval: 300s
-
-  # When the device last booted. Reset reason below says why.
-  - platform: uptime
-    name: "Last boot"
-    id: uptime_sensor
-    type: timestamp
-
-# Why the device last restarted (power-on, software, panic, brownout,
-# watchdog, ...). The debug component publishes it once at boot.
-debug:
-  update_interval: never
-
-text_sensor:
-  - platform: debug
-    reset_reason:
-      name: "Reset reason"
-
 # ============================================================================
 # Backlight
 # ============================================================================

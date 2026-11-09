@@ -55,6 +55,11 @@ logger:
 api:
   reboot_timeout: 0s
 
+# The bundles' espoolbuddy/health.yaml reports WiFi signal, which needs the
+# wifi component; the simulator has no WiFi.
+sensor:
+  - id: !remove wifi_signal_sensor
+
 # Header clock — same id the device configs give their SNTP clock.
 time:
   - platform: host

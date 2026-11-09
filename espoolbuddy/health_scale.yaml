@@ -1,0 +1,56 @@
+# ============================================================================
+# Scale health — diagnostic binary sensors for Home Assistant. Included by
+# bundles/scale.yaml, next to health.yaml.
+#
+# They mirror the flags the scale already tracks, so nothing new is polled. All of
+# them are read-outs: the scale works the same with no HA connected.
+#
+# Expects bambuddy_api (id: bambuddy).
+# ============================================================================
+esphome:
+  on_boot:
+    # Hide NFC Reader Status on a scale built without a reader, so HA doesn't
+    # get an entity that stays unknown forever.
+    - priority: -100
+      then:
+        - lambda: |-
+            if (!bambuddy->has_nfc()) id(health_nfc).set_internal(true);
+
+binary_sensor:
+  - platform: template
+    name: "Console connection"
+    id: health_console
+    device_class: connectivity
+    entity_category: diagnostic
+
+  # "problem" class: on = something is wrong.
+  - platform: template
+    name: "NFC reader status"
+    id: health_nfc
+    device_class: problem
+    entity_category: diagnostic
+
+  - platform: template
+    name: "Load cell status"
+    id: health_load_cell
+    device_class: problem
+    entity_category: diagnostic
+
+interval:
+  # Health sensors for Home Assistant. Binary sensors publish only on change.
+  - interval: 2s
+    then:
+      - lambda: |-
+          // Same 5 s window as the status LED. On only when every console
+          // answers, so with several consoles one dropping out shows up.
+          size_t total = bambuddy->console_count();
+          id(health_console).publish_state(
+              total > 0 && bambuddy->consoles_connected(5000) == total);
+          // The PN532 and the load cell take a few seconds after boot. Hold
+          // off on "problem" until then so a restart doesn't flap them.
+          if (millis() < 30000) return;
+          bool backend_ok, printer_ok, nfc_ok, scale_ok;
+          bambuddy->get_health(backend_ok, printer_ok, nfc_ok, scale_ok);
+          if (bambuddy->has_nfc()) id(health_nfc).publish_state(!nfc_ok);
+          if (bambuddy->has_scale())
+            id(health_load_cell).publish_state(!scale_ok);

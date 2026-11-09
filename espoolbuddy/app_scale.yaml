@@ -1,7 +1,7 @@
 # ============================================================================
-# Scale logic — the status LED. Included via bundles/scale.yaml. Weight
-# stability detection and tare / calibrate live in bambuddy_api
-# (scale: type: local).
+# Scale logic — the status LED. Included via bundles/scale.yaml; the HA
+# health sensors are in health_scale.yaml. Weight stability detection and
+# tare / calibrate live in bambuddy_api (scale: type: local).
 #
 # Expects from the entry-point YAML (espoolbuddy_scale.yaml):
 #   bambuddy_api (id: bambuddy), wifi (id: wifi_comp) and a light with
