@@ -163,6 +163,36 @@ esphome:
         - snapshot.take: {id: main_display, filename: nfc-picker}
         - lambda: 'lv_obj_send_event(id(btn_picker_cancel), LV_EVENT_CLICKED, nullptr);'
 
+        # ==== Tag write (full UI only) ====
+        # A blank NTAG linked to a spool -> offer to write it -> Write ->
+        # waiting for the tag -> written.
+        - lambda: |-
+            bambuddy->on_tag_scanned("04C0FFEE000001", "", 0x00, "ntag");
+            bambuddy->set_tag_format("");  // blank: no NDEF on it, as the reader reports
+        - delay: 1200ms
+        - lambda: 'bambuddy->link_tag_to_spool(36);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: tag-write-offer}
+        - lambda: 'lv_obj_send_event(id(btn_nfc_write_yes), LV_EVENT_CLICKED, nullptr);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: tag-write-waiting}
+        - lambda: 'bambuddy->sim_tag_write_result(true);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: tag-write-done}
+        - lambda: 'lv_obj_send_event(id(btn_tag_write_ok), LV_EVENT_CLICKED, nullptr);'
+
+        # Spool-ID keypad, opened for AMS A's empty slot 4 with 37 typed
+        # (full UI only)
+        - lambda: |-
+            id(modal_ams_id) = 0;
+            id(modal_tray_slot) = 3;
+        - script.execute: slot_assign_open
+        - script.execute: {id: keypad_key, key: 3}
+        - script.execute: {id: keypad_key, key: 7}
+        - delay: 1500ms
+        - snapshot.take: {id: main_display, filename: spool-keypad}
+        - lambda: 'lv_obj_add_flag(id(keypad_modal), LV_OBJ_FLAG_HIDDEN);'
+
         # Unlinked Bambu Lab tag -> preview, then Add to Inventory
         - lambda: |-
             bambuddy_api::TagFilamentInfo tf;
@@ -199,7 +229,7 @@ esphome:
         - lambda: 'lv_obj_send_event(id(btn_calibrate), LV_EVENT_CLICKED, nullptr);'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: calibrate}
-        - lambda: 'lv_obj_send_event(id(btn_cal_cancel), LV_EVENT_CLICKED, nullptr);'
+        - lambda: 'lv_obj_send_event(id(btn_keypad_cancel), LV_EVENT_CLICKED, nullptr);'
 
         # ==== Settings sub-pages (full UI only) ====
         - lambda: 'id(active_tab) = 3;'

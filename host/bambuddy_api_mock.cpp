@@ -309,6 +309,24 @@ void BambuddyAPIComponent::confirm_plate_cleared() {
 // ---- Spools ----
 void BambuddyAPIComponent::request_recent_spools() { display_state_.recent_spools_generation++; }
 
+// No reader to erase with (current_tag_erasable() is false without one).
+void BambuddyAPIComponent::unlink_and_erase_current_tag() { unlink_current_tag(); }
+
+void BambuddyAPIComponent::lookup_spool(int spool_id) {
+  SpoolLookup &l = display_state_.spool_lookup;
+  l = SpoolLookup{};
+  l.spool_id = spool_id;
+  l.state = SpoolLookup::NOT_FOUND;
+  if (const DemoSpool *s = find_demo_spool(spool_id)) {
+    l.state = SpoolLookup::FOUND;
+    l.material = s->material;
+    l.subtype = s->subtype;
+    l.brand = s->brand;
+    l.color_name = s->color_name;
+    l.color_hex = s->color_hex;
+  }
+}
+
 void BambuddyAPIComponent::link_tag_to_spool(int spool_id) {
   auto &ds = display_state_;
   const DemoSpool *s = find_demo_spool(spool_id);
@@ -326,13 +344,13 @@ void BambuddyAPIComponent::link_tag_to_spool(int spool_id) {
   ds.spool_selected = true;
   ds.unlinked_tag_expiry_ms = 0;
   unlinked_tag_expiry_ms_ = 0;
-  ds.propose_nfc_write = fi.tag_type == "ntag";
   ds.status_message = "Tag linked to spool #" + std::to_string(spool_id);
+  propose_tag_write(ds.last_tag_uid);
 }
 
 // Same end state as a successful unlink in the real api_link_tag(): back to
 // idle, with the pending auto-assignment dropped.
-void BambuddyAPIComponent::unlink_current_tag() {
+void BambuddyAPIComponent::unlink_current_tag(const std::string &) {
   auto &ds = display_state_;
   tag_links().erase(ds.last_tag_uid);
   ds.spool_selected = false;
@@ -573,8 +591,29 @@ void BambuddyAPIComponent::on_tag_removed(const std::string &uid) {
 }
 
 void BambuddyAPIComponent::on_write_tag_result(const std::string &uid, bool success, const std::string &msg) {
-  pending_write_active_ = false;
+  int spool_id = 0;
+  tag_write_.finish(success, 0, &spool_id);
   set_status(success ? "Tag written" : "Tag write failed: " + msg);
+}
+
+// Tag writes: no Bambuddy to queue them, so a request goes straight to
+// waiting for a tag; sim_tag_write_result() finishes it.
+void BambuddyAPIComponent::request_tag_write() {
+  display_state_.propose_nfc_write = false;
+  set_tag_write_stage(TagWriteStage::WAITING, display_state_.current_filament.spool_id);
+}
+
+void BambuddyAPIComponent::cancel_tag_write() {
+  set_tag_write_stage(TagWriteStage::NONE);
+  set_status("Tag write cancelled");
+}
+
+void BambuddyAPIComponent::sim_tag_write_result(bool success) {
+  if (success) display_state_.current_filament.tag_format = "open_tag_3d";
+  set_tag_write_stage(success ? TagWriteStage::DONE : TagWriteStage::FAILED,
+                      display_state_.tag_write_spool_id,
+                      success ? "" : "Tag too small: needs 129 bytes, holds 48");
+  set_status(success ? "Tag written successfully" : "Tag write failed");
 }
 
 // ---- Scale ----

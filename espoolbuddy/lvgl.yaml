@@ -374,11 +374,7 @@ lvgl:
                                           styles: sty_accent_btn
                                           on_click:
                                             then:
-                                              - lambda: |-
-                                                  char buf[10];
-                                                  snprintf(buf, sizeof(buf), "%.0f g", id(cal_ref_weight));
-                                                  lv_label_set_text(id(lbl_cal_weight), buf);
-                                                  lv_obj_clear_flag(id(cal_modal), LV_OBJ_FLAG_HIDDEN);
+                                              - script.execute: {id: keypad_open, mode: 2, subtitle: "Place a known weight on the scale"}
                                           widgets:
                                             - label:
                                                 text: "CALIBRATE"
@@ -782,11 +778,7 @@ lvgl:
                                                       scrollbar_mode: "OFF"
                                                       on_click:
                                                         then:
-                                                          - lambda: |-
-                                                              id(confirm_action) = 3;
-                                                              lv_label_set_text(id(confirm_msg), "Reboot the console now?");
-                                                              lv_label_set_text(id(confirm_ok_lbl), "Reboot");
-                                                              lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+                                                          - script.execute: {id: confirm_open, action: 3, message: "Reboot the console now?", ok_label: "Reboot"}
                                                       widgets:
                                                         - label: {text: "Reboot", text_font: roboto_16, pad_top: 4, text_color: 0xFF8888, align: CENTER}
 
@@ -1598,11 +1590,7 @@ lvgl:
                               scrollbar_mode: "OFF"
                               on_click:
                                 then:
-                                  - lambda: |-
-                                      id(confirm_action) = 2;
-                                      lv_label_set_text(id(confirm_msg), "Clear this slot's spool assignment?");
-                                      lv_label_set_text(id(confirm_ok_lbl), "Clear");
-                                      lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+                                  - script.execute: {id: confirm_open, action: 2, message: "Clear this slot's spool assignment?", ok_label: "Clear"}
                               widgets:
                                 - label: {text: "Clear Assignment", text_font: roboto_16, text_color: 0xFF8888, align: CENTER}
                           # Print Label: only shown with the espoolbuddy/label_printer_m220.yaml package and
@@ -2296,241 +2284,6 @@ lvgl:
                               widgets:
                                 - label: {text: "Close", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
 
-              # ================ CALIBRATION MODAL ============================
-              - obj:
-                  id: cal_modal
-                  width: 85%
-                  height: SIZE_CONTENT
-                  align: CENTER
-                  bg_color: 0x1A1A2C
-                  bg_opa: COVER
-                  border_color: 0x8585B8
-                  border_width: 2
-                  border_opa: COVER
-                  radius: 12
-                  pad_left: 16
-                  pad_right: 16
-                  pad_top: 12
-                  pad_bottom: 12
-                  scrollbar_mode: "OFF"
-                  shadow_width: 16
-                  shadow_offset_x: 0
-                  shadow_offset_y: 6
-                  shadow_spread: 2
-                  shadow_color: 0x000000
-                  shadow_opa: COVER
-                  hidden: true
-                  layout:
-                    type: flex
-                    flex_flow: column
-                    pad_row: 10
-                  widgets:
-                    - label:
-                        text: "Calibrate Scale"
-                        text_font: roboto_20
-                        text_color: 0x7BB4FF
-                    - label:
-                        width: 100%
-                        text: "Place known weight on scale, then confirm."
-                        text_font: roboto_12
-                        text_color: 0xBBBBCC
-                        long_mode: WRAP
-                    # ---- Reference weight row: −100 −10 −1 [value] +1 +10 +100 ----
-                    # Buttons/value keep their original intrinsic pixel widths
-                    # (font-sized number buttons) and are centered as a group
-                    # via flex_align_main, rather than stretched to fill.
-                    - obj:
-                        width: 100%
-                        height: SIZE_CONTENT
-                        bg_opa: TRANSP
-                        border_width: 0
-                        pad_all: 0
-                        scrollbar_mode: "OFF"
-                        layout:
-                          type: flex
-                          flex_flow: row_wrap
-                          flex_align_main: center
-                          flex_align_cross: center
-                          flex_align_track: center
-                          pad_column: 4
-                          pad_row: 4
-                        widgets:
-                          - button:
-                              id: btn_cal_m100
-                              width: 44
-                              height: 36
-                              bg_color: 0x252540
-                              border_color: 0x8585B8
-                              border_width: 1
-                              radius: 6
-                              scrollbar_mode: "OFF"
-                              on_click:
-                                then:
-                                  - lambda: |-
-                                      float v = id(cal_ref_weight) - 100.0f;
-                                      if (v < 1.0f) v = 1.0f;
-                                      id(cal_ref_weight) = v;
-                                      char buf[12]; snprintf(buf, sizeof(buf), "%.0f g", v);
-                                      lv_label_set_text(id(lbl_cal_weight), buf);
-                              widgets:
-                                - label: {text: "-100", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
-                          - button:
-                              id: btn_cal_m10
-                              width: 44
-                              height: 36
-                              bg_color: 0x252540
-                              border_color: 0x8585B8
-                              border_width: 1
-                              radius: 6
-                              scrollbar_mode: "OFF"
-                              on_click:
-                                then:
-                                  - lambda: |-
-                                      float v = id(cal_ref_weight) - 10.0f;
-                                      if (v < 1.0f) v = 1.0f;
-                                      id(cal_ref_weight) = v;
-                                      char buf[12]; snprintf(buf, sizeof(buf), "%.0f g", v);
-                                      lv_label_set_text(id(lbl_cal_weight), buf);
-                              widgets:
-                                - label: {text: "-10", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
-                          - button:
-                              id: btn_cal_m1
-                              width: 44
-                              height: 36
-                              bg_color: 0x252540
-                              border_color: 0x8585B8
-                              border_width: 1
-                              radius: 6
-                              scrollbar_mode: "OFF"
-                              on_click:
-                                then:
-                                  - lambda: |-
-                                      float v = id(cal_ref_weight) - 1.0f;
-                                      if (v < 1.0f) v = 1.0f;
-                                      id(cal_ref_weight) = v;
-                                      char buf[12]; snprintf(buf, sizeof(buf), "%.0f g", v);
-                                      lv_label_set_text(id(lbl_cal_weight), buf);
-                              widgets:
-                                - label: {text: "-1", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
-                          - label:
-                              id: lbl_cal_weight
-                              width: 80
-                              height: 36
-                              text: "100 g"
-                              text_font: roboto_16
-                              text_color: 0x7BB4FF
-                              text_align: CENTER
-                              align: CENTER
-                          - button:
-                              id: btn_cal_p1
-                              width: 44
-                              height: 36
-                              bg_color: 0x252540
-                              border_color: 0x8585B8
-                              border_width: 1
-                              radius: 6
-                              scrollbar_mode: "OFF"
-                              on_click:
-                                then:
-                                  - lambda: |-
-                                      float v = id(cal_ref_weight) + 1.0f;
-                                      if (v > 5000.0f) v = 5000.0f;
-                                      id(cal_ref_weight) = v;
-                                      char buf[12]; snprintf(buf, sizeof(buf), "%.0f g", v);
-                                      lv_label_set_text(id(lbl_cal_weight), buf);
-                              widgets:
-                                - label: {text: "+1", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
-                          - button:
-                              id: btn_cal_p10
-                              width: 44
-                              height: 36
-                              bg_color: 0x252540
-                              border_color: 0x8585B8
-                              border_width: 1
-                              radius: 6
-                              scrollbar_mode: "OFF"
-                              on_click:
-                                then:
-                                  - lambda: |-
-                                      float v = id(cal_ref_weight) + 10.0f;
-                                      if (v > 5000.0f) v = 5000.0f;
-                                      id(cal_ref_weight) = v;
-                                      char buf[12]; snprintf(buf, sizeof(buf), "%.0f g", v);
-                                      lv_label_set_text(id(lbl_cal_weight), buf);
-                              widgets:
-                                - label: {text: "+10", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
-                          - button:
-                              id: btn_cal_p100
-                              width: 44
-                              height: 36
-                              bg_color: 0x252540
-                              border_color: 0x8585B8
-                              border_width: 1
-                              radius: 6
-                              scrollbar_mode: "OFF"
-                              on_click:
-                                then:
-                                  - lambda: |-
-                                      float v = id(cal_ref_weight) + 100.0f;
-                                      if (v > 5000.0f) v = 5000.0f;
-                                      id(cal_ref_weight) = v;
-                                      char buf[12]; snprintf(buf, sizeof(buf), "%.0f g", v);
-                                      lv_label_set_text(id(lbl_cal_weight), buf);
-                              widgets:
-                                - label: {text: "+100", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
-                    # ---- Separator ----
-                    - obj:
-                        width: 100%
-                        height: 1
-                        bg_color: 0x454572
-                        bg_opa: COVER
-                        border_width: 0
-                        radius: 0
-                        scrollbar_mode: "OFF"
-                    # ---- Cancel / Confirm buttons ----
-                    - obj:
-                        width: 100%
-                        height: 38
-                        bg_opa: TRANSP
-                        border_width: 0
-                        pad_all: 0
-                        scrollbar_mode: "OFF"
-                        layout:
-                          type: flex
-                          flex_flow: row
-                          pad_column: 8
-                        widgets:
-                          - button:
-                              id: btn_cal_cancel
-                              flex_grow: 1
-                              height: 38
-                              bg_color: 0x2A1A1A
-                              border_color: 0xCC3333
-                              border_width: 2
-                              radius: 6
-                              scrollbar_mode: "OFF"
-                              on_click:
-                                then:
-                                  - lambda: "lv_obj_add_flag(id(cal_modal), LV_OBJ_FLAG_HIDDEN);"
-                              widgets:
-                                - label: {text: "Cancel", text_font: roboto_16, text_color: 0xFF8888, align: CENTER}
-                          - button:
-                              id: btn_cal_confirm
-                              flex_grow: 1
-                              height: 38
-                              bg_color: 0x1E2040
-                              border_color: 0x4ECDC4
-                              border_width: 2
-                              radius: 6
-                              scrollbar_mode: "OFF"
-                              on_click:
-                                then:
-                                  - lambda: |-
-                                      lv_obj_add_flag(id(cal_modal), LV_OBJ_FLAG_HIDDEN);
-                                      bambuddy->request_calibration(id(cal_ref_weight));
-                              widgets:
-                                - label: {text: "Calibrate", text_font: roboto_16, text_color: 0x4ECDC4, align: CENTER}
-
               # ================ CONFIRM MODAL ================================
               # Reusable confirmation for destructive actions. confirm_action
               # (global) selects what runs on confirm: 1=unlink tag, 2=clear
@@ -2606,6 +2359,26 @@ lvgl:
                                       lv_obj_add_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
                               widgets:
                                 - label: {text: "Cancel", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
+                          # Unlink confirm only, for an NTAG with data on this
+                          # reader (shown by confirm_open): unlink, then erase it.
+                          - button:
+                              id: confirm_erase_btn
+                              flex_grow: 1
+                              height: 40
+                              bg_color: 0x2A1A28
+                              border_color: 0x9C3A3A
+                              border_width: 2
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              hidden: true
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      id(confirm_action) = 0;
+                                      lv_obj_add_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+                                      bambuddy->unlink_and_erase_current_tag();
+                              widgets:
+                                - label: {text: "Unlink + Erase", text_font: roboto_16, text_color: 0xFF8888, align: CENTER}
                           - button:
                               id: confirm_ok_btn
                               flex_grow: 1
@@ -2634,24 +2407,28 @@ lvgl:
                               widgets:
                                 - label: {id: confirm_ok_lbl, text: "Confirm", text_font: roboto_16, text_color: 0xFF8888, align: CENTER}
 
-              # ================ ASSIGN-BY-ID MODAL ===========================
-              # Assign an inventory spool to an empty AMS slot by ID (no scan).
-              # modal_ams_id / modal_tray_slot hold the target slot.
+              # ================ TAG WRITE MODAL ===============================
+              # Shows a tag write from request to result: asking Bambuddy,
+              # waiting for a tag (with the time left), writing, done or
+              # failed. Follows display_state.tag_write_stage (see ui_refresh
+              # in app.yaml) on top of whatever tab is active, like the
+              # plate-clear popup, so a write queued from Bambuddy's Write page
+              # shows too. Cancel while waiting; OK once it has finished.
               - obj:
-                  id: assign_id_modal
+                  id: tag_write_modal
                   width: 85%
                   height: SIZE_CONTENT
                   align: CENTER
                   bg_color: 0x1A1A2C
                   bg_opa: COVER
-                  border_color: 0x8585B8
+                  border_color: 0x3A6A9C
                   border_width: 2
                   border_opa: COVER
                   radius: 12
                   pad_left: 16
                   pad_right: 16
-                  pad_top: 14
-                  pad_bottom: 14
+                  pad_top: 16
+                  pad_bottom: 16
                   scrollbar_mode: "OFF"
                   scrollable: false
                   shadow_width: 16
@@ -2664,104 +2441,29 @@ lvgl:
                   layout:
                     type: flex
                     flex_flow: column
-                    pad_row: 12
+                    flex_align_cross: center
+                    pad_row: 10
                   widgets:
                     - label:
-                        id: slot_assign_title
-                        width: 100%
-                        text: "Assign Spool"
-                        text_font: roboto_20
+                        id: tag_write_icon
+                        text: "\U000F0396"
+                        text_font: mdi_48
                         text_color: 0x7BB4FF
-                        long_mode: DOT
-                    # ---- ID chooser: -10 / - / ID:X / + / +10 ----
-                    - obj:
+                    - label:
+                        id: tag_write_title
                         width: 100%
-                        height: 40
-                        bg_opa: TRANSP
-                        border_width: 0
-                        pad_all: 0
-                        scrollbar_mode: "OFF"
-                        layout:
-                          type: flex
-                          flex_flow: row
-                          flex_align_main: center
-                          pad_column: 6
-                        widgets:
-                          - button:
-                              id: btn_slot_id_m10
-                              width: 60
-                              height: 40
-                              bg_color: 0x1E1E30
-                              border_color: 0x3A3A56
-                              border_width: 1
-                              radius: 4
-                              scrollbar_mode: "OFF"
-                              on_click:
-                                then:
-                                  - lambda: |-
-                                      int v=(int)id(slot_assign_id)-10; if(v<1)v=1; id(slot_assign_id)=v;
-                                      char b[16]; snprintf(b,sizeof(b),"ID: %d",v); lv_label_set_text(id(lbl_slot_assign_id),b);
-                              widgets:
-                                - label: {text: "-10", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
-                          - button:
-                              id: btn_slot_id_m1
-                              width: 48
-                              height: 40
-                              bg_color: 0x1E1E30
-                              border_color: 0x3A3A56
-                              border_width: 1
-                              radius: 4
-                              scrollbar_mode: "OFF"
-                              on_click:
-                                then:
-                                  - lambda: |-
-                                      if((int)id(slot_assign_id)>1) id(slot_assign_id)--;
-                                      int v=(int)id(slot_assign_id);
-                                      char b[16]; snprintf(b,sizeof(b),"ID: %d",v); lv_label_set_text(id(lbl_slot_assign_id),b);
-                              widgets:
-                                - label: {text: "-", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
-                          - label:
-                              id: lbl_slot_assign_id
-                              width: 176
-                              text: "ID: 1"
-                              text_font: roboto_20
-                              text_color: 0xFFFFFF
-                              text_align: CENTER
-                              align: CENTER
-                          - button:
-                              id: btn_slot_id_p1
-                              width: 48
-                              height: 40
-                              bg_color: 0x1E1E30
-                              border_color: 0x3A3A56
-                              border_width: 1
-                              radius: 4
-                              scrollbar_mode: "OFF"
-                              on_click:
-                                then:
-                                  - lambda: |-
-                                      id(slot_assign_id)++;
-                                      int v=(int)id(slot_assign_id);
-                                      char b[16]; snprintf(b,sizeof(b),"ID: %d",v); lv_label_set_text(id(lbl_slot_assign_id),b);
-                              widgets:
-                                - label: {text: "+", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
-                          - button:
-                              id: btn_slot_id_p10
-                              width: 60
-                              height: 40
-                              bg_color: 0x1E1E30
-                              border_color: 0x3A3A56
-                              border_width: 1
-                              radius: 4
-                              scrollbar_mode: "OFF"
-                              on_click:
-                                then:
-                                  - lambda: |-
-                                      int v=(int)id(slot_assign_id)+10; id(slot_assign_id)=v;
-                                      char b[16]; snprintf(b,sizeof(b),"ID: %d",v); lv_label_set_text(id(lbl_slot_assign_id),b);
-                              widgets:
-                                - label: {text: "+10", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
-                    # ---- Assign | Cancel ----
+                        text: ""
+                        text_font: roboto_20
+                        text_color: 0xFFFFFF
+                        text_align: CENTER
+                    - label:
+                        id: tag_write_msg
+                        width: 100%
+                        text: ""
+                        text_font: roboto_16
+                        text_color: 0xDDDDEE
+                        text_align: CENTER
+                        long_mode: WRAP
                     - obj:
                         width: 100%
                         height: 40
@@ -2775,24 +2477,7 @@ lvgl:
                           pad_column: 8
                         widgets:
                           - button:
-                              id: btn_slot_assign_ok
-                              flex_grow: 1
-                              height: 40
-                              bg_color: 0x0D2B14
-                              border_color: 0x4CAF50
-                              border_width: 2
-                              radius: 6
-                              scrollbar_mode: "OFF"
-                              on_click:
-                                then:
-                                  - lambda: |-
-                                      int sid=(int)id(slot_assign_id);
-                                      if(sid>0) bambuddy->assign_spool_to_slot(sid, id(modal_ams_id), id(modal_tray_slot));
-                                      lv_obj_add_flag(id(assign_id_modal), LV_OBJ_FLAG_HIDDEN);
-                              widgets:
-                                - label: {text: "Assign", text_font: roboto_16, text_color: 0x4CAF50, align: CENTER}
-                          - button:
-                              id: btn_slot_assign_cancel
+                              id: btn_tag_write_cancel
                               flex_grow: 1
                               height: 40
                               bg_color: 0x1E2040
@@ -2802,9 +2487,313 @@ lvgl:
                               scrollbar_mode: "OFF"
                               on_click:
                                 then:
-                                  - lambda: "lv_obj_add_flag(id(assign_id_modal), LV_OBJ_FLAG_HIDDEN);"
+                                  - lambda: 'bambuddy->cancel_tag_write();'
                               widgets:
                                 - label: {text: "Cancel", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
+                          - button:
+                              id: btn_tag_write_ok
+                              flex_grow: 1
+                              height: 40
+                              bg_color: 0x0D2B14
+                              border_color: 0x4CAF50
+                              border_width: 2
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: 'bambuddy->dismiss_tag_write();'
+                              widgets:
+                                - label: {text: "OK", text_font: roboto_16, text_color: 0x4CAF50, align: CENTER}
+
+              # ================ SPOOL-ID KEYPAD ===============================
+              # Enter a number on a 10-key pad. keypad_mode says what for:
+              # 0 = assign a spool to the AMS slot in modal_ams_id /
+              # modal_tray_slot (AMS "assign by ID"), 1 = link the tag on the
+              # reader to a spool (NFC spool picker), 2 = the reference weight
+              # to calibrate the scale with (Scale tab). Opened by the
+              # keypad_open script; the keys run keypad_key and keypad_enter;
+              # for a spool ID, ui_refresh names the spool it matches.
+              - obj:
+                  id: keypad_modal
+                  width: 95%
+                  height: 95%
+                  align: CENTER
+                  bg_color: 0x1A1A2C
+                  bg_opa: COVER
+                  border_color: 0x8585B8
+                  border_width: 2
+                  border_opa: COVER
+                  radius: 12
+                  pad_all: 12
+                  scrollbar_mode: "OFF"
+                  scrollable: false
+                  shadow_width: 16
+                  shadow_offset_x: 0
+                  shadow_offset_y: 6
+                  shadow_spread: 2
+                  shadow_color: 0x000000
+                  shadow_opa: COVER
+                  hidden: true
+                  layout:
+                    type: flex
+                    flex_flow: row
+                    pad_column: 12
+                  widgets:
+                    # ---- Left: what it's for, the typed ID, the spool it
+                    # matches, Cancel ----
+                    - obj:
+                        flex_grow: 2
+                        height: 100%
+                        bg_opa: TRANSP
+                        border_width: 0
+                        pad_all: 0
+                        scrollbar_mode: "OFF"
+                        layout:
+                          type: flex
+                          flex_flow: column
+                          pad_row: 8
+                        widgets:
+                          - label: {id: keypad_title, width: 100%, text: "Assign spool", text_font: roboto_20, text_color: 0x7BB4FF, long_mode: DOT}
+                          - label: {id: keypad_subtitle, width: 100%, text: "", text_font: roboto_16, text_color: 0xDDDDEE, long_mode: DOT}
+                          - obj:
+                              width: 100%
+                              height: 54
+                              bg_color: 0x12121A
+                              bg_opa: COVER
+                              border_color: 0x4ECDC4
+                              border_width: 2
+                              radius: 8
+                              pad_all: 0
+                              pad_left: 12
+                              scrollbar_mode: "OFF"
+                              layout:
+                                type: flex
+                                flex_flow: row
+                                flex_align_cross: center
+                                pad_column: 10
+                              widgets:
+                                - label: {id: keypad_prefix, text: "#", text_font: roboto_28, text_color: 0x777799}
+                                - label: {id: keypad_number, text: "", text_font: roboto_28, text_color: 0xFFFFFF}
+                                - label: {id: keypad_unit, text: "", text_font: roboto_28, text_color: 0x777799}
+                          - obj:
+                              id: keypad_preview
+                              width: 100%
+                              height: SIZE_CONTENT
+                              bg_opa: TRANSP
+                              border_width: 0
+                              pad_all: 0
+                              scrollbar_mode: "OFF"
+                              hidden: true
+                              layout:
+                                type: flex
+                                flex_flow: row
+                                flex_align_cross: center
+                                pad_column: 8
+                              widgets:
+                                - obj: {id: keypad_swatch, width: 22, height: 22, radius: 11, bg_color: 0x555577, bg_opa: COVER, border_width: 1, border_color: 0x555577, pad_all: 0, scrollbar_mode: "OFF"}
+                                - obj:
+                                    flex_grow: 1
+                                    height: SIZE_CONTENT
+                                    bg_opa: TRANSP
+                                    border_width: 0
+                                    pad_all: 0
+                                    scrollbar_mode: "OFF"
+                                    layout:
+                                      type: flex
+                                      flex_flow: column
+                                      pad_row: 2
+                                    widgets:
+                                      - label: {id: keypad_spool_name, width: 100%, text: "", text_font: roboto_16, text_color: 0xFFFFFF, long_mode: DOT}
+                                      - label: {id: keypad_spool_detail, width: 100%, text: "", text_font: roboto_12, text_color: 0xAAAACC, long_mode: DOT}
+                          - obj: {width: 100%, flex_grow: 1, bg_opa: TRANSP, border_width: 0, pad_all: 0}
+                          - button:
+                              id: btn_keypad_cancel
+                              width: 100%
+                              height: 46
+                              bg_color: 0x1E2040
+                              border_color: 0x8585B8
+                              border_width: 2
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - lambda: 'lv_obj_add_flag(id(keypad_modal), LV_OBJ_FLAG_HIDDEN);'
+                              widgets:
+                                - label: {text: "Cancel", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
+                    # ---- Right: 1-9, then backspace / 0 / Enter ----
+                    - obj:
+                        flex_grow: 3
+                        height: 100%
+                        bg_opa: TRANSP
+                        border_width: 0
+                        pad_all: 0
+                        scrollbar_mode: "OFF"
+                        layout:
+                          type: grid
+                          grid_columns: ["FR(1)", "FR(1)", "FR(1)"]
+                          grid_rows: ["FR(1)", "FR(1)", "FR(1)", "FR(1)"]
+                          grid_cell_x_align: stretch
+                          grid_cell_y_align: stretch
+                          pad_row: 8
+                          pad_column: 8
+                        widgets:
+                          - button:
+                              grid_cell_row_pos: 0
+                              grid_cell_column_pos: 0
+                              bg_color: 0x1E2040
+                              border_color: 0x5A5A8A
+                              border_width: 1
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - script.execute: {id: keypad_key, key: 1}
+                              widgets:
+                                - label: {text: "1", text_font: roboto_28, text_color: 0xFFFFFF, align: CENTER}
+                          - button:
+                              grid_cell_row_pos: 0
+                              grid_cell_column_pos: 1
+                              bg_color: 0x1E2040
+                              border_color: 0x5A5A8A
+                              border_width: 1
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - script.execute: {id: keypad_key, key: 2}
+                              widgets:
+                                - label: {text: "2", text_font: roboto_28, text_color: 0xFFFFFF, align: CENTER}
+                          - button:
+                              grid_cell_row_pos: 0
+                              grid_cell_column_pos: 2
+                              bg_color: 0x1E2040
+                              border_color: 0x5A5A8A
+                              border_width: 1
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - script.execute: {id: keypad_key, key: 3}
+                              widgets:
+                                - label: {text: "3", text_font: roboto_28, text_color: 0xFFFFFF, align: CENTER}
+                          - button:
+                              grid_cell_row_pos: 1
+                              grid_cell_column_pos: 0
+                              bg_color: 0x1E2040
+                              border_color: 0x5A5A8A
+                              border_width: 1
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - script.execute: {id: keypad_key, key: 4}
+                              widgets:
+                                - label: {text: "4", text_font: roboto_28, text_color: 0xFFFFFF, align: CENTER}
+                          - button:
+                              grid_cell_row_pos: 1
+                              grid_cell_column_pos: 1
+                              bg_color: 0x1E2040
+                              border_color: 0x5A5A8A
+                              border_width: 1
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - script.execute: {id: keypad_key, key: 5}
+                              widgets:
+                                - label: {text: "5", text_font: roboto_28, text_color: 0xFFFFFF, align: CENTER}
+                          - button:
+                              grid_cell_row_pos: 1
+                              grid_cell_column_pos: 2
+                              bg_color: 0x1E2040
+                              border_color: 0x5A5A8A
+                              border_width: 1
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - script.execute: {id: keypad_key, key: 6}
+                              widgets:
+                                - label: {text: "6", text_font: roboto_28, text_color: 0xFFFFFF, align: CENTER}
+                          - button:
+                              grid_cell_row_pos: 2
+                              grid_cell_column_pos: 0
+                              bg_color: 0x1E2040
+                              border_color: 0x5A5A8A
+                              border_width: 1
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - script.execute: {id: keypad_key, key: 7}
+                              widgets:
+                                - label: {text: "7", text_font: roboto_28, text_color: 0xFFFFFF, align: CENTER}
+                          - button:
+                              grid_cell_row_pos: 2
+                              grid_cell_column_pos: 1
+                              bg_color: 0x1E2040
+                              border_color: 0x5A5A8A
+                              border_width: 1
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - script.execute: {id: keypad_key, key: 8}
+                              widgets:
+                                - label: {text: "8", text_font: roboto_28, text_color: 0xFFFFFF, align: CENTER}
+                          - button:
+                              grid_cell_row_pos: 2
+                              grid_cell_column_pos: 2
+                              bg_color: 0x1E2040
+                              border_color: 0x5A5A8A
+                              border_width: 1
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - script.execute: {id: keypad_key, key: 9}
+                              widgets:
+                                - label: {text: "9", text_font: roboto_28, text_color: 0xFFFFFF, align: CENTER}
+                          - button:
+                              grid_cell_row_pos: 3
+                              grid_cell_column_pos: 0
+                              bg_color: 0x2A1A28
+                              border_color: 0x5A2A40
+                              border_width: 1
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - script.execute: {id: keypad_key, key: -1}
+                              widgets:
+                                - label: {text: "\U000F006E", text_font: mdi_24, text_color: 0xE0708C, align: CENTER}
+                          - button:
+                              grid_cell_row_pos: 3
+                              grid_cell_column_pos: 1
+                              bg_color: 0x1E2040
+                              border_color: 0x5A5A8A
+                              border_width: 1
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - script.execute: {id: keypad_key, key: 0}
+                              widgets:
+                                - label: {text: "0", text_font: roboto_28, text_color: 0xFFFFFF, align: CENTER}
+                          - button:
+                              id: btn_keypad_enter
+                              grid_cell_row_pos: 3
+                              grid_cell_column_pos: 2
+                              bg_color: 0x0D2B14
+                              border_color: 0x4CAF50
+                              border_width: 2
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              on_click:
+                                then:
+                                  - script.execute: keypad_enter
+                              widgets:
+                                - label: {id: keypad_enter_lbl, text: "Assign", text_font: roboto_16, text_color: 0x4CAF50, align: CENTER}
 
               # ================ LOCATION LINK MODAL ===========================
               # Shown while "link mode" is armed (Storage Locations screen's

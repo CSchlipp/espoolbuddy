@@ -1,6 +1,7 @@
 #include "bambuddy_nfc.h"
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
+#include "esphome/core/helpers.h"
 
 // mbedTLS HMAC-SHA256 (available in ESP-IDF)
 #include "mbedtls/md.h"
@@ -461,6 +462,190 @@ bool BambuddyNFCComponent::ntag_write_page(uint8_t target_num, uint8_t page,
   return resp[1] == 0x00;
 }
 
+bool BambuddyNFCComponent::ntag_reselect(const std::vector<uint8_t> &uid) {
+  delay(BAMBU_RETRY_DELAY_MS);
+  std::vector<uint8_t> again_uid;
+  uint8_t again_sak = 0;
+  if (!pn532_detect_tag(again_uid, again_sak)) {
+    ESP_LOGD(NFC_TAG, "NTAG re-select: tag gone");
+    return false;
+  }
+  if (again_uid != uid) {
+    ESP_LOGD(NFC_TAG, "NTAG re-select: a different tag is present");
+    return false;
+  }
+  return true;
+}
+
+template<typename Op>
+bool BambuddyNFCComponent::ntag_retry(const std::vector<uint8_t> &uid, const char *what,
+                                      uint8_t page, Op op) {
+  for (uint8_t attempt = 1; attempt <= NTAG_IO_ATTEMPTS; attempt++) {
+    if (op()) {
+      if (attempt > 1)
+        ESP_LOGD(NFC_TAG, "NTAG %s of page %u succeeded on attempt %u", what, page, attempt);
+      return true;
+    }
+    if (attempt == NTAG_IO_ATTEMPTS || !ntag_reselect(uid)) break;
+  }
+  return false;
+}
+
+bool BambuddyNFCComponent::ntag_read_pages_retry(uint8_t target_num,
+                                                 const std::vector<uint8_t> &uid,
+                                                 uint8_t start_page, uint8_t out[16]) {
+  return ntag_retry(uid, "read", start_page,
+                    [&] { return ntag_read_pages(target_num, start_page, out); });
+}
+
+bool BambuddyNFCComponent::ntag_write_page_retry(uint8_t target_num,
+                                                 const std::vector<uint8_t> &uid,
+                                                 uint8_t page, const uint8_t data[4]) {
+  // Rewriting a page with the same data is harmless, so a write whose ACK was
+  // lost can simply be repeated.
+  return ntag_retry(uid, "write", page,
+                    [&] { return ntag_write_page(target_num, page, data); });
+}
+
+bool BambuddyNFCComponent::ntag_get_version(uint8_t target_num, uint8_t out[8]) {
+  std::vector<uint8_t> cmd = {PN532_CMD_INDATAEXCHANGE, target_num, NTAG_GET_VERSION};
+  std::vector<uint8_t> resp;
+  if (!pn532_send_receive(cmd, resp, 300)) return false;
+  if (resp.size() < 10 || resp[1] != 0x00) return false;
+  memcpy(out, resp.data() + 2, 8);
+  return true;
+}
+
+bool BambuddyNFCComponent::ntag_format_blank(uint8_t target_num, const std::vector<uint8_t> &uid,
+                                             uint8_t cc[4], std::string &err) {
+  // Page 3 is one-time programmable (bits can only be set), so it is only
+  // written while it reads all zeros, and only with the size GET_VERSION gives.
+  uint8_t ver[8];
+  if (!ntag_get_version(target_num, ver)) {
+    err = "Blank tag of unknown type - format it as NDEF first";
+    return false;
+  }
+  uint8_t size_byte = 0;
+  if (ver[2] == 0x04) {  // product type NTAG
+    switch (ver[6]) {    // storage size
+      case 0x0F: size_byte = 0x12; break;  // NTAG213: 144 bytes
+      case 0x11: size_byte = 0x3E; break;  // NTAG215: 496 bytes
+      case 0x13: size_byte = 0x6D; break;  // NTAG216: 872 bytes
+    }
+  }
+  if (size_byte == 0) {
+    err = str_sprintf("Blank tag is not an NTAG213/215/216 (type %02X, size %02X)", ver[2], ver[6]);
+    return false;
+  }
+  const uint8_t new_cc[4] = {NDEF_CC_MAGIC, 0x10, size_byte, 0x00};
+  // GET_VERSION answered, so the tag is still selected. Not retried: a second
+  // write to a one-time-programmable page could only add bits.
+  uint8_t back[16];
+  if (!ntag_write_page(target_num, NTAG_CC_PAGE, new_cc) ||
+      !ntag_read_pages_retry(target_num, uid, NTAG_CC_PAGE, back) ||
+      memcmp(back, new_cc, 4) != 0) {
+    err = "Could not format the blank tag";
+    return false;
+  }
+  ESP_LOGI(NFC_TAG, "Formatted blank tag: CC %02X %02X %02X %02X", new_cc[0], new_cc[1],
+           new_cc[2], new_cc[3]);
+  memcpy(cc, new_cc, 4);
+  return true;
+}
+
+bool BambuddyNFCComponent::ntag_capacity(uint8_t target_num, const std::vector<uint8_t> &uid,
+                                         size_t &capacity, std::string &err) {
+  uint8_t pages[16];  // a READ of page 3 returns pages 3-6
+  if (!ntag_read_pages_retry(target_num, uid, NTAG_CC_PAGE, pages)) {
+    err = "Could not read the tag - hold it still and retry";
+    return false;
+  }
+  uint8_t cc[4] = {pages[0], pages[1], pages[2], pages[3]};
+  const bool blank = !(cc[0] | cc[1] | cc[2] | cc[3]);
+  if (blank && !ntag_format_blank(target_num, uid, cc, err)) return false;
+  if (cc[0] != NDEF_CC_MAGIC) {
+    err = str_sprintf("Tag is not NDEF-formatted (CC %02X %02X %02X %02X)", cc[0], cc[1], cc[2],
+                      cc[3]);
+    return false;
+  }
+  if ((cc[3] & 0x0F) != 0) {
+    err = "Tag is write-protected";
+    return false;
+  }
+  capacity = (size_t) cc[2] * 8;
+  return true;
+}
+
+bool BambuddyNFCComponent::ntag_write_data_area(uint8_t target_num,
+                                                const std::vector<uint8_t> &uid,
+                                                const std::vector<uint8_t> &data,
+                                                std::string &err) {
+  const unsigned num_pages = data.size() / 4;
+  auto write_page = [&](unsigned page, const uint8_t *d) {
+    if (ntag_write_page_retry(target_num, uid, (uint8_t) page, d)) {
+      delay(2);
+      return true;
+    }
+    ESP_LOGW(NFC_TAG, "NTAG write failed at page %u", page);
+    err = str_sprintf("Write failed at page %u - hold the tag still and retry", page);
+    return false;
+  };
+  // Empty message first, real header last: until the final page-4 write the
+  // tag reads as an empty NDEF message, never as a length over a partial body.
+  if (num_pages > 1) {
+    static const uint8_t EMPTY_MSG[4] = {NDEF_TLV_MESSAGE, 0x00, NDEF_TLV_TERMINATOR, 0x00};
+    if (!write_page(NTAG_DATA_PAGE, EMPTY_MSG)) return false;
+    for (unsigned i = 1; i < num_pages; i++)
+      if (!write_page(NTAG_DATA_PAGE + i, data.data() + i * 4)) return false;
+  }
+  return write_page(NTAG_DATA_PAGE, data.data());
+}
+
+bool BambuddyNFCComponent::ntag_verify_data_area(uint8_t target_num,
+                                                 const std::vector<uint8_t> &uid,
+                                                 const std::vector<uint8_t> &data,
+                                                 std::string &err) {
+  for (size_t off = 0; off < data.size(); off += 16) {  // 4 pages per READ
+    const unsigned page = NTAG_DATA_PAGE + off / 4;
+    uint8_t back[16];
+    if (!ntag_read_pages_retry(target_num, uid, (uint8_t) page, back)) {
+      err = "Could not read the tag back - hold it still and retry";
+      return false;
+    }
+    const size_t n = std::min<size_t>(16, data.size() - off);
+    if (memcmp(back, data.data() + off, n) != 0) {
+      err = str_sprintf("Tag did not keep the data (pages %u-%u) - retry", page,
+                        (unsigned) (page + (n + 3) / 4 - 1));
+      return false;
+    }
+  }
+  return true;
+}
+
+bool BambuddyNFCComponent::ntag_write_ndef(uint8_t target_num,
+                                           const std::vector<uint8_t> &uid,
+                                           std::vector<uint8_t> data,
+                                           std::string &err) {
+  if (data.size() < 3 || data[0] != NDEF_TLV_MESSAGE) {
+    err = "Bambuddy sent data that is not an NDEF message";
+    return false;
+  }
+  size_t capacity = 0;
+  if (!ntag_capacity(target_num, uid, capacity, err)) return false;
+  if (data.size() > capacity) {
+    err = str_sprintf("Tag too small: needs %u bytes, holds %u", (unsigned) data.size(),
+                      (unsigned) capacity);
+    return false;
+  }
+  // Pad to whole pages. capacity is a multiple of 8, so padding stays inside.
+  data.resize(((data.size() + 3) / 4) * 4, 0x00);
+  ESP_LOGI(NFC_TAG, "Writing %u pages (%u..%u) of %u bytes capacity",
+           (unsigned) (data.size() / 4), (unsigned) NTAG_DATA_PAGE,
+           (unsigned) (NTAG_DATA_PAGE + data.size() / 4 - 1), (unsigned) capacity);
+  return ntag_write_data_area(target_num, uid, data, err) &&
+         ntag_verify_data_area(target_num, uid, data, err);
+}
+
 // ============================================================================
 // UUID extraction (matches the Python daemon's tray-UUID extraction)
 // ============================================================================
@@ -842,6 +1027,7 @@ bool BambuddyNFCComponent::ntag_read_pages(uint8_t target_num,
 }
 
 std::string BambuddyNFCComponent::ntag_read_ndef(uint8_t target_num,
+                                                 const std::vector<uint8_t> &uid,
                                                  bambuddy_api::TagFilamentInfo &info) {
   // NTAG data area starts at page 4; reads come in 16-byte (4-page) chunks.
   // The first chunk is enough to locate the NDEF Message TLV and its length;
@@ -851,13 +1037,20 @@ std::string BambuddyNFCComponent::ntag_read_ndef(uint8_t target_num,
   // only loses records after the (first) OpenTag3D one.
   static constexpr size_t MAX_NDEF_AREA = 504;
   std::vector<uint8_t> mem(16);
-  if (!ntag_read_pages(target_num, 4, mem.data())) {
+  if (!ntag_read_pages_retry(target_num, uid, NTAG_DATA_PAGE, mem.data())) {
     ESP_LOGD(NFC_TAG, "NDEF read: page read failed");
     return "";
   }
 
   // Walk TLV blocks to find the NDEF Message TLV (0x03).
   size_t pos = 0;
+  // Tags written by SpoolBuddy (and by this firmware before it removed the
+  // CC) carry a copy of the Capability Container at the start of page 4. E1
+  // is not a TLV type, so read past it instead of mistaking it for one.
+  if (mem[0] == NDEF_CC_MAGIC && mem[4] == NDEF_TLV_MESSAGE) {
+    ESP_LOGD(NFC_TAG, "NDEF read: CC copy at page 4 skipped");
+    pos = 4;
+  }
   while (true) {
     if (pos >= mem.size()) return "";
     uint8_t tlv_t = mem[pos++];
@@ -879,15 +1072,18 @@ std::string BambuddyNFCComponent::ntag_read_ndef(uint8_t target_num,
     msg_len = (static_cast<size_t>(mem[pos]) << 8) | mem[pos + 1];
     pos += 2;
   }
-  if (msg_len == 0) return "ndef";  // NDEF-formatted but empty
+  // NDEF-formatted but empty: blank, like a tag never written (new NTAGs
+  // often come this way, and Unlink + Erase leaves one like it).
+  if (msg_len == 0) return "";
 
   // Read the rest of the message.
   size_t want = std::min(pos + msg_len, MAX_NDEF_AREA);
   while (mem.size() < want) {
     uint8_t chunk[16];
     uint8_t page = static_cast<uint8_t>(4 + mem.size() / 4);
-    if (!ntag_read_pages(target_num, page, chunk)) {
-      ESP_LOGW(NFC_TAG, "NDEF read: page %u read failed", page);
+    if (!ntag_read_pages_retry(target_num, uid, page, chunk)) {
+      ESP_LOGW(NFC_TAG, "NDEF read: page %u read failed after %u attempts", page,
+               (unsigned) NTAG_IO_ATTEMPTS);
       break;  // parse what we have; records past the gap are skipped
     }
     mem.insert(mem.end(), chunk, chunk + 16);
@@ -994,6 +1190,32 @@ bambuddy_api::TagFilamentInfo BambuddyNFCComponent::parse_opentag3d(const uint8_
   info.subtype       = str(0x07, 5);   // material modifier: "CF", "Silk", ...
   info.detailed_type = info.subtype.empty() ? info.material
                                             : info.material + " " + info.subtype;
+
+  // Tag Version has three implied decimals. 1.000-1.999 use the v1 layout
+  // ("core" block, 0x00-0x65), which is what Bambuddy's encoder writes
+  // (version 1000, 102 bytes); v2 moved most fields. Anything else, including
+  // an unset 0, is read as v2, as before.
+  const uint16_t version = u16(0x00);
+  if (version >= 1000 && version < 2000) {
+    info.brand      = str(0x1B, 16);
+    info.color_name = str(0x2B, 32);
+    if (len >= 0x4B + 3) {
+      char hex[7];
+      snprintf(hex, sizeof(hex), "%02X%02X%02X", p[0x4B], p[0x4C], p[0x4D]);
+      info.color_hex = hex;
+    }
+    uint16_t dia_um = u16(0x5C);       // µm
+    if (dia_um != 0 && dia_um != 0xFFFF) info.diameter = dia_um / 1000.0f;
+    uint16_t w = u16(0x5E);            // filament weight, grams
+    info.spool_weight = (w == 0xFFFF) ? 0 : w;
+    info.nozzle_temp_min = info.nozzle_temp_max = temp(0x60);  // print temp
+    info.bed_temp = temp(0x61);
+    ESP_LOGD(NFC_TAG, "OpenTag3D v%u.%03u payload (v1 layout)", version / 1000,
+             version % 1000);
+    info.valid = true;
+    return info;
+  }
+
   info.brand         = str(0x0C, 16);  // filament manufacturer
   info.color_name    = str(0x1C, 32);
   if (len >= 0x3C + 3) {
@@ -1027,54 +1249,88 @@ bool BambuddyNFCComponent::attempt_pending_write(
   // UID hex string for result reporting.
   std::string uid_str = uid_to_hex(uid);
 
-  // NTAG (NfcForum Type 2) reports SAK 0x00; some readers report 0x04.
-  bool is_ntag = (sak == 0x00 || sak == 0x04);
-  if (!is_ntag) {
+  // Claim the write before touching the tag: from here on a cancel or the
+  // timeout no longer applies, and this function reports the outcome.
+  std::vector<uint8_t> ndef;
+  int spool_id = 0;
+  if (!api_->claim_pending_write(&ndef, &spool_id)) return false;
+
+  if (!is_ntag_sak(sak)) {
     ESP_LOGW(NFC_TAG,
              "Pending write, but tag SAK=0x%02X is not an NTAG — cannot write",
              sak);
     api_->on_write_tag_result(
         uid_str, false,
         "Incompatible tag type — place a writable NTAG on the reader");
-    api_->clear_pending_write();
     return true;
   }
 
-  const std::vector<uint8_t> &ndef_data = api_->pending_write_data();
-  if (ndef_data.empty()) {
-    ESP_LOGW(NFC_TAG, "Pending write flagged but NDEF payload is empty");
-    api_->clear_pending_write();
-    return true;
-  }
-
-  size_t padded_len = ((ndef_data.size() + 3) / 4) * 4;
-  std::vector<uint8_t> padded = ndef_data;
-  padded.resize(padded_len, 0x00);
-  uint8_t num_pages = (uint8_t) (padded_len / 4);
-
-  ESP_LOGI(NFC_TAG,
-           "Writing NDEF to NTAG %s: %zu bytes -> %u pages (4..%u), spool %d",
-           uid_str.c_str(), ndef_data.size(), num_pages,
-           4 + num_pages - 1, api_->pending_write_spool_id());
-
-  bool write_ok = true;
-  for (size_t i = 0; i < padded_len; i += 4) {
-    uint8_t page = (uint8_t) (4 + i / 4);
-    if (!ntag_write_page(1, page, padded.data() + i)) {
-      write_ok = false;
-      ESP_LOGW(NFC_TAG, "NTAG write failed at page %u (%u/%u)", page,
-               (unsigned) (i / 4 + 1), num_pages);
-      break;
-    }
-    delay(2);
-  }
-
-  std::string msg = write_ok ? "Write successful" : "Write failed";
-  ESP_LOGI(NFC_TAG, "NTAG write result: %s (%zu bytes)", msg.c_str(),
-           ndef_data.size());
-  api_->on_write_tag_result(uid_str, write_ok, msg);
-  api_->clear_pending_write();
+  ESP_LOGI(NFC_TAG, "Writing spool %d to NTAG %s (%zu bytes from Bambuddy)",
+           spool_id, uid_str.c_str(), ndef.size());
+  std::string err;
+  const bool ok = ntag_write_ndef(1, uid, std::move(ndef), err);
+  const std::string msg = ok ? "Write successful" : err;
+  ESP_LOGI(NFC_TAG, "NTAG write result: %s", msg.c_str());
+  api_->on_write_tag_result(uid_str, ok, msg);
   return true;
+}
+
+void BambuddyNFCComponent::expire_pending_erase() {
+  std::string uid;
+  {
+    LockGuard guard(erase_mutex_);
+    if (erase_uid_.empty() || millis() - erase_requested_ms_ <= ERASE_WAIT_MS) return;
+    uid.swap(erase_uid_);
+  }
+  if (api_) api_->on_tag_erased(uid, false, "the tag left the reader first");
+}
+
+void BambuddyNFCComponent::attempt_pending_erase(const std::vector<uint8_t> &uid, uint8_t sak) {
+  const std::string uid_str = uid_to_hex(uid);
+  {
+    LockGuard guard(erase_mutex_);
+    if (erase_uid_ != uid_str) return;  // nothing pending for this tag
+    erase_uid_.clear();
+  }
+  std::string err = "not an NTAG";
+  const bool ok = is_ntag_sak(sak) && ntag_erase(1, uid, err);
+  ESP_LOGI(NFC_TAG, "NTAG erase %s: %s", uid_str.c_str(), ok ? "done" : err.c_str());
+  if (api_) api_->on_tag_erased(uid_str, ok, ok ? "" : err);
+}
+
+bool BambuddyNFCComponent::ntag_erase(uint8_t target_num, const std::vector<uint8_t> &uid,
+                                      std::string &err) {
+  size_t capacity = 0;
+  if (!ntag_capacity(target_num, uid, capacity, err)) return false;
+  // The first 32 bytes of the data area hold any TLVs before the message
+  // (NULL, lock/memory control, or a CC copy written at page 4).
+  uint8_t head[32];
+  if (!ntag_read_pages_retry(target_num, uid, NTAG_DATA_PAGE, head) ||
+      !ntag_read_pages_retry(target_num, uid, NTAG_DATA_PAGE + 4, head + 16)) {
+    err = "Could not read the tag - hold it still and retry";
+    return false;
+  }
+  size_t pos = (head[0] == NDEF_CC_MAGIC && head[4] == NDEF_TLV_MESSAGE) ? 4 : 0;
+  while (pos + 4 <= sizeof(head) && head[pos] != NDEF_TLV_MESSAGE) {
+    if (head[pos] == NDEF_TLV_TERMINATOR) break;
+    pos += head[pos] == 0x00 ? 1 : 2 + head[pos + 1];  // NULL, or skip a TLV
+  }
+  if (pos + 4 > sizeof(head) || head[pos] != NDEF_TLV_MESSAGE) {
+    err = "No NDEF message on the tag";
+    return false;
+  }
+  // Clear only the bytes the old message used, up to its terminator: a tag
+  // whose CC overstates its size is then never written past its data.
+  const bool long_len = head[pos + 1] == 0xFF;
+  const size_t len = long_len ? ((size_t) head[pos + 2] << 8 | head[pos + 3]) : head[pos + 1];
+  const size_t used = std::min(pos + (long_len ? 4 : 2) + len + 1, capacity);
+  // An empty message followed by zeros, written and verified like any write
+  // (the empty message goes on first, so the tag never reads half-erased).
+  std::vector<uint8_t> data(((used + 3) / 4) * 4, 0x00);
+  data[0] = NDEF_TLV_MESSAGE;
+  data[2] = NDEF_TLV_TERMINATOR;
+  return ntag_write_data_area(target_num, uid, data, err) &&
+         ntag_verify_data_area(target_num, uid, data, err);
 }
 
 void BambuddyNFCComponent::log_stats_if_due() {
@@ -1101,6 +1357,7 @@ void BambuddyNFCComponent::log_stats_if_due() {
 void BambuddyNFCComponent::poll_once() {
   if (!nfc_ok_) return;
   stats_.cycles++;
+  expire_pending_erase();
 
   // Link supervision: a reader that keeps failing exchanges is re-initialised
   // rather than polled forever in a state it will not leave by itself.
@@ -1165,9 +1422,9 @@ void BambuddyNFCComponent::poll_once() {
 
       // Determine tag type
       std::string tag_type;
-      if (sak == 0x08 || sak == 0x18) {
+      if (is_mifare_classic_sak(sak)) {
         tag_type = "mifare_classic";
-      } else if (sak == 0x00 || sak == 0x04) {
+      } else if (is_ntag_sak(sak)) {
         tag_type = "ntag";
       } else {
         tag_type = "unknown";
@@ -1185,8 +1442,8 @@ void BambuddyNFCComponent::poll_once() {
       // along with the scan, and before attempt_pending_write() so we
       // classify the current content.
       std::string ndef_fmt;
-      if (sak == 0x00 || sak == 0x04) {
-        ndef_fmt = ntag_read_ndef(1, tag_info);
+      if (is_ntag_sak(sak)) {
+        ndef_fmt = ntag_read_ndef(1, uid, tag_info);
         if (tag_info.valid) {
           ESP_LOGI(NFC_TAG,
                    "OpenTag3D tag decoded: %s %s / %s (#%s) %u g, "
@@ -1198,7 +1455,7 @@ void BambuddyNFCComponent::poll_once() {
         }
       }
       // Try to read Bambu tag data for MIFARE Classic
-      if (sak == 0x08 || sak == 0x18) {
+      if (is_mifare_classic_sak(sak)) {
         std::vector<std::pair<uint8_t, std::array<uint8_t, 16>>> blocks;
         if (read_bambu_blocks_retry(uid, blocks)) {
           tray_uuid   = extract_tray_uuid(blocks);
@@ -1236,12 +1493,14 @@ void BambuddyNFCComponent::poll_once() {
 
       // A write command may already be queued (e.g. tag re-placed); try it.
       attempt_pending_write(uid, sak);
+      attempt_pending_erase(uid, sak);
 
     } else {
       // Tag still on the reader from a previous cycle.  The write command
       // usually arrives here, a poll or two after the initial scan, via the
       // backend's heartbeat response.
       attempt_pending_write(current_uid_, current_sak_);
+      attempt_pending_erase(current_uid_, current_sak_);
     }
 
   } else {
