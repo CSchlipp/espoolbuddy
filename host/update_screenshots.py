@@ -51,6 +51,7 @@ SHARED = [
 ]
 # Screens only one UI has.
 FULL_ONLY = ["ams", "ams-slot", "quick-settings", "nfc-picker",
+             "tag-write-offer", "tag-write-waiting", "tag-write-done",
              "settings-features", "settings-storage"]
 LITE_ONLY = ["spool-actions", "unlinked-actions", "settings", "settings-more"]
 
