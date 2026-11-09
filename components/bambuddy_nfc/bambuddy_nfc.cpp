@@ -879,7 +879,10 @@ std::string BambuddyNFCComponent::ntag_read_ndef(uint8_t target_num,
     msg_len = (static_cast<size_t>(mem[pos]) << 8) | mem[pos + 1];
     pos += 2;
   }
-  if (msg_len == 0) return "ndef";  // NDEF-formatted but empty
+  // NDEF-formatted but empty: how blank NTAG stickers usually ship. Still an
+  // NDEF tag (NFC icon), but nothing to lose, so the UI offers Write Tag
+  // rather than Overwrite Tag (FilamentInfo::tag_has_data()).
+  if (msg_len == 0) return "ndef_empty";
 
   // Read the rest of the message.
   size_t want = std::min(pos + msg_len, MAX_NDEF_AREA);
@@ -1224,14 +1227,12 @@ void BambuddyNFCComponent::poll_once() {
         // afterwards: on a scale device on_tag_scanned() queues the push to the
         // console straight away, so anything set after the call would arrive
         // too late to be forwarded.
+        // So is the NDEF read's format, for the same reason.
+        if (!ndef_fmt.empty()) {
+          ESP_LOGD(NFC_TAG, "NDEF format detected: %s", ndef_fmt.c_str());
+        }
         api_->on_tag_scanned(uid_str, tray_uuid, (int)sak, tag_type,
-                             tag_info.valid ? &tag_info : nullptr);
-      }
-
-      // Refine the SAK-based format with what the NDEF read found.
-      if (!ndef_fmt.empty() && api_) {
-        ESP_LOGD(NFC_TAG, "NDEF format detected: %s", ndef_fmt.c_str());
-        api_->set_tag_format(ndef_fmt);
+                             tag_info.valid ? &tag_info : nullptr, ndef_fmt);
       }
 
       // A write command may already be queued (e.g. tag re-placed); try it.

@@ -222,11 +222,12 @@ obj:
               align: TOP_LEFT
               hidden: true
 
-          # ---- Action row: Unlink | Quick Weight | Discard ----
-          # Flex row, bottom of the panel. Buttons stretch to share the
-          # available width equally (flex_grow: 1); which are visible is
-          # decided at runtime (LV_OBJ_FLAG_HIDDEN) by app.yaml —
-          # flex automatically reflows the remaining visible buttons.
+          # ---- Action row: Quick Weight | Discard | ⋮ ----
+          # Flex row, bottom of the panel. Quick Weight and Discard stretch to
+          # share the width (flex_grow: 1); ⋮ opens nfc_actions with the
+          # actions not needed on every scan (Write Tag, Print Label, Unlink
+          # Tag). Which buttons are visible is decided at runtime
+          # (LV_OBJ_FLAG_HIDDEN) by app.yaml — flex reflows the rest.
           - obj:
               id: nfc_action_row
               align: BOTTOM_MID
@@ -244,30 +245,6 @@ obj:
                 pad_column: 8
               scrollbar_mode: "OFF"
               widgets:
-                # ---- Unlink tag ----
-                - button:
-                    id: btn_nfc_unlink
-                    flex_grow: 1
-                    height: 50
-                    bg_color: 0x2A1A1A
-                    border_color: 0x9C3A3A
-                    border_width: 2
-                    radius: 6
-                    scrollbar_mode: "OFF"
-                    hidden: true
-                    on_click:
-                      then:
-                        - lambda: |-
-                            id(confirm_action) = 1;
-                            lv_label_set_text(id(confirm_msg), "Unlink this tag from its spool?");
-                            lv_label_set_text(id(confirm_ok_lbl), "Unlink");
-                            lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
-                    widgets:
-                      - label:
-                          text: "Unlink Tag"
-                          text_font: roboto_16
-                          text_color: 0xFF8888
-                          align: CENTER
                 # ---- Quick Weight ----
                 - button:
                     id: btn_nfc_weight
@@ -319,34 +296,6 @@ obj:
                           text_color: 0x4ECDC4
                           text_align: CENTER
                           align: CENTER
-                # ---- Print Label (only with the espoolbuddy/label_printer_m220.yaml package) ----
-                - button:
-                    id: btn_nfc_print
-                    flex_grow: 1
-                    height: 50
-                    bg_color: 0x1A1A2E
-                    border_color: 0x4A4A8A
-                    border_width: 1
-                    radius: 5
-                    scrollbar_mode: "OFF"
-                    hidden: true
-                    on_click:
-                      then:
-                        - lambda: |-
-                            #ifdef USE_LABEL_PRINTER
-                            auto s = bambuddy->snapshot();
-                            if (label_printer::global_label_printer != nullptr)
-                              label_printer::global_label_printer->print_spool(s.current_filament.spool_id);
-                            #endif
-                    widgets:
-                      - label:
-                          id: lbl_nfc_print_btn
-                          width: 100%
-                          text: "Print Label"
-                          text_font: roboto_16
-                          text_color: 0xA5A5FF
-                          text_align: CENTER
-                          align: CENTER
                 # ---- Discard ----
                 - button:
                     id: btn_dismiss
@@ -364,7 +313,7 @@ obj:
                         # itself only resets state (no network), so it's instant.
                         - lambda: |-
                             lv_obj_add_flag(id(nfc_spool_box), LV_OBJ_FLAG_HIDDEN);
-                            lv_obj_add_flag(id(nfc_write_banner), LV_OBJ_FLAG_HIDDEN);
+                            lv_obj_add_flag(id(nfc_actions), LV_OBJ_FLAG_HIDDEN);
                             lv_obj_add_flag(id(nfc_archive_proposal_popup), LV_OBJ_FLAG_HIDDEN);
                             lv_label_set_text(id(nfc_waiting_text), "Place spool tag on reader");
                             lv_obj_clear_flag(id(nfc_waiting), LV_OBJ_FLAG_HIDDEN);
@@ -380,6 +329,30 @@ obj:
                           text: "Discard"
                           text_font: roboto_16
                           text_color: 0xE0708C
+                          align: CENTER
+                # ---- ⋮ More actions (opens nfc_actions) ----
+                - button:
+                    id: btn_nfc_more
+                    width: 56
+                    height: 50
+                    bg_color: 0x1E2040
+                    border_color: 0x8585B8
+                    border_width: 1
+                    radius: 6
+                    scrollbar_mode: "OFF"
+                    hidden: true
+                    on_click:
+                      then:
+                        - lambda: 'lv_obj_clear_flag(id(nfc_actions), LV_OBJ_FLAG_HIDDEN);'
+                        # Item visibility and texts on the next pass, not the
+                        # next 400 ms tick.
+                        - delay: 0ms
+                        - script.execute: ui_refresh
+                    widgets:
+                      - label:
+                          text: "\U000F01D9"   # dots-vertical
+                          text_font: mdi_30
+                          text_color: 0xDDDDEE
                           align: CENTER
 
           # Auto-assign success banner — declared after buttons so it renders on top
@@ -410,67 +383,6 @@ obj:
                     text_color: 0x4CAF50
                     text_align: CENTER
                     align: LEFT_MID
-
-          # ---- "Write NFC tag?" proposal overlay ----
-          # Shown after linking a writable (non-Bambu) tag to a
-          # spool. Overlays the bottom action row.
-          - obj:
-              id: nfc_write_banner
-              align: BOTTOM_MID
-              y: -6
-              width: 100%
-              height: 40
-              bg_color: 0x0D1E30
-              border_color: 0x3A6A9C
-              border_width: 2
-              radius: 6
-              pad_all: 0
-              pad_left: 8
-              pad_right: 8
-              layout:
-                type: FLEX
-                flex_flow: ROW
-                flex_align_cross: center
-                pad_column: 6
-              scrollbar_mode: "OFF"
-              hidden: true
-              widgets:
-                - label:
-                    flex_grow: 1
-                    text: "Write spool to NFC tag?"
-                    text_font: roboto_12
-                    text_color: 0xAABBDD
-                    text_align: LEFT
-                - button:
-                    id: btn_nfc_write_yes
-                    width: 100
-                    height: 38
-                    bg_color: 0x0D2B14
-                    border_color: 0x4CAF50
-                    border_width: 2
-                    radius: 4
-                    scrollbar_mode: "OFF"
-                    on_click:
-                      then:
-                        - lambda: |-
-                            bambuddy->dismiss_nfc_write_proposal();
-                            // TODO: trigger NFC write action here
-                    widgets:
-                      - label: {text: "Write", text_font: roboto_12, text_color: 0x4CAF50, align: CENTER}
-                - button:
-                    id: btn_nfc_write_skip
-                    width: 100
-                    height: 38
-                    bg_color: 0x1E2030
-                    border_color: 0x6666AA
-                    border_width: 1
-                    radius: 4
-                    scrollbar_mode: "OFF"
-                    on_click:
-                      then:
-                        - lambda: bambuddy->dismiss_nfc_write_proposal();
-                    widgets:
-                      - label: {text: "Skip", text_font: roboto_12, text_color: 0xBBBBCC, align: CENTER}
 
           # ---- Quick Weight popup — sized to content, shown over spool detail ----
           - obj:
@@ -683,6 +595,144 @@ obj:
                                   bambuddy->dismiss_archive_proposal();
                           widgets:
                             - label: {text: "Keep", text_font: roboto_16, text_color: 0xBBBBCC, align: CENTER}
+
+          # ---- ⋮ actions sheet (Lite UI: lite_actions) ----
+          # The spool actions not needed on every scan. Declared last so it
+          # draws over the action row and the popups above; tapping the dimmed
+          # area closes it. Which items show, and their texts, are set by
+          # app.yaml each tick. Write Tag and Print Label leave the sheet open
+          # so their item shows how it's going; Unlink Tag and Overwrite Tag
+          # hand over to confirm_modal.
+          - obj:
+              id: nfc_actions
+              width: 100%
+              height: 100%
+              align: CENTER
+              bg_color: 0x000000
+              bg_opa: 60%
+              border_width: 0
+              radius: 0
+              pad_all: 6
+              scrollable: false
+              scrollbar_mode: "OFF"
+              hidden: true
+              on_click:
+                then:
+                  - lambda: 'lv_obj_add_flag(id(nfc_actions), LV_OBJ_FLAG_HIDDEN);'
+              widgets:
+                - obj:
+                    align: BOTTOM_MID
+                    width: 100%
+                    height: SIZE_CONTENT
+                    bg_color: 0x1A1A2C
+                    bg_opa: COVER
+                    border_color: 0x8585B8
+                    border_width: 2
+                    radius: 12
+                    pad_all: 8
+                    scrollable: false
+                    scrollbar_mode: "OFF"
+                    layout:
+                      type: FLEX
+                      flex_flow: COLUMN
+                      pad_row: 6
+                    widgets:
+                      # ---- Write Tag / Overwrite Tag ----
+                      - button:
+                          id: btn_act_write
+                          width: 100%
+                          height: 40
+                          bg_color: 0x0D2B14
+                          border_color: 0x4CAF50
+                          border_width: 2
+                          radius: 6
+                          scrollbar_mode: "OFF"
+                          hidden: true
+                          on_click:
+                            then:
+                              - lambda: |-
+                                  auto s = bambuddy->snapshot();
+                                  if (s.tag_write_busy) return;
+                                  if (!s.current_filament.tag_has_data()) {
+                                    // Blank tag: nothing to lose, write straight away.
+                                    bambuddy->request_tag_write();
+                                    return;
+                                  }
+                                  lv_obj_add_flag(id(nfc_actions), LV_OBJ_FLAG_HIDDEN);
+                                  id(confirm_action) = 5;
+                                  lv_label_set_text(id(confirm_msg), "Overwrite the data on this tag?");
+                                  lv_label_set_text(id(confirm_ok_lbl), "Overwrite");
+                                  lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+                              - delay: 0ms
+                              - script.execute: ui_refresh
+                          widgets:
+                            - label:
+                                id: lbl_act_write
+                                text: "Write Tag"
+                                text_font: roboto_16
+                                text_color: 0x4CAF50
+                                align: CENTER
+                      # ---- Print Label (only with a label printer package) ----
+                      - button:
+                          id: btn_act_print
+                          width: 100%
+                          height: 40
+                          bg_color: 0x1A1A2E
+                          border_color: 0x4A4A8A
+                          border_width: 1
+                          radius: 6
+                          scrollbar_mode: "OFF"
+                          hidden: true
+                          on_click:
+                            then:
+                              - lambda: |-
+                                  #ifdef USE_LABEL_PRINTER
+                                  auto s = bambuddy->snapshot();
+                                  if (label_printer::global_label_printer != nullptr)
+                                    label_printer::global_label_printer->print_spool(s.current_filament.spool_id);
+                                  #endif
+                          widgets:
+                            - label:
+                                id: lbl_act_print
+                                text: "Print Label"
+                                text_font: roboto_16
+                                text_color: 0xA5A5FF
+                                align: CENTER
+                      # ---- Unlink Tag ----
+                      - button:
+                          id: btn_act_unlink
+                          width: 100%
+                          height: 40
+                          bg_color: 0x2A1A1A
+                          border_color: 0x9C3A3A
+                          border_width: 2
+                          radius: 6
+                          scrollbar_mode: "OFF"
+                          on_click:
+                            then:
+                              - lambda: |-
+                                  lv_obj_add_flag(id(nfc_actions), LV_OBJ_FLAG_HIDDEN);
+                                  id(confirm_action) = 1;
+                                  lv_label_set_text(id(confirm_msg), "Unlink this tag from its spool?");
+                                  lv_label_set_text(id(confirm_ok_lbl), "Unlink");
+                                  lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+                          widgets:
+                            - label: {text: "Unlink Tag", text_font: roboto_16, text_color: 0xFF8888, align: CENTER}
+                      # ---- Cancel ----
+                      - button:
+                          id: btn_act_cancel
+                          width: 100%
+                          height: 40
+                          bg_color: 0x1E2040
+                          border_color: 0x8585B8
+                          border_width: 2
+                          radius: 6
+                          scrollbar_mode: "OFF"
+                          on_click:
+                            then:
+                              - lambda: 'lv_obj_add_flag(id(nfc_actions), LV_OBJ_FLAG_HIDDEN);'
+                          widgets:
+                            - label: {text: "Cancel", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
 
     # ================ NFC: UNLINKED TAG PANEL ================
     # Shown when a tag is present on the reader but not yet

@@ -403,7 +403,8 @@ void BambuddyAPIComponent::http_task_loop() {
       if (dequeue_job(job)) {
         switch (job.kind) {
           case HttpJob::SCALE_PUSH_NFC_SCANNED:
-            api_scale_push_nfc_scanned(job.s1, job.s2, job.i1, job.s3, job.filament);
+            api_scale_push_nfc_scanned(job.s1, job.s2, job.i1, job.s3, job.filament,
+                                       job.tag_format);
             break;
           case HttpJob::SCALE_PUSH_NFC_REMOVED:
             api_scale_push_nfc_removed(job.s1);
@@ -532,6 +533,13 @@ void BambuddyAPIComponent::http_task_loop() {
           break;
         case HttpJob::WRITE_RESULT:
           api_write_tag_result(job.i1, job.s1, job.b1, job.s2);
+          break;
+        case HttpJob::REQUEST_TAG_WRITE:
+          api_request_tag_write(job.i1);
+          // Fetch the write_tag command Bambuddy just queued right away,
+          // while the tag is still on the reader.
+          api_heartbeat();
+          last_heartbeat_ms_ = millis();
           break;
         case HttpJob::UPDATE_TARE:
           // Every UPDATE_TARE / UPDATE_CALIBRATION job was queued through
@@ -825,7 +833,8 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
                                            const std::string &tray_uuid,
                                            int sak,
                                            const std::string &tag_type,
-                                           const TagFilamentInfo *filament) {
+                                           const TagFilamentInfo *filament,
+                                           const std::string &ndef_format) {
   ESP_LOGI(TAG, "Tag scanned: uid=%s tray_uuid=%s sak=0x%02X type=%s",
            uid.c_str(), tray_uuid.c_str(), sak, tag_type.c_str());
 
@@ -908,14 +917,14 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
   }
 
   // Immediate (non-blocking) UI feedback under the state lock.
-  // tag_format is seeded here for BambuLab (Mifare Classic) where SAK is
-  // sufficient; for NTAG the NFC component updates it via set_tag_format()
-  // after reading NDEF pages (a few ms later, still before the HTTP response).
-  std::string initial_format;
+  // tag_format: "bambu_lab" for Mifare Classic (SAK is enough); for NTAG,
+  // what the NFC component's NDEF read found ("" = blank tag).  A tag scanned
+  // on the scale carries that read's result in its push.
+  std::string initial_format = ndef_format;
   if (tag_type == "mifare_classic") initial_format = "bambu_lab";
-  // A decoded payload knows its own format.  This is what carries
-  // "open_tag_3d" across a scale -> console push, where no NDEF read
-  // follows on the console to refine it via set_tag_format().
+  // A decoded payload knows its own format.  This also carries
+  // "open_tag_3d" across a push from scale firmware that predates the
+  // pushed tag_format.
   if (filament != nullptr && filament->valid && !filament->format.empty())
     initial_format = filament->format;
   lock_state();
@@ -940,6 +949,7 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
   display_state_.status_message = "Tag detected: " + uid;
   display_state_.nfc_scan_generation++;  // lets the UI detect new physical scans
   display_state_.propose_archive = false;  // new scan cancels any pending archive proposal
+  display_state_.tag_write_busy = false;
   last_tag_source_ = TagSource::LOCAL;   // overridden to SCALE by console_http_scale_nfc_scanned
   unlock_state();
 
@@ -988,6 +998,7 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
     job.s3 = tag_type;
     job.i1 = sak;
     if (filament != nullptr) job.filament = *filament;
+    job.tag_format = ndef_format;
     enqueue_job(job);
   }
 }
@@ -996,6 +1007,7 @@ void BambuddyAPIComponent::on_tag_removed(const std::string &uid) {
   ESP_LOGI(TAG, "Tag removed: uid=%s", uid.c_str());
   lock_state();
   display_state_.tag_resolving = false;  // cancel any in-flight resolution
+  display_state_.tag_write_busy = false;
   if (display_state_.spool_selected || satellite()) {
     // Linked spool, OR satellite: clear physical presence immediately.
     // On a satellite the console manages its own sticky-TTL once it
@@ -1149,10 +1161,7 @@ void BambuddyAPIComponent::on_write_tag_result(const std::string &uid,
   if (pending_write_active_.load()) {
     int spool_id = pending_write_spool_id_;
     pending_write_active_.store(false);
-    lock_state();
-    display_state_.status_message = success ? "Tag written successfully"
-                                            : "Tag write failed: " + msg;
-    unlock_state();
+    finish_tag_write(success, msg);
 
     HttpJob job;
     job.kind = HttpJob::WRITE_RESULT;
@@ -1605,10 +1614,9 @@ bool BambuddyAPIComponent::api_tag_scanned(const std::string &uid,
     // A tag "belongs to a spool" when the backend resolves material or a
     // spool_id.  Such spools become the sticky selection shown on the NFC page.
     bool is_spool = !fi.material_type.empty() || fi.spool_id > 0;
-    // Preserve tag_format: set by on_tag_scanned() and refined by the NFC
-    // component's NDEF read (set_tag_format()), both of which happen before or
-    // concurrently with this HTTP response.  Reading it here under the lock
-    // gives us the most up-to-date value.
+    // Preserve tag_format: set by on_tag_scanned() from the NFC component's
+    // NDEF read, or by a write that finished since.  Reading it here under
+    // the lock gives us the most up-to-date value.
     lock_state();
     fi.tag_format = display_state_.current_filament.tag_format;
     std::string scan_uid = display_state_.last_tag_uid;  // set by on_tag_scanned()
@@ -1908,6 +1916,24 @@ bool BambuddyAPIComponent::api_write_tag_result(int spool_id,
      << "}";
   std::string resp;
   return http_post("/nfc/write-result", js.str(), resp);
+}
+
+void BambuddyAPIComponent::api_request_tag_write(int spool_id) {
+  std::ostringstream js;
+  js << "{"
+     << "\"device_id\":" << json_string(device_id_) << ","
+     << "\"spool_id\":" << spool_id
+     << "}";
+  std::string resp;
+  if (http_post("/nfc/write-tag", js.str(), resp)) {
+    set_status("Writing tag...");
+    return;
+  }
+  ESP_LOGW(TAG, "write-tag request for spool %d failed", spool_id);
+  lock_state();
+  display_state_.tag_write_busy = false;
+  display_state_.status_message = "Tag write request failed";
+  unlock_state();
 }
 
 bool BambuddyAPIComponent::api_diagnostic_result(
@@ -3362,7 +3388,8 @@ void BambuddyAPIComponent::api_scale_push_nfc_scanned(const std::string &uid,
                                                         const std::string &tray_uuid,
                                                         int sak,
                                                         const std::string &tag_type,
-                                                        const TagFilamentInfo &filament) {
+                                                        const TagFilamentInfo &filament,
+                                                        const std::string &tag_format) {
   if (console_urls_.empty()) return;
 
   // Built as a std::string rather than a fixed char[]: the decoded filament
@@ -3375,6 +3402,9 @@ void BambuddyAPIComponent::api_scale_push_nfc_scanned(const std::string &uid,
   body += "\"tray_uuid\":" + json_string(tray_uuid) + ",";
   body += "\"sak\":" + std::to_string(sak) + ",";
   body += "\"tag_type\":" + json_string(tag_type);
+  // What the NDEF read found ("" = blank), so the console can tell Write Tag
+  // from Overwrite Tag for a tag on the scale.
+  if (!tag_format.empty()) body += ",\"tag_format\":" + json_string(tag_format);
   std::string filament_fields = tag_filament_json_fields(filament);
   if (!filament_fields.empty()) body += "," + filament_fields;
   body += "}";
@@ -3650,6 +3680,9 @@ esp_err_t BambuddyAPIComponent::console_http_scale_nfc_scanned(httpd_req_t *req)
   std::string tray_uuid = parse_json_string(json, "tray_uuid");
   int         sak      = parse_json_int(json, "sak", 0);
   std::string tag_type = parse_json_string(json, "tag_type");
+  // Optional: what the scale's NDEF read found; older scale firmware leaves
+  // it out (the console then can't tell a blank NTAG from one with data).
+  std::string tag_format = parse_json_string(json, "tag_format");
   // Optional: the decoded filament payload.  Older scale firmware does not
   // send it — parse_tag_filament_json() then returns an invalid struct and the
   // console falls back to the generic placeholder exactly as before.
@@ -3669,7 +3702,7 @@ esp_err_t BambuddyAPIComponent::console_http_scale_nfc_scanned(httpd_req_t *req)
 
   // Route through the unified NFC path — identical to a locally-scanned tag.
   self->on_tag_scanned(uid, tray_uuid, sak, tag_type.empty() ? "unknown" : tag_type,
-                       filament.valid ? &filament : nullptr);
+                       filament.valid ? &filament : nullptr, tag_format);
   // Override source AFTER on_tag_scanned() so write_tag commands are routed back
   // to the scale's PN532 rather than waiting on the console's reader.
   self->last_tag_source_ = TagSource::SCALE;
@@ -3713,6 +3746,10 @@ esp_err_t BambuddyAPIComponent::console_http_scale_nfc_write_result(httpd_req_t 
 
   ESP_LOGI(TAG, "Console received scale write-result: spool=%d uid=%s success=%d msg=%s",
            spool_id, uid.c_str(), (int)success, msg.c_str());
+
+  // The write happened on the scale's reader: show its result here, as for a
+  // write on this console's own reader.
+  self->finish_tag_write(success, msg);
 
   // Relay to BamBuddy via the existing WRITE_RESULT path on the console's HTTP task.
   HttpJob job;
@@ -4886,6 +4923,7 @@ void BambuddyAPIComponent::unlink_current_tag() {
   int spool_id;
   lock_state();
   spool_id = display_state_.current_filament.spool_id;
+  display_state_.tag_write_busy = false;
   unlock_state();
   if (spool_id <= 0) return;
   HttpJob job;
@@ -4893,6 +4931,29 @@ void BambuddyAPIComponent::unlink_current_tag() {
   job.i1   = spool_id;
   job.s1   = "";    // empty = unlink
   enqueue_job(job);
+}
+
+void BambuddyAPIComponent::request_tag_write() {
+  int spool_id = 0;
+  lock_state();
+  const auto &fi = display_state_.current_filament;
+  if (display_state_.spool_selected && fi.spool_id > 0 && fi.tag_type == "ntag" &&
+      !display_state_.tag_write_busy) {
+    spool_id = fi.spool_id;
+    display_state_.tag_write_busy = true;
+    display_state_.status_message = "Writing tag...";
+  }
+  unlock_state();
+  if (spool_id <= 0) return;
+  HttpJob job;
+  job.kind = HttpJob::REQUEST_TAG_WRITE;
+  job.i1   = spool_id;
+  if (!enqueue_job(job)) {
+    lock_state();
+    display_state_.tag_write_busy = false;
+    display_state_.status_message = "Tag write request failed";
+    unlock_state();
+  }
 }
 
 void BambuddyAPIComponent::create_spool_from_tag() {

@@ -113,7 +113,7 @@ globals:
     restore_value: no
     initial_value: '-1'
   - id: confirm_action       # pending action for confirm_modal: 0=none 1=unlink tag
-    type: int                # 2=clear assignment 3=reboot 4=unlink storage location
+    type: int                # 2=clear assignment 3=reboot 4=unlink storage location 5=overwrite tag
     restore_value: no
     initial_value: '0'
   - id: confirm_location_id  # storage location id targeted by confirm_action=4
@@ -940,10 +940,11 @@ script:
               id(nfc_weight_popup_open) = 0;
               lv_obj_add_flag(id(nfc_weight_popup), LV_OBJ_FLAG_HIDDEN);
             }
-            if (id(confirm_action) == 1) {
+            if (id(confirm_action) == 1 || id(confirm_action) == 5) {
               id(confirm_action) = 0;
               lv_obj_add_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
             }
+            lv_obj_add_flag(id(nfc_actions), LV_OBJ_FLAG_HIDDEN);
             if (!nfc_episode_active) {
               nfc_ep_saw_content = false;
               nfc_return_tab = (id(active_tab) != 1) ? id(active_tab) : -1;
@@ -1313,7 +1314,7 @@ script:
                 lv_obj_clear_flag(id(nfc_icon_bambu), LV_OBJ_FLAG_HIDDEN);
               } else if (fmt == "open_tag_3d") {
                 lv_obj_clear_flag(id(nfc_icon_opentag3d), LV_OBJ_FLAG_HIDDEN);
-              } else if (fmt == "ndef") {
+              } else if (fi.tag_is_ndef()) {
                 lv_obj_clear_flag(id(nfc_icon_nfc), LV_OBJ_FLAG_HIDDEN);
               }
             }
@@ -1345,13 +1346,10 @@ script:
               lv_obj_add_flag(id(nfc_assign_banner), LV_OBJ_FLAG_HIDDEN);
             }
 
-            // ---- Action row: Unlink | Quick Weight | Discard (nfc_action_row is a
-            // flex row with each button flex_grow:1 -- tab_nfc.yaml -- so hiding a
-            // button is all that's needed for the remaining ones to reflow; no
-            // width/x math to keep in sync with the YAML any more) ----
+            // ---- Action row: Quick Weight | Discard | ⋮ (nfc_action_row is a
+            // flex row -- tab_nfc.yaml -- so hiding a button is all that's
+            // needed for the remaining ones to reflow) ----
             if (fi.spool_id > 0 && s.scale_ok) {
-              // All three visible
-              lv_obj_clear_flag(id(btn_nfc_unlink), LV_OBJ_FLAG_HIDDEN);
               lv_obj_clear_flag(id(btn_nfc_weight), LV_OBJ_FLAG_HIDDEN);
               // Live weight shortcut: show net (filament only) and total (spool+filament).
               if (s.weight_stable && s.weight_grams > 5.0f) {
@@ -1367,37 +1365,45 @@ script:
                 lv_label_set_text(id(lbl_nfc_weight_btn), "Quick Weight");
                 lv_obj_set_style_text_color(id(lbl_nfc_weight_btn), lv_color_hex(0x4ECDC4), LV_PART_MAIN);
               }
-            } else if (fi.spool_id > 0) {
-              // Unlink + Discard (no scale)
-              lv_obj_clear_flag(id(btn_nfc_unlink), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_add_flag(id(btn_nfc_weight), LV_OBJ_FLAG_HIDDEN);
             } else {
-              // Discard only (unknown/unlinked spool)
-              lv_obj_add_flag(id(btn_nfc_unlink), LV_OBJ_FLAG_HIDDEN);
               lv_obj_add_flag(id(btn_nfc_weight), LV_OBJ_FLAG_HIDDEN);
             }
+            // ⋮ (and with it Unlink Tag) only for a spool with an id; an
+            // unknown spool keeps Discard alone.
+            if (fi.spool_id > 0) {
+              lv_obj_clear_flag(id(btn_nfc_more), LV_OBJ_FLAG_HIDDEN);
+            } else {
+              lv_obj_add_flag(id(btn_nfc_more), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(nfc_actions), LV_OBJ_FLAG_HIDDEN);
+            }
 
-            // Print Label: only built with the espoolbuddy/label_printer_m220.yaml package. While
-            // printing, and briefly after, the button shows how it's going.
+            // ---- ⋮ sheet items (tab_nfc.yaml nfc_actions) ----
+            // Write Tag: a linked spool on an NTAG. "Overwrite Tag" when the
+            // tag already holds data (tag_format set by the NDEF read).
+            if (fi.spool_id > 0 && fi.tag_type == "ntag") {
+              lv_obj_clear_flag(id(btn_act_write), LV_OBJ_FLAG_HIDDEN);
+              const char *wt = s.tag_write_busy          ? "Writing..."
+                             : !fi.tag_has_data()        ? "Write Tag"
+                                                         : "Overwrite Tag";
+              if (strcmp(lv_label_get_text(id(lbl_act_write)), wt) != 0)
+                lv_label_set_text(id(lbl_act_write), wt);
+            } else {
+              lv_obj_add_flag(id(btn_act_write), LV_OBJ_FLAG_HIDDEN);
+            }
+            // Print Label: only built with a label printer package. While
+            // printing, and briefly after, the item shows how it's going.
             #ifdef USE_LABEL_PRINTER
             if (fi.spool_id > 0 && label_printer::global_label_printer != nullptr) {
-              lv_obj_clear_flag(id(btn_nfc_print), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_clear_flag(id(btn_act_print), LV_OBJ_FLAG_HIDDEN);
               bool small;
-              if (const char *t = label_printer::button_text_update(id(lbl_nfc_print_btn), fi.spool_id, &small)) {
-                lv_obj_set_style_text_font(id(lbl_nfc_print_btn), small ? id(roboto_12) : id(roboto_16), LV_PART_MAIN);
-                lv_label_set_text(id(lbl_nfc_print_btn), t);
+              if (const char *t = label_printer::button_text_update(id(lbl_act_print), fi.spool_id, &small)) {
+                lv_obj_set_style_text_font(id(lbl_act_print), small ? id(roboto_12) : id(roboto_16), LV_PART_MAIN);
+                lv_label_set_text(id(lbl_act_print), t);
               }
             } else {
-              lv_obj_add_flag(id(btn_nfc_print), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(btn_act_print), LV_OBJ_FLAG_HIDDEN);
             }
             #endif
-
-            // NFC write proposal banner
-            if (s.propose_nfc_write) {
-              lv_obj_clear_flag(id(nfc_write_banner), LV_OBJ_FLAG_HIDDEN);
-            } else {
-              lv_obj_add_flag(id(nfc_write_banner), LV_OBJ_FLAG_HIDDEN);
-            }
 
             // ---- Quick Weight popup live update ----
             if (id(nfc_weight_popup_open) == 1) {
@@ -1522,7 +1528,7 @@ script:
             lv_obj_add_flag(id(nfc_unlinked_panel),          LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(id(nfc_archive_proposal_popup),  LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(id(nfc_picker_panel),            LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(id(nfc_write_banner),   LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(nfc_actions),        LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(id(nfc_waiting),      LV_OBJ_FLAG_HIDDEN);
             lv_label_set_text(id(nfc_waiting_text),
                 s.tag_resolving ? "Identifying tag..." : "Place spool tag on reader");

@@ -71,7 +71,7 @@ jobs:
         # package list, boot hooks and buttons inline) — what existing users'
         # copied configs still look like — so they can't silently break.
         #
-        # Two builds also add an optional label printer package, the way a
+        # Three builds also add an optional label printer package, the way a
         # user adds it next to the bundle (the include entries extend those
         # jobs rather than adding new ones):
         # - Console/Scale + m220 (espoolbuddy/label_printer_m220.yaml): the
@@ -79,6 +79,8 @@ jobs:
         #   it's the one that would hit flash or RAM limits first.
         # - Console + brother_ql (espoolbuddy/label_printer_brother_ql.yaml):
         #   the network printer, on the plain WT32-SC01 Plus console.
+        # - Lite + m220: the Lite UI's Print Label, with the Bluetooth stack
+        #   on the smallest console.
         config:
           - espoolbuddy_console.yaml
           - espoolbuddy_console_pandatouch.yaml
@@ -93,6 +95,8 @@ jobs:
             label_printer: m220
           - config: espoolbuddy_console.yaml
             label_printer: brother_ql
+          - config: espoolbuddy_console_lite.yaml
+            label_printer: m220
 
     steps:
       - name: Checkout

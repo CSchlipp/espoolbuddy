@@ -326,7 +326,6 @@ void BambuddyAPIComponent::link_tag_to_spool(int spool_id) {
   ds.spool_selected = true;
   ds.unlinked_tag_expiry_ms = 0;
   unlinked_tag_expiry_ms_ = 0;
-  ds.propose_nfc_write = fi.tag_type == "ntag";
   ds.status_message = "Tag linked to spool #" + std::to_string(spool_id);
 }
 
@@ -334,6 +333,7 @@ void BambuddyAPIComponent::link_tag_to_spool(int spool_id) {
 // idle, with the pending auto-assignment dropped.
 void BambuddyAPIComponent::unlink_current_tag() {
   auto &ds = display_state_;
+  ds.tag_write_busy = false;
   tag_links().erase(ds.last_tag_uid);
   ds.spool_selected = false;
   ds.current_filament = FilamentInfo{};
@@ -488,7 +488,8 @@ void BambuddyAPIComponent::toggle_power_plug() { toggle_plug(display_state_.powe
 
 // ---- NFC (driven by the host YAML's "Simulate tag" buttons, or bambuddy_nfc) ----
 void BambuddyAPIComponent::on_tag_scanned(const std::string &uid, const std::string &tray_uuid, int sak,
-                                           const std::string &tag_type, const TagFilamentInfo *filament) {
+                                           const std::string &tag_type, const TagFilamentInfo *filament,
+                                           const std::string &ndef_format) {
   ESP_LOGI(TAG, "Mock: tag scanned uid=%s type=%s", uid.c_str(), tag_type.c_str());
   auto &ds = display_state_;
   ds.scan_chime_generation++;
@@ -528,6 +529,14 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid, const std::str
   ds.unlinked_tag_expiry_ms = 0;
   unlinked_tag_expiry_ms_ = 0;
   ds.tag_filament = filament != nullptr ? *filament : TagFilamentInfo{};
+  ds.tag_write_busy = false;
+  // The simulated NTAGs hold NDEF data unless the caller says otherwise
+  // (there is no NDEF read on the host).
+  const std::string fmt = (filament != nullptr && filament->valid && !filament->format.empty())
+                              ? filament->format
+                          : tag_type == "mifare_classic" ? "bambu_lab"
+                          : !ndef_format.empty()         ? ndef_format
+                                                         : "ndef";
 
   auto it = tag_links().find(uid);
   const DemoSpool *s = it != tag_links().end() ? find_demo_spool(it->second) : nullptr;
@@ -536,9 +545,7 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid, const std::str
     fi.tray_uuid = tray_uuid;
     fi.sak = sak;
     fi.tag_type = tag_type;
-    fi.tag_format = (filament != nullptr && filament->valid && !filament->format.empty())
-                        ? filament->format
-                        : tag_type == "mifare_classic" ? "bambu_lab" : "ndef";
+    fi.tag_format = fmt;
     ds.current_filament = fi;
     ds.spool_selected = false;
     return;
@@ -547,7 +554,7 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid, const std::str
   fi.tray_uuid = tray_uuid;
   fi.sak = sak;
   fi.tag_type = tag_type;
-  fi.tag_format = tag_type == "mifare_classic" ? "bambu_lab" : "ndef";
+  fi.tag_format = fmt;
   ds.current_filament = fi;
   ds.spool_selected = true;
   ds.propose_archive = false;
@@ -564,6 +571,7 @@ void BambuddyAPIComponent::on_tag_removed(const std::string &uid) {
   ESP_LOGI(TAG, "Mock: tag removed uid=%s", uid.c_str());
   auto &ds = display_state_;
   ds.tag_resolving = false;
+  ds.tag_write_busy = false;
   if (ds.spool_selected) {
     ds.nfc_state = NFCTagState::ABSENT;
   } else {
@@ -574,7 +582,16 @@ void BambuddyAPIComponent::on_tag_removed(const std::string &uid) {
 
 void BambuddyAPIComponent::on_write_tag_result(const std::string &uid, bool success, const std::string &msg) {
   pending_write_active_ = false;
-  set_status(success ? "Tag written" : "Tag write failed: " + msg);
+  finish_tag_write(success, msg);
+}
+
+// No backend round trip on the host: the write "succeeds" on the spot, as
+// the real one does once Bambuddy's write_tag command reaches the reader.
+void BambuddyAPIComponent::request_tag_write() {
+  auto &ds = display_state_;
+  if (!ds.spool_selected || ds.current_filament.spool_id <= 0 || ds.current_filament.tag_type != "ntag")
+    return;
+  finish_tag_write(true, "");
 }
 
 // ---- Scale ----

@@ -255,7 +255,8 @@ class BambuddyNFCComponent : public Component {
   // Read the NDEF message from the NTAG data area (pages 4+) and walk its
   // records.  Returns "open_tag_3d" for an OpenTag3D record (decoded into
   // `info` when it is the spec'd application/opentag3d MIME record), "ndef"
-  // for any other valid NDEF, or "" if the tag is unreadable/blank.
+  // for any other valid NDEF, "ndef_empty" for NDEF-formatted but empty, or
+  // "" if the tag is unreadable/unformatted.
   std::string ntag_read_ndef(uint8_t target_num, bambuddy_api::TagFilamentInfo &info);
   // If the API has a pending NDEF write and the activated tag is an NTAG,
   // perform it.  Returns true if a write was attempted (success or failure),

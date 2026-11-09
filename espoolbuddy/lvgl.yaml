@@ -2630,6 +2630,8 @@ lvgl:
                                         id(restart_button).press();  // reboot the console
                                       } else if (a == 4) {
                                         bambuddy->unlink_location_tag(id(confirm_location_id));
+                                      } else if (a == 5) {
+                                        bambuddy->request_tag_write();  // overwrite tag
                                       }
                               widgets:
                                 - label: {id: confirm_ok_lbl, text: "Confirm", text_font: roboto_16, text_color: 0xFF8888, align: CENTER}

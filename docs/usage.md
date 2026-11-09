@@ -16,7 +16,7 @@ through every screen.
   that tab shows *Place spool tag on reader*.
 
   <img src="images/ui/full/nfc-waiting.png" alt="NFC tab waiting for a tag: NFC icon and Place spool tag on reader" width="360">
-  <img src="images/ui/full/nfc-spool.png" alt="NFC tab showing a scanned spool: name, colour, remaining weight, and Unlink Tag / Quick Weight / Discard buttons" width="360">
+  <img src="images/ui/full/nfc-spool.png" alt="NFC tab showing a scanned spool: name, colour, remaining weight, and Quick Weight / Discard / ⋮ buttons" width="360">
 
 - **Scan + load auto-assigns the AMS slot**: after scanning a tag linked to
   a known spool, loading that physical spool into any AMS slot within the
@@ -134,14 +134,27 @@ through every screen.
   <img src="images/ui/full/weight-popup.png" alt="Update Spool Weight popup: PLA · Gold, current scale reading 1020 g, Update and Cancel" width="360">
   <img src="images/ui/full/archive.png" alt="Spool Empty popup: PLA Matte · Bambu Lab, Archive this spool?, Archive and Keep" width="360">
 
-- **Unlink or discard**: **Unlink Tag** removes the tag from the spool after
-  a confirmation; the tag then shows as unlinked when scanned again.
-  **Discard** clears the spool from the screen.
+- **Discard**: clears the spool from the screen.
+- **More actions (⋮)**: the actions you don't need on every scan.
+  - **Write Tag** asks Bambuddy to write the spool's data to the NTAG on the
+    reader, the console's or the scale's. Leave the tag on the reader until
+    the header says *Tag written successfully*. Bambuddy supplies the data,
+    the same as a write started from its dashboard. If the tag already holds
+    data, the item reads **Overwrite Tag** and asks for confirmation first
+    (a fresh, empty NTAG sticker counts as blank).
+    Bambu Lab (MIFARE Classic) tags can't be written, so the item doesn't
+    appear for them.
+  - **Print Label** prints the spool's label, with a
+    [label printer](label-printer.md) package only.
+  - **Unlink Tag** removes the tag from the spool after a confirmation; the
+    tag then shows as unlinked when scanned again.
 
+  <img src="images/ui/full/spool-actions.png" alt="Spool actions sheet: Overwrite Tag, Print Label, Unlink Tag and Cancel" width="360">
   <img src="images/ui/full/unlink-confirm.png" alt="Are you sure? Unlink this tag from its spool? with Cancel and Unlink" width="360">
 
-- **Write a tag**: trigger `write_tag` from the Bambuddy dashboard, then
-  present a blank/writable NTAG to the console or scale within the timeout.
+- **Write a tag from Bambuddy**: trigger `write_tag` from the Bambuddy
+  dashboard, then present a blank/writable NTAG to the console or scale within
+  the timeout.
 - **AMS / printer status**: the console's AMS tab shows live slot/filament
   state polled from Bambuddy, along with each AMS unit's temperature,
   humidity, and its custom name if one was set in Bambuddy (falls back to a
@@ -155,7 +168,7 @@ through every screen.
   to it by ID.
 
   <img src="images/ui/full/ams.png" alt="AMS tab: AMS units with spool colours, material, spool IDs, remaining-filament bars, temperature and humidity" width="360">
-  <img src="images/ui/full/ams-slot.png" alt="AMS slot detail: spool brand and material, colour, temperature range, AMS and slot, weight bar and Clear Assignment button" width="360">
+  <img src="images/ui/full/ams-slot.png" alt="AMS slot detail: spool brand and material, colour, temperature range, AMS and slot, weight bar, Clear Assignment and Print Label buttons" width="360">
 
 - **Swipe between AMS pages**: on the AMS tab, swipe left for the next page and
   right for the previous one — the same thing the prev/next buttons do, and

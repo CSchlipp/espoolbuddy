@@ -15,6 +15,7 @@ actually goes over the wire. The console consumes the Bambuddy API
 | POST | `/api/v1/spoolbuddy/nfc/tag-scanned` | NFC tag detected event |
 | POST | `/api/v1/spoolbuddy/nfc/tag-removed` | NFC tag removed event |
 | POST | `/api/v1/spoolbuddy/scale/reading` | Scale weight report |
+| POST | `/api/v1/spoolbuddy/nfc/write-tag` | Ask Bambuddy to write a spool to the tag on this device's reader (**Write Tag**); Bambuddy answers with `write_tag` in the next heartbeat |
 | POST | `/api/v1/spoolbuddy/nfc/write-result` | Result of NTAG write operation |
 | POST | `/api/v1/spoolbuddy/devices/{id}/calibration/set-tare` | Update tare offset |
 | POST | `/api/v1/spoolbuddy/diagnostics/{id}/result` | Diagnostic run result |

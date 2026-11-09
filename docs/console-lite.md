@@ -153,12 +153,12 @@ works like the full console's:
 
 ### Spool actions
 
-Tap the spool view (the ⋮ in its corner) for the actions the full console
-shows as buttons below it.
+Tap the spool view (the ⋮ in its corner) for the same actions as the full
+console's ⋮ menu, plus Discard.
 
 | | |
 |---|---|
-| <img src="images/ui/lite/spool-actions.png" alt="Unlink Tag, Discard and Cancel" width="172"> | **Unlink Tag** removes the tag from the spool. **Discard** clears the spool from the screen. |
+| <img src="images/ui/lite/spool-actions.png" alt="Overwrite Tag, Print Label, Unlink Tag, Discard and Cancel" width="172"> | **Write Tag** has Bambuddy write the spool's data to the NTAG on the reader; it reads **Overwrite Tag**, with a confirmation, when the tag already holds data. **Print Label** prints the spool's label ([label printer](label-printer.md) only). **Unlink Tag** removes the tag from the spool. **Discard** clears the spool from the screen. |
 | <img src="images/ui/lite/unlink-confirm.png" alt="'Are you sure? Unlink this tag from its spool?' with Cancel and Unlink" width="172"> | **Unlink confirm.** Afterwards the screen shows *Place spool tag on reader* with *Tag unlinked*. Scan the tag again and it shows as unlinked, ready for **Add to Inventory**. |
 | <img src="images/ui/lite/unlinked-actions.png" alt="Discard and Cancel over an unlinked tag" width="172"> | **Unlinked tag actions.** **Discard** hides the tag until it is scanned again. |
 

@@ -47,12 +47,12 @@ SHARED = [
     "nfc-waiting", "nfc-spool", "quick-weight", "weight-popup", "location",
     "unlink-confirm", "assigned", "ams-removed", "archive", "timeout",
     "nfc-unlinked", "nfc-unlinked-bambu", "nfc-unlinked-opentag3d", "created",
-    "plate-clear", "calibrate",
+    "plate-clear", "calibrate", "spool-actions",
 ]
 # Screens only one UI has.
 FULL_ONLY = ["ams", "ams-slot", "quick-settings", "nfc-picker",
              "settings-features", "settings-storage"]
-LITE_ONLY = ["spool-actions", "unlinked-actions", "settings", "settings-more"]
+LITE_ONLY = ["unlinked-actions", "settings", "settings-more"]
 
 # (width, height, {snapshot name: output file name}, run config, output dir).
 # The WT32-SC01 Plus renders the full set; the Panda Touch only gets two shots

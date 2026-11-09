@@ -2,15 +2,13 @@
 
 # Label printer (optional)
 
-A console with PSRAM (WT32-SC01 Plus or Panda Touch) can print spool labels on
-a **Phomemo M220** over Bluetooth, or on a **Brother QL** on the network. A
-**Print Label** button appears on the spool screen and on the card you get by
-tapping an AMS slot. Bambuddy draws the label, the same one its label dialog
-prints, with a QR code that opens the spool in Bambuddy. The console only
-turns it into the printer's dots and sends it.
-
-It's for the full console UI. The Lite console has no spool screen or slot
-card to put the button on.
+A console with PSRAM (WT32-SC01 Plus, Panda Touch or the Lite) can print
+spool labels on a **Phomemo M220** over Bluetooth, or on a **Brother QL** on
+the network. **Print Label** appears in the spool screen's ⋮ menu, and on the
+full console UI also on the card you get by tapping an AMS slot. Bambuddy
+draws the label, the same one its label dialog prints, with a QR code that
+opens the spool in Bambuddy. The console only turns it into the printer's dots
+and sends it.
 
 A console has one label printer: add one of the packages below, not both.
 
