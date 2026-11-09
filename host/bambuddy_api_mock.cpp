@@ -309,6 +309,9 @@ void BambuddyAPIComponent::confirm_plate_cleared() {
 // ---- Spools ----
 void BambuddyAPIComponent::request_recent_spools() { display_state_.recent_spools_generation++; }
 
+// No reader to erase with (current_tag_erasable() is false without one).
+void BambuddyAPIComponent::unlink_and_erase_current_tag() { unlink_current_tag(); }
+
 void BambuddyAPIComponent::lookup_spool(int spool_id) {
   SpoolLookup &l = display_state_.spool_lookup;
   l = SpoolLookup{};
@@ -347,7 +350,7 @@ void BambuddyAPIComponent::link_tag_to_spool(int spool_id) {
 
 // Same end state as a successful unlink in the real api_link_tag(): back to
 // idle, with the pending auto-assignment dropped.
-void BambuddyAPIComponent::unlink_current_tag() {
+void BambuddyAPIComponent::unlink_current_tag(const std::string &) {
   auto &ds = display_state_;
   tag_links().erase(ds.last_tag_uid);
   ds.spool_selected = false;

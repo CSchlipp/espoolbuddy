@@ -578,10 +578,8 @@ script:
               }
               if (is_linked) {
                 id(confirm_location_id) = loc_id;
-                id(confirm_action) = 4;
-                lv_label_set_text(id(confirm_msg), "Unlink this tag from its storage location?");
-                lv_label_set_text(id(confirm_ok_lbl), "Unlink");
-                lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+                id(confirm_open).execute(4, std::string("Unlink this tag from its storage location?"),
+                                         std::string("Unlink"));
               } else {
                 bambuddy->begin_link_location_tag(loc_id);
                 // Shown immediately rather than waiting for the next interval
@@ -866,6 +864,25 @@ script:
             lv_obj_add_flag(id(modal_print_btn), LV_OBJ_FLAG_HIDDEN);
           }
           #endif
+
+  # Open the confirm dialog (confirm_modal in lvgl.yaml) for confirm_action
+  # `action`. Unlinking a spool's tag (action 1) also offers "Unlink + Erase"
+  # when the tag on this reader holds data.
+  - id: confirm_open
+    parameters:
+      action: int
+      message: string
+      ok_label: string
+    then:
+      - lambda: |-
+          id(confirm_action) = action;
+          lv_label_set_text(id(confirm_msg), message.c_str());
+          lv_label_set_text(id(confirm_ok_lbl), ok_label.c_str());
+          if (action == 1 && bambuddy->current_tag_erasable())
+            lv_obj_clear_flag(id(confirm_erase_btn), LV_OBJ_FLAG_HIDDEN);
+          else
+            lv_obj_add_flag(id(confirm_erase_btn), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
 
   # Open the spool-ID keypad to assign a spool to the empty slot in
   # modal_ams_id/modal_tray_slot.
@@ -1265,7 +1282,21 @@ script:
             std::string msg;
             uint32_t icon_color = 0x7BB4FF;
             snprintf(title, sizeof(title), "Write spool #%d", s.tag_write_spool_id);
-            if (st == TagWriteStage::REQUESTING) {
+            if (s.tag_write_erase) {
+              // Unlink + Erase: the same modal, worded for the erase.
+              if (st == TagWriteStage::WRITING) {
+                snprintf(title, sizeof(title), "Erasing tag");
+                msg = "Hold the tag still";
+              } else if (st == TagWriteStage::DONE) {
+                snprintf(title, sizeof(title), "Tag erased");
+                msg = "It's blank and can be used again.";
+                icon_color = 0x4CAF50;
+              } else {
+                snprintf(title, sizeof(title), "Tag not erased");
+                msg = s.tag_write_message;
+                icon_color = 0xFF8888;
+              }
+            } else if (st == TagWriteStage::REQUESTING) {
               msg = "Asking Bambuddy...";
             } else if (st == TagWriteStage::WAITING) {
               const int32_t left_ms = (int32_t) (s.tag_write_deadline_ms - millis());
@@ -1573,7 +1604,8 @@ script:
             // overwritten, so it says so.
             if (s.propose_nfc_write) {
               lv_label_set_text(id(nfc_write_banner_text),
-                                s.current_filament.tag_format == "ndef"
+                                s.write_offer_mismatch ? "Tag data differs from the spool. Rewrite it?"
+                                : s.current_filament.tag_format == "ndef"
                                     ? "Overwrite this tag with the spool?"
                                     : "Write the spool to this tag?");
               lv_obj_clear_flag(id(nfc_write_banner), LV_OBJ_FLAG_HIDDEN);

@@ -778,11 +778,7 @@ lvgl:
                                                       scrollbar_mode: "OFF"
                                                       on_click:
                                                         then:
-                                                          - lambda: |-
-                                                              id(confirm_action) = 3;
-                                                              lv_label_set_text(id(confirm_msg), "Reboot the console now?");
-                                                              lv_label_set_text(id(confirm_ok_lbl), "Reboot");
-                                                              lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+                                                          - script.execute: {id: confirm_open, action: 3, message: "Reboot the console now?", ok_label: "Reboot"}
                                                       widgets:
                                                         - label: {text: "Reboot", text_font: roboto_16, pad_top: 4, text_color: 0xFF8888, align: CENTER}
 
@@ -1594,11 +1590,7 @@ lvgl:
                               scrollbar_mode: "OFF"
                               on_click:
                                 then:
-                                  - lambda: |-
-                                      id(confirm_action) = 2;
-                                      lv_label_set_text(id(confirm_msg), "Clear this slot's spool assignment?");
-                                      lv_label_set_text(id(confirm_ok_lbl), "Clear");
-                                      lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+                                  - script.execute: {id: confirm_open, action: 2, message: "Clear this slot's spool assignment?", ok_label: "Clear"}
                               widgets:
                                 - label: {text: "Clear Assignment", text_font: roboto_16, text_color: 0xFF8888, align: CENTER}
                           # Print Label: only shown with the espoolbuddy/label_printer_m220.yaml package and
@@ -2367,6 +2359,26 @@ lvgl:
                                       lv_obj_add_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
                               widgets:
                                 - label: {text: "Cancel", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
+                          # Unlink confirm only, for an NTAG with data on this
+                          # reader (shown by confirm_open): unlink, then erase it.
+                          - button:
+                              id: confirm_erase_btn
+                              flex_grow: 1
+                              height: 40
+                              bg_color: 0x2A1A28
+                              border_color: 0x9C3A3A
+                              border_width: 2
+                              radius: 6
+                              scrollbar_mode: "OFF"
+                              hidden: true
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      id(confirm_action) = 0;
+                                      lv_obj_add_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+                                      bambuddy->unlink_and_erase_current_tag();
+                              widgets:
+                                - label: {text: "Unlink + Erase", text_font: roboto_16, text_color: 0xFF8888, align: CENTER}
                           - button:
                               id: confirm_ok_btn
                               flex_grow: 1

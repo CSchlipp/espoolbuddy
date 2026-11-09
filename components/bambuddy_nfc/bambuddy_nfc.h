@@ -102,6 +102,9 @@ static const uint16_t BAMBU_RETRY_DELAY_MS = 30;
 // it is still the same tag. A tag that has only just landed on the reader
 // often loses a READ halfway through a long NDEF message.
 static const uint8_t NTAG_IO_ATTEMPTS = 4;
+// How long an erase request waits for its tag (it is normally still on the
+// reader, having just been unlinked).
+static const uint32_t ERASE_WAIT_MS = 10000;
 
 // ACK frame: sent by the PN532 to accept a command, and by the host to abort
 // the command the PN532 is still executing.
@@ -179,6 +182,13 @@ class BambuddyNFCComponent : public Component {
   // RF field off and idles — used for "NFC in sleep: Off" (max power saving, no
   // local-reader wake). Re-enabled on wake.
   void set_scan_enabled(bool v) { scan_enabled_ = v; }
+  // Erase the NTAG with this UID (hex) the next time it is on the reader,
+  // within ERASE_WAIT_MS; the result goes to the API's on_tag_erased().
+  void request_erase(const std::string &uid_hex) {
+    LockGuard guard(erase_mutex_);
+    erase_uid_ = uid_hex;
+    erase_requested_ms_ = millis();
+  }
 
  protected:
   // ---- Background polling task ----
@@ -276,7 +286,8 @@ class BambuddyNFCComponent : public Component {
   // Read the NDEF message from the NTAG data area (pages 4+) and walk its
   // records.  Returns "open_tag_3d" for an OpenTag3D record (decoded into
   // `info` when it is the spec'd application/opentag3d MIME record), "ndef"
-  // for any other valid NDEF, or "" if the tag is unreadable/blank.
+  // for any other valid NDEF, or "" if the tag is unreadable, blank or holds
+  // an empty NDEF message.
   std::string ntag_read_ndef(uint8_t target_num, const std::vector<uint8_t> &uid,
                              bambuddy_api::TagFilamentInfo &info);
   // Re-select the tag after a failed NTAG command. False if it left the
@@ -295,6 +306,14 @@ class BambuddyNFCComponent : public Component {
   // perform it.  Returns true if a write was attempted (success or failure),
   // false if there was nothing to do.  Fully logged for diagnosis.
   bool attempt_pending_write(const std::vector<uint8_t> &uid, uint8_t sak);
+  // If an erase was requested for this tag, run it and report the result.
+  void attempt_pending_erase(const std::vector<uint8_t> &uid, uint8_t sak);
+  // Every poll: drop (and report) an erase whose tag didn't come within
+  // ERASE_WAIT_MS, so a tag that returns later is never erased unasked.
+  void expire_pending_erase();
+  // Empty the NDEF message on the activated NTAG: an empty message, and the
+  // bytes the old one used zeroed. Written and verified like a write.
+  bool ntag_erase(uint8_t target_num, const std::vector<uint8_t> &uid, std::string &err);
   // Write an NDEF TLV area (starting with the 0x03 NDEF Message TLV) to the
   // activated NTAG from page 4, if it fits the tag, then read it back. On
   // failure, err holds a message for the user (shown in Bambuddy).
@@ -356,6 +375,10 @@ class BambuddyNFCComponent : public Component {
   uint32_t poll_interval_ms_{300};
   std::atomic<bool> low_power_{false};  // true while the console sleeps → slow polling
   std::atomic<bool> scan_enabled_{true};  // false → skip detection entirely (RF off)
+  // Pending erase (request_erase()): set by the API, run by the poll task.
+  Mutex erase_mutex_;
+  std::string erase_uid_;  // empty = none
+  uint32_t erase_requested_ms_{0};
   // true once the PN532 answered pn532_init(). Written by setup() and later
   // by the poll task (init retries), read by dump_config() on the main task.
   std::atomic<bool> nfc_ok_{false};

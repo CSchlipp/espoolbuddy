@@ -1072,7 +1072,9 @@ std::string BambuddyNFCComponent::ntag_read_ndef(uint8_t target_num,
     msg_len = (static_cast<size_t>(mem[pos]) << 8) | mem[pos + 1];
     pos += 2;
   }
-  if (msg_len == 0) return "ndef";  // NDEF-formatted but empty
+  // NDEF-formatted but empty: blank, like a tag never written (new NTAGs
+  // often come this way, and Unlink + Erase leaves one like it).
+  if (msg_len == 0) return "";
 
   // Read the rest of the message.
   size_t want = std::min(pos + msg_len, MAX_NDEF_AREA);
@@ -1273,6 +1275,64 @@ bool BambuddyNFCComponent::attempt_pending_write(
   return true;
 }
 
+void BambuddyNFCComponent::expire_pending_erase() {
+  std::string uid;
+  {
+    LockGuard guard(erase_mutex_);
+    if (erase_uid_.empty() || millis() - erase_requested_ms_ <= ERASE_WAIT_MS) return;
+    uid.swap(erase_uid_);
+  }
+  if (api_) api_->on_tag_erased(uid, false, "the tag left the reader first");
+}
+
+void BambuddyNFCComponent::attempt_pending_erase(const std::vector<uint8_t> &uid, uint8_t sak) {
+  const std::string uid_str = uid_to_hex(uid);
+  {
+    LockGuard guard(erase_mutex_);
+    if (erase_uid_ != uid_str) return;  // nothing pending for this tag
+    erase_uid_.clear();
+  }
+  std::string err = "not an NTAG";
+  const bool ok = is_ntag_sak(sak) && ntag_erase(1, uid, err);
+  ESP_LOGI(NFC_TAG, "NTAG erase %s: %s", uid_str.c_str(), ok ? "done" : err.c_str());
+  if (api_) api_->on_tag_erased(uid_str, ok, ok ? "" : err);
+}
+
+bool BambuddyNFCComponent::ntag_erase(uint8_t target_num, const std::vector<uint8_t> &uid,
+                                      std::string &err) {
+  size_t capacity = 0;
+  if (!ntag_capacity(target_num, uid, capacity, err)) return false;
+  // The first 32 bytes of the data area hold any TLVs before the message
+  // (NULL, lock/memory control, or a CC copy written at page 4).
+  uint8_t head[32];
+  if (!ntag_read_pages_retry(target_num, uid, NTAG_DATA_PAGE, head) ||
+      !ntag_read_pages_retry(target_num, uid, NTAG_DATA_PAGE + 4, head + 16)) {
+    err = "Could not read the tag - hold it still and retry";
+    return false;
+  }
+  size_t pos = (head[0] == NDEF_CC_MAGIC && head[4] == NDEF_TLV_MESSAGE) ? 4 : 0;
+  while (pos + 4 <= sizeof(head) && head[pos] != NDEF_TLV_MESSAGE) {
+    if (head[pos] == NDEF_TLV_TERMINATOR) break;
+    pos += head[pos] == 0x00 ? 1 : 2 + head[pos + 1];  // NULL, or skip a TLV
+  }
+  if (pos + 4 > sizeof(head) || head[pos] != NDEF_TLV_MESSAGE) {
+    err = "No NDEF message on the tag";
+    return false;
+  }
+  // Clear only the bytes the old message used, up to its terminator: a tag
+  // whose CC overstates its size is then never written past its data.
+  const bool long_len = head[pos + 1] == 0xFF;
+  const size_t len = long_len ? ((size_t) head[pos + 2] << 8 | head[pos + 3]) : head[pos + 1];
+  const size_t used = std::min(pos + (long_len ? 4 : 2) + len + 1, capacity);
+  // An empty message followed by zeros, written and verified like any write
+  // (the empty message goes on first, so the tag never reads half-erased).
+  std::vector<uint8_t> data(((used + 3) / 4) * 4, 0x00);
+  data[0] = NDEF_TLV_MESSAGE;
+  data[2] = NDEF_TLV_TERMINATOR;
+  return ntag_write_data_area(target_num, uid, data, err) &&
+         ntag_verify_data_area(target_num, uid, data, err);
+}
+
 void BambuddyNFCComponent::log_stats_if_due() {
   const uint32_t now = millis();
   if (now - last_stats_ms_ < 60000UL) return;
@@ -1297,6 +1357,7 @@ void BambuddyNFCComponent::log_stats_if_due() {
 void BambuddyNFCComponent::poll_once() {
   if (!nfc_ok_) return;
   stats_.cycles++;
+  expire_pending_erase();
 
   // Link supervision: a reader that keeps failing exchanges is re-initialised
   // rather than polled forever in a state it will not leave by itself.
@@ -1432,12 +1493,14 @@ void BambuddyNFCComponent::poll_once() {
 
       // A write command may already be queued (e.g. tag re-placed); try it.
       attempt_pending_write(uid, sak);
+      attempt_pending_erase(uid, sak);
 
     } else {
       // Tag still on the reader from a previous cycle.  The write command
       // usually arrives here, a poll or two after the initial scan, via the
       // backend's heartbeat response.
       attempt_pending_write(current_uid_, current_sak_);
+      attempt_pending_erase(current_uid_, current_sak_);
     }
 
   } else {

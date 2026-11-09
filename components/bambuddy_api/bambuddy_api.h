@@ -75,6 +75,9 @@ class NFCScanControl {
   virtual void set_low_power(bool low_power) = 0;
   // Host interface of the reader ("SPI" or "I2C"), reported to the backend.
   virtual const char *connection_type() const = 0;
+  // Erase the NTAG with this UID (hex) once it is on the reader; the reader
+  // reports back with BambuddyAPIComponent::on_tag_erased().
+  virtual void request_erase(const std::string &uid) = 0;
 };
 
 template<typename T>
@@ -84,6 +87,7 @@ class NFCScanControlAdapter : public NFCScanControl {
   void set_scan_enabled(bool enabled) override { nfc_->set_scan_enabled(enabled); }
   void set_low_power(bool low_power) override { nfc_->set_low_power(low_power); }
   const char *connection_type() const override { return nfc_->get_connection_type(); }
+  void request_erase(const std::string &uid) override { nfc_->request_erase(uid); }
 
  private:
   T *nfc_;
@@ -480,6 +484,9 @@ struct DisplayState {
   // set after the tag was linked to a spool or used to create one.
   bool propose_nfc_write{false};
   bool propose_archive{false};  // set when Quick Weight confirms 0g remaining
+  // propose_nfc_write because the tag's OpenTag3D data differs from its spool
+  // (a rewrite), not because the tag is blank.
+  bool write_offer_mismatch{false};
 
   // Tag write shown in the write-status modal.
   TagWriteStage tag_write_stage{TagWriteStage::NONE};
@@ -487,6 +494,7 @@ struct DisplayState {
   bool tag_write_on_scale{false};      // waiting on the scale's reader
   uint32_t tag_write_deadline_ms{0};   // WAITING: millis() when the write gives up
   std::string tag_write_message;       // FAILED: the reason
+  bool tag_write_erase{false};         // the modal shows Unlink + Erase, not a write
 
   // The spool matching the ID typed on the spool-ID keypad.
   SpoolLookup spool_lookup;
@@ -688,7 +696,32 @@ class BambuddyAPIComponent : public Component {
 
   // Remove the tag link from the current spool (sends PATCH with tag_uid="").
   // On success sets spool_selected = false so the unlinked panel re-appears.
-  void unlink_current_tag();
+  // erase_uid (Unlink + Erase): erase this tag once the unlink has succeeded.
+  void unlink_current_tag(const std::string &erase_uid = "");
+  // Whether the tag on this console's reader is an NTAG holding data that
+  // "Unlink + Erase" could clear (not a tag forwarded from the scale).
+  bool current_tag_erasable() {
+    lock_state();
+    const auto &fi = display_state_.current_filament;
+    const bool r = nfc_ != nullptr && display_state_.nfc_state == NFCTagState::PRESENT &&
+                   last_tag_source_ == TagSource::LOCAL && fi.tag_type == "ntag" &&
+                   (fi.tag_format == "open_tag_3d" || fi.tag_format == "ndef");
+    unlock_state();
+    return r;
+  }
+  // "Unlink + Erase" in the unlink confirm: unlink, and once Bambuddy has
+  // confirmed it, erase the tag (its NDEF message emptied).
+  void unlink_and_erase_current_tag();
+  // Show an erase in the write-status modal: WRITING while it runs, then
+  // DONE or FAILED (msg). It stays up until OK, on whatever tab is showing.
+  void set_tag_erase_stage(TagWriteStage stage, const std::string &msg = "") {
+    set_tag_write_stage(stage, 0, msg);
+    lock_state();
+    display_state_.tag_write_erase = true;
+    unlock_state();
+  }
+  // The reader's answer to NFCScanControl::request_erase().
+  void on_tag_erased(const std::string &uid, bool success, const std::string &msg);
 
   // Create a minimal PLA spool in inventory pre-linked to the current tag,
   // then fetch it and set spool_selected = true.
@@ -739,6 +772,7 @@ class BambuddyAPIComponent : public Component {
   void dismiss_nfc_write_proposal() {
     lock_state();
     display_state_.propose_nfc_write = false;
+    display_state_.write_offer_mismatch = false;
     unlock_state();
   }
 
@@ -761,6 +795,7 @@ class BambuddyAPIComponent : public Component {
     ds.tag_write_stage = stage;
     ds.tag_write_spool_id = stage == TagWriteStage::NONE ? 0 : spool_id;
     ds.tag_write_message = msg;
+    ds.tag_write_erase = false;
     if (stage == TagWriteStage::WAITING) {
       ds.tag_write_on_scale = on_scale;
       ds.tag_write_deadline_ms = millis() + WRITE_ARM_TTL_MS;
@@ -798,6 +833,7 @@ class BambuddyAPIComponent : public Component {
     display_state_.assign_success = false;
     display_state_.assign_slot_desc.clear();
     display_state_.propose_nfc_write = false;
+    display_state_.write_offer_mismatch = false;
     display_state_.propose_archive = false;
     display_state_.unlinked_tag_expiry_ms = 0;
     pending_assign_spool_id_ = 0;
@@ -1060,6 +1096,7 @@ class BambuddyAPIComponent : public Component {
       SCALE_PUSH_NFC_REMOVED,  // POST {console_url}/scale/nfc/tag-removed
     } kind;
     std::string s1, s2, s3;  // generic string params
+    std::string s4;          // LINK_TAG_TO_SPOOL unlink: the tag to erase once it succeeds
     int i1{0};
     int i2{0};  // second int param (e.g. tray_slot for CLEAR_ASSIGNMENT)
     int i3{0};  // third int param (e.g. spool_id for CLEAR_ASSIGNMENT in Spoolman mode)
@@ -1269,7 +1306,8 @@ class BambuddyAPIComponent : public Component {
   // field requires length ≥ 8, so unlink instead goes through the general
   // PATCH /spoolman/inventory/spools/{id} with tag_uid:null).
   void api_link_tag(int spool_id, const std::string &uid,
-                    const std::string &tray_uuid, const std::string &tag_type);
+                    const std::string &tray_uuid, const std::string &tag_type,
+                    const std::string &erase_uid);
   void api_update_spool_weight(int spool_id, float remaining_g);
   void api_archive_spool(int spool_id);
   void api_fetch_label_png(int spool_id, const std::string &tmpl, const std::string &fields, int dpi);
@@ -1286,6 +1324,11 @@ class BambuddyAPIComponent : public Component {
   // End a write sent to the scale as failed with msg: take back a write_tag
   // not yet handed over and send the result (which also cancels the scale).
   void end_scale_write(int spool_id, const char *msg);
+  // After a spool refresh: offer a rewrite if the linked tag on the reader
+  // carries OpenTag3D data that disagrees with the spool. Once per scan.
+  // Call with state_mutex_ held.
+  void check_tag_mismatch_locked();
+  uint32_t mismatch_checked_gen_{0};  // nfc_scan_generation already checked
   // A write ended (here, or relayed from the scale): show the result unless the
   // user has closed the modal or moved on to another write.
   void show_tag_write_result(int spool_id, const std::string &uid, bool success,
@@ -1297,6 +1340,7 @@ class BambuddyAPIComponent : public Component {
     lock_state();
     auto &ds = display_state_;
     const auto &fi = ds.current_filament;
+    ds.write_offer_mismatch = false;
     ds.propose_nfc_write = ds.nfc_state == NFCTagState::PRESENT && ds.last_tag_uid == uid &&
                            !uid.empty() && last_tag_source_ != TagSource::AMS &&
                            fi.spool_id > 0 && fi.tag_type == "ntag" &&
