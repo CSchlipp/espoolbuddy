@@ -596,6 +596,9 @@ void BambuddyAPIComponent::http_task_loop() {
         case HttpJob::REQUEST_TAG_WRITE:
           api_request_tag_write(job.i1);
           break;
+        case HttpJob::LOOKUP_SPOOL:
+          api_lookup_spool(job.i1);
+          break;
         case HttpJob::LINK_LOCATION_TAG:
           api_link_location_tag(job.i1, job.s1);
           break;
@@ -1929,15 +1932,21 @@ bool BambuddyAPIComponent::api_get_inventory_mode() {
   return true;
 }
 
-void BambuddyAPIComponent::api_get_spool(int spool_id, bool check_empty) {
-  std::string resp;
+bool BambuddyAPIComponent::api_fetch_spool(int spool_id, std::string &resp, int *status,
+                                           bool quiet) {
   const std::string path =
       std::string(spoolman_inventory_ ? "/spoolman/inventory/spools/" : "/inventory/spools/") +
       std::to_string(spool_id);
-  if (!http_get_api(path, resp)) {
-    ESP_LOGW(TAG, "GET %s failed", path.c_str());
-    return;
-  }
+  if (http_request(HTTP_METHOD_GET, backend_url_for("/api/v1", path), "", resp, 5000, true,
+                   quiet, status))
+    return true;
+  if (!quiet) ESP_LOGW(TAG, "GET %s failed", path.c_str());
+  return false;
+}
+
+void BambuddyAPIComponent::api_get_spool(int spool_id, bool check_empty) {
+  std::string resp;
+  if (!api_fetch_spool(spool_id, resp)) return;
 
   std::string material   = parse_json_string(resp, "material");
   std::string subtype    = parse_json_string(resp, "subtype");
@@ -1979,6 +1988,33 @@ void BambuddyAPIComponent::api_get_spool(int spool_id, bool check_empty) {
   ESP_LOGI(TAG, "Spool %d: %s %s '%s' brand=%s rgba=%s %.0f/%.0f g",
            spool_id, material.c_str(), subtype.c_str(), color_name.c_str(),
            brand.c_str(), rgba.c_str(), used_w, label_w);
+}
+
+void BambuddyAPIComponent::api_lookup_spool(int spool_id) {
+  // Skip an ID the user has already typed past.
+  lock_state();
+  const bool current = display_state_.spool_lookup.spool_id == spool_id;
+  unlock_state();
+  if (!current) return;
+
+  std::string resp;
+  int status = 0;
+  SpoolLookup r;
+  r.spool_id = spool_id;
+  if (api_fetch_spool(spool_id, resp, &status, true)) {
+    r.state      = SpoolLookup::FOUND;
+    r.material   = parse_json_string(resp, "material");
+    r.subtype    = parse_json_string(resp, "subtype");
+    r.brand      = parse_json_string(resp, "brand");
+    r.color_name = parse_json_string(resp, "color_name");
+    const std::string rgba = parse_json_string(resp, "rgba");
+    if (rgba.size() >= 6) r.color_hex = rgba.substr(0, 6);
+  } else {
+    r.state = status == 404 ? SpoolLookup::NOT_FOUND : SpoolLookup::FAILED;
+  }
+  lock_state();
+  if (display_state_.spool_lookup.spool_id == spool_id) display_state_.spool_lookup = r;
+  unlock_state();
 }
 
 bool BambuddyAPIComponent::api_tag_removed(const std::string &uid) {
@@ -5022,6 +5058,24 @@ void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid,
 }
 
 // ---- Public method implementations ----
+
+void BambuddyAPIComponent::lookup_spool(int spool_id) {
+  // Always fetched afresh: the spool may have changed in Bambuddy since.
+  lock_state();
+  auto &l = display_state_.spool_lookup;
+  l = SpoolLookup{};
+  l.spool_id = spool_id;
+  l.state = spool_id > 0 ? SpoolLookup::LOADING : SpoolLookup::IDLE;
+  unlock_state();
+  if (spool_id <= 0) return;
+  HttpJob job;
+  job.kind = HttpJob::LOOKUP_SPOOL;
+  job.i1 = spool_id;
+  if (enqueue_job(job)) return;
+  lock_state();
+  if (l.spool_id == spool_id) l.state = SpoolLookup::FAILED;
+  unlock_state();
+}
 
 void BambuddyAPIComponent::request_recent_spools() {
   lock_state();

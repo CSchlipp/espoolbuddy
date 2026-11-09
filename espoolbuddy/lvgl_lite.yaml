@@ -1348,7 +1348,7 @@ lvgl:
                                       - label: {id: lite_confirm_ok_lbl, align: CENTER, text: "Confirm", text_font: lite_16, text_color: 0xFF8888}
 
               # ================================================================
-              # Calibration (full UI: cal_modal). The step buttons are 3 rows of
+              # Calibration (full UI: the number keypad). The step buttons are 3 rows of
               # 2 instead of one row of 6 so they stay big enough to hit.
               # ================================================================
               - obj:
