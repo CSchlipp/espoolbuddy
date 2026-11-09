@@ -573,7 +573,8 @@ void BambuddyAPIComponent::on_tag_removed(const std::string &uid) {
 }
 
 void BambuddyAPIComponent::on_write_tag_result(const std::string &uid, bool success, const std::string &msg) {
-  pending_write_active_ = false;
+  int spool_id = 0;
+  tag_write_.finish(success, 0, &spool_id);
   set_status(success ? "Tag written" : "Tag write failed: " + msg);
 }
 

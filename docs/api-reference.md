@@ -60,11 +60,35 @@ Commands received in the `pending_command` field of the heartbeat response:
 | Command | Action |
 |---|---|
 | `tare` | Zero the scale and report the new tare offset |
-| `write_tag` | Write NDEF data to the next NTAG presented |
+| `write_tag` | Write NDEF data to the next NTAG presented (see below) |
 | `run_nfc_diag` / `run_scale_diag` / `run_read_tag_diag` | Return a mocked diagnostic result (no external scripts on ESP32) |
 | `apply_system_config` | Update `backend_url` / `api_key` in RAM (reboot to persist) |
 | `reboot` / `shutdown` / `restart_daemon` | `ESP.restart()` |
 | `restart_browser` | No-op (no browser on ESP32) |
+
+## Tag writes
+
+Bambuddy builds the NDEF data (OpenTag3D) and repeats `write_tag` in every
+heartbeat until the device reports to `/nfc/write-result`.
+
+- The write goes to the next NTAG presented, or to one already on the reader.
+- The data from Bambuddy starts with a Capability Container. The device removes
+  it and writes the NDEF message from page 4. Capacity comes from the tag's own
+  CC in page 3. A blank NTAG213/215/216 is formatted first.
+- Page 4 is written last, and the data is read back and compared.
+- A tag that is too small, write-protected or not an NTAG fails with a message
+  that Bambuddy shows on its write page.
+- Each request goes to the reader of the console or of the scale, depending on
+  where the last tag was seen. All its repeats go to the same reader.
+- Once `write_tag` is no longer in the heartbeat (cancelled in Bambuddy, or
+  replaced by another command), a write still waiting for a tag is dropped. A
+  write sent to the scale is cancelled there too.
+- Repeats that arrive while a result is on its way to Bambuddy are ignored.
+  A result is not sent once Bambuddy has stopped waiting for it. If Bambuddy
+  doesn't answer at all, the result is sent up to 3 times.
+- A write that sees no tag within 60 s fails with `tag_uid` `00000000`.
+- Tags written by SpoolBuddy, which have the Capability Container at the start
+  of page 4, are still read.
 
 ## SSH key deployment
 

@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include "esphome/core/component.h"
+#include "tag_write.h"
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/defines.h"
@@ -135,6 +136,12 @@ static constexpr uint32_t SCALE_HEARTBEAT_FAST_MS = 200;
 // has already been reported as failed there, and applying it later (possibly
 // with a spool on the platform) would set a wrong zero point.
 static constexpr uint32_t PENDING_SCALE_CMD_TTL_MS = 15000;
+// Attempts to deliver a write result to Bambuddy when it doesn't answer at
+// all. An answered POST is never repeated: Bambuddy acts on the first one.
+static constexpr uint8_t WRITE_RESULT_ATTEMPTS = 3;
+// tag_uid reported when a write ends without a tag (timeout). Bambuddy's
+// write-result requires 8-30 hex characters.
+static constexpr const char *WRITE_NO_TAG_UID = "00000000";
 // Scale push: after CONSOLE_BACKOFF_AFTER consecutive failures a console is
 // skipped for CONSOLE_BACKOFF_MIN_MS, doubling per further failure up to
 // CONSOLE_BACKOFF_MAX_MS. A single failure (a dropped packet) is not skipped,
@@ -751,12 +758,17 @@ class BambuddyAPIComponent : public Component {
   void sim_ams_remove();      // take the first assigned spool out of the AMS
 #endif
 
-  // ---- Pending NTAG write (set by write_tag command) ----
-  bool has_pending_write() const { return pending_write_active_; }
-  const std::vector<uint8_t> &pending_write_data() const { return pending_write_ndef_; }
-  int pending_write_spool_id() const { return pending_write_spool_id_; }
+  // ---- Pending NTAG write (see TagWriteCoordinator, tag_write.h) ----
+  // True while a write waits for a tag.
+  bool has_pending_write() { return tag_write_.armed(); }
+  // Take the armed write so this caller alone reports its outcome; copies the
+  // NDEF bytes (from page 4 on) and the spool id. False if nothing is armed.
+  bool claim_pending_write(std::vector<uint8_t> *ndef, int *spool_id) {
+    return tag_write_.claim(ndef, spool_id);
+  }
+  // Ends the armed or running write and reports it: to Bambuddy in console
+  // mode, to the console on a scale. Ignored when no write is active.
   void on_write_tag_result(const std::string &uid, bool success, const std::string &msg);
-  void clear_pending_write() { pending_write_active_ = false; }
 
   // ---- Satellite status (console_url set) ----
   // Number of consoles a push from this device succeeded to within timeout_ms,
@@ -1034,11 +1046,13 @@ class BambuddyAPIComponent : public Component {
   // ------------------------------------------------------------------
   bool http_request(esp_http_client_method_t method, const std::string &url,
                     const std::string &json_body, std::string &response_body,
-                    int timeout_ms, bool with_api_key, bool quiet);
+                    int timeout_ms, bool with_api_key, bool quiet,
+                    int *status = nullptr);
   // Build <backend_url><prefix><path>, trimming a trailing '/' from backend_url.
   std::string backend_url_for(const char *prefix, const std::string &path) const;
+  // status, if given, receives the HTTP status, or 0 when nothing answered.
   bool http_post(const std::string &path, const std::string &json_body,
-                 std::string &response_body);
+                 std::string &response_body, int *status = nullptr);
   bool http_get_api(const std::string &path, std::string &response_body);
   bool http_post_api(const std::string &path, const std::string &json_body,
                      std::string &response_body);
@@ -1067,8 +1081,9 @@ class BambuddyAPIComponent : public Component {
   // pair (translated to the backend's known_weight / raw_adc / tare_raw_adc
   // form) so the backend computes and stores the corrected calibration_factor.
   bool api_report_calibration_point(float reference_weight_g, float measured_weight_g);
+  // status receives the HTTP status, or 0 when Bambuddy didn't answer.
   bool api_write_tag_result(int spool_id, const std::string &uid,
-                            bool success, const std::string &message);
+                            bool success, const std::string &message, int *status);
   bool api_diagnostic_result(const std::string &diagnostic, bool success,
                              const std::string &output, int exit_code);
   bool api_system_command_result(const std::string &command, bool success,
@@ -1568,13 +1583,20 @@ class BambuddyAPIComponent : public Component {
   // away by a newer one before it's sent.
   std::atomic<bool> weight_push_dirty_{false};
 
-  // Pending write — written by HTTP task, read by NFC (main) task.
-  // atomic gate: the ndef vector is filled BEFORE the flag is set true, and
-  // the NFC reader only touches the vector while the flag reads true, so the
-  // release/acquire ordering of the atomic makes the hand-off race-free.
-  std::atomic<bool> pending_write_active_{false};
-  int pending_write_spool_id_{0};
-  std::vector<uint8_t> pending_write_ndef_;
+  // Tag writes requested by Bambuddy: the local write and, on a console, the
+  // request itself. Thread-safe on its own; the methods below do the I/O.
+  TagWriteCoordinator tag_write_;
+  // Console, HTTP task: one heartbeat's pending_command (and its payload in
+  // resp) as far as tag writes are concerned. Called for every heartbeat.
+  void on_bambuddy_write_command(const std::string &cmd, const std::string &resp);
+  // Console, HTTP task: send a write result if Bambuddy still waits for it.
+  void post_write_result(const HttpJob &job);
+  // Arm a write for spool_id (payload as Bambuddy sends it).
+  void arm_pending_write(int spool_id, std::vector<uint8_t> ndef);
+  // Drop an armed (not yet started) write without reporting it.
+  void disarm_pending_write(const char *why);
+  // Called from loop(): fail a write armed for WRITE_ARM_TTL_MS.
+  void check_pending_write_timeout();
 
   // ------------------------------------------------------------------
   // Threading
