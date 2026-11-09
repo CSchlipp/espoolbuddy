@@ -104,10 +104,11 @@ through every screen.
 - **Unknown tag → link to an existing spool**: from that same panel, use
   **Assign Spool** instead to link the tag to an existing, untagged spool.
   The picker shows your 9 most recently added spools in a grid for quick
-  selection, but you're not limited to those — a numeric field with ±1/10
-  steppers lets you type/dial in any spool ID directly.
+  selection, but you're not limited to those: **Enter spool ID** opens a
+  keypad for any spool ID. Below the number it names the spool that ID
+  belongs to, so a typo shows before you tap **Link**.
 
-  <img src="images/ui/full/nfc-picker.png" alt="Spool picker: a grid of the 9 most recent spools plus an ID field with ±1/±10 steppers" width="360">
+  <img src="images/ui/full/nfc-picker.png" alt="Spool picker: a grid of the 9 most recent spools and an Enter spool ID button" width="360">
 
 - **Weigh a spool**: place it on the scale — the weight and a "stable"
   indicator show on the console once the reading settles (~750 ms after it
@@ -118,10 +119,11 @@ through every screen.
   <img src="images/ui/full/scale-settling.png" alt="Scale tab: 1019.8 g, Settling" width="360">
   <img src="images/ui/full/scale-no-scale.png" alt="Scale tab: No scale connected" width="360">
 
-  **Calibrate** asks for a known weight on the empty scale: set it with the
-  ±1/10/100 buttons and confirm.
+  **Calibrate** asks for a known weight on the empty scale: type its weight
+  in grams on the keypad (it starts at the last one used) and tap
+  **Calibrate**.
 
-  <img src="images/ui/full/calibrate.png" alt="Calibrate Scale popup: reference weight 100 g with -100 to +100 steps, Cancel and Calibrate" width="360">
+  <img src="images/ui/full/calibrate.png" alt="Calibrate scale keypad: 100 g entered, a 10-key pad with backspace, Cancel and Calibrate" width="360">
 
 - **Quick Weight**: with a spool shown and the scale stable, the **Quick
   Weight** button shows the filament and total weight (e.g. *773g (1023g)*);
@@ -168,11 +170,12 @@ through every screen.
   shows in the header next to the clock; it only scrolls if the text is too
   long to fit, otherwise it just sits centered. Tap a slot to see its
   spool's details (brand, material, colour, temperatures, remaining weight)
-  and to clear its assignment; tapping an empty slot lets you assign a spool
-  to it by ID.
+  and to clear its assignment; tapping an empty slot opens the same spool-ID
+  keypad to assign a spool to it.
 
   <img src="images/ui/full/ams.png" alt="AMS tab: AMS units with spool colours, material, spool IDs, remaining-filament bars, temperature and humidity" width="360">
   <img src="images/ui/full/ams-slot.png" alt="AMS slot detail: spool brand and material, colour, temperature range, AMS and slot, weight bar and Clear Assignment button" width="360">
+  <img src="images/ui/full/spool-keypad.png" alt="Spool-ID keypad for Drawer slot 4: 37 typed, matching TPU 95A, Bambu Lab, Orange, with a 10-key pad, backspace and Assign" width="360">
 
 - **Swipe between AMS pages**: on the AMS tab, swipe left for the next page and
   right for the previous one — the same thing the prev/next buttons do, and

@@ -317,7 +317,7 @@ script:
       - script.execute: lite_update_settings
       - lambda: 'lv_obj_clear_flag(id(lite_cal), LV_OBJ_FLAG_HIDDEN);'
 
-  # Reference weight steps, clamped to 1-5000 g (full UI: cal_modal).
+  # Reference weight steps, clamped to 1-5000 g (full UI: the number keypad).
   - id: lite_cal_step
     parameters:
       delta: int

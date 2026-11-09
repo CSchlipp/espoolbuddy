@@ -309,6 +309,21 @@ void BambuddyAPIComponent::confirm_plate_cleared() {
 // ---- Spools ----
 void BambuddyAPIComponent::request_recent_spools() { display_state_.recent_spools_generation++; }
 
+void BambuddyAPIComponent::lookup_spool(int spool_id) {
+  SpoolLookup &l = display_state_.spool_lookup;
+  l = SpoolLookup{};
+  l.spool_id = spool_id;
+  l.state = SpoolLookup::NOT_FOUND;
+  if (const DemoSpool *s = find_demo_spool(spool_id)) {
+    l.state = SpoolLookup::FOUND;
+    l.material = s->material;
+    l.subtype = s->subtype;
+    l.brand = s->brand;
+    l.color_name = s->color_name;
+    l.color_hex = s->color_hex;
+  }
+}
+
 void BambuddyAPIComponent::link_tag_to_spool(int spool_id) {
   auto &ds = display_state_;
   const DemoSpool *s = find_demo_spool(spool_id);

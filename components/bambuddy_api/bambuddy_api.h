@@ -371,6 +371,18 @@ enum class TagWriteStage : uint8_t {
   FAILED,      // tag_write_message says why
 };
 
+// A spool looked up by ID for the spool-ID keypad (lookup_spool()).
+struct SpoolLookup {
+  enum State : uint8_t { IDLE, LOADING, FOUND, NOT_FOUND, FAILED };
+  int spool_id{0};      // the ID asked for (0 = none)
+  State state{IDLE};    // NOT_FOUND: Bambuddy has no such spool; FAILED: no answer
+  std::string material;
+  std::string subtype;
+  std::string brand;
+  std::string color_name;
+  std::string color_hex;  // RRGGBB
+};
+
 /** Display state shared between the component and LVGL callbacks */
 struct DisplayState {
   BackendState backend_state = BackendState::DISCONNECTED;
@@ -475,6 +487,9 @@ struct DisplayState {
   bool tag_write_on_scale{false};      // waiting on the scale's reader
   uint32_t tag_write_deadline_ms{0};   // WAITING: millis() when the write gives up
   std::string tag_write_message;       // FAILED: the reason
+
+  // The spool matching the ID typed on the spool-ID keypad.
+  SpoolLookup spool_lookup;
 
   // AMS removal toast — shown on the AMS tab for 5 s after a spool is ejected
   uint32_t ams_removed_toast_expiry_ms{0};
@@ -622,6 +637,15 @@ class BambuddyAPIComponent : public Component {
 
   // NFC picker — fetch up to 9 most-recently-created spools for the picker UI.
   void request_recent_spools();
+  // Spool-ID keypad: look up spool_id in Bambuddy, for the line naming the
+  // spool under the typed number. 0 clears the lookup.
+  void lookup_spool(int spool_id);
+  SpoolLookup get_spool_lookup() {
+    lock_state();
+    SpoolLookup l = display_state_.spool_lookup;
+    unlock_state();
+    return l;
+  }
 
   // ---- Storage locations ----
   // Fetch the full list of storage locations for the Settings screen and for
@@ -1020,6 +1044,7 @@ class BambuddyAPIComponent : public Component {
       CLEAR_PLATE,             // POST /api/v1/printers/{id}/clear-plate
       FETCH_LOCATIONS,         // GET /inventory/locations → fill storage_locations
       REQUEST_TAG_WRITE,       // POST /spoolbuddy/nfc/write-tag {device_id, spool_id}
+      LOOKUP_SPOOL,            // GET /inventory/spools/{id} → spool_lookup (spoolman: /spoolman/inventory/spools/{id})
       LINK_LOCATION_TAG,       // PATCH /inventory/locations/{id} {"identifier": uid}
       LINK_LOCATION_TAG_CHECKED, // GET spools/by-tag first; spoolman: scan GET /spoolman/inventory/spools; only links if no spool owns the uid
       UNLINK_LOCATION_TAG,     // PATCH /inventory/locations/{id} {"identifier": ""}
@@ -1217,6 +1242,11 @@ class BambuddyAPIComponent : public Component {
   // Internal mode: GET /api/v1/inventory/spools/{id}.
   // Spoolman mode: GET /api/v1/spoolman/inventory/spools/{id}.
   void api_get_spool(int spool_id, bool check_empty = false);
+  void api_lookup_spool(int spool_id);
+  // GET one spool from the inventory Bambuddy uses (its own or Spoolman's).
+  // quiet: a failure is expected (a typed ID that may not exist), log at DEBUG.
+  bool api_fetch_spool(int spool_id, std::string &resp, int *status = nullptr,
+                       bool quiet = false);
 
   // Stream a spool-list response (a JSON array) one top-level object at a time,
   // so a large inventory is never buffered whole. Calls on_object for each

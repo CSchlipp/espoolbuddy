@@ -120,15 +120,19 @@ globals:
     type: int
     restore_value: no
     initial_value: '0'
-  - id: slot_assign_id       # spool ID chosen in the assign-to-empty-slot dialog
+  - id: keypad_value         # number on the keypad: a spool ID, or grams in mode 2 (0 = nothing yet)
     type: int
     restore_value: no
-    initial_value: '1'
-  - id: nfc_assign_spool_id  # spool ID being typed in the NFC picker ID-input row
+    initial_value: '0'
+  - id: keypad_mode          # what the keypad is for (see keypad_open): 0 = assign to the AMS slot, 1 = link the tag, 2 = calibrate
     type: int
     restore_value: no
-    initial_value: '1'
-  - id: cal_ref_weight       # calibration reference weight in grams (Scale tab +/- buttons)
+    initial_value: '0'
+  - id: keypad_fresh         # the value was pre-filled: the first digit replaces it instead of appending
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: cal_ref_weight       # calibration reference weight in grams (last one entered on the keypad)
     type: float
     restore_value: yes
     initial_value: '100.0'
@@ -261,19 +265,14 @@ script:
           }
           // Always close modals when switching tabs
           lv_obj_add_flag(id(ams_modal_card), LV_OBJ_FLAG_HIDDEN);
-          lv_obj_add_flag(id(cal_modal), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(printer_modal), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
-          lv_obj_add_flag(id(assign_id_modal), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(keypad_modal), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(location_link_modal), LV_OBJ_FLAG_HIDDEN);
           lv_obj_add_flag(id(plug_list_modal), LV_OBJ_FLAG_HIDDEN);
           bambuddy->cancel_link_location_tag();
           id(qs_close).execute();
           id(confirm_action) = 0;
-          // Sync the calibration reference weight label with the restored global
-          char cal_buf[10];
-          snprintf(cal_buf, sizeof(cal_buf), "%.0f g", id(cal_ref_weight));
-          lv_label_set_text(id(lbl_cal_weight), cal_buf);
           // Settings tab shows the printer list directly (no sub-tabs).
           // App version (bottom-right of Settings). ESPHOME_PROJECT_VERSION is a
           // compile-time string from esphome.project.version, so the label and
@@ -310,8 +309,8 @@ script:
           // dialog must not pull the drawer over it, and the wake guard has to
           // absorb the wake touch before gestures do anything. Keep in step
           // with the blocker list in ams_page_step below.
-          lv_obj_t *blockers[] = {id(ams_modal_card), id(printer_modal), id(cal_modal),
-                                  id(confirm_modal), id(assign_id_modal), id(plate_clear_popup),
+          lv_obj_t *blockers[] = {id(ams_modal_card), id(printer_modal),
+                                  id(confirm_modal), id(keypad_modal), id(plate_clear_popup),
                                   id(tag_write_modal), id(location_link_modal), id(plug_list_modal),
                                   id(wake_guard), id(nfc_weight_popup),
                                   id(nfc_archive_proposal_popup), id(nfc_picker_panel)};
@@ -405,7 +404,7 @@ script:
           // be on screen while this one is active. Keep in step with the
           // blocker list in qs_open above.
           lv_obj_t *blockers[] = {id(quick_settings), id(ams_modal_card), id(printer_modal),
-                                  id(cal_modal), id(confirm_modal), id(assign_id_modal),
+                                  id(confirm_modal), id(keypad_modal),
                                   id(location_link_modal), id(plug_list_modal),
                                   id(plate_clear_popup), id(tag_write_modal), id(wake_guard)};
           for (auto *b : blockers)
@@ -868,12 +867,11 @@ script:
           }
           #endif
 
-  # Open the assign-by-id dialog for the empty slot in modal_ams_id/modal_tray_slot.
+  # Open the spool-ID keypad to assign a spool to the empty slot in
+  # modal_ams_id/modal_tray_slot.
   - id: slot_assign_open
     then:
       - lambda: |-
-          id(slot_assign_id) = 1;
-          lv_label_set_text(id(lbl_slot_assign_id), "ID: 1");
           auto s = bambuddy->snapshot();
           std::string amsname = "AMS";
           bool single = false;  // AMS HT or external spool: no slot number
@@ -885,10 +883,110 @@ script:
             }
           }
           char t[64];
-          if (single) snprintf(t, sizeof(t), "Assign to %s", amsname.c_str());
-          else        snprintf(t, sizeof(t), "Assign to %s, Slot %d", amsname.c_str(), id(modal_tray_slot) + 1);
-          lv_label_set_text(id(slot_assign_title), t);
-          lv_obj_clear_flag(id(assign_id_modal), LV_OBJ_FLAG_HIDDEN);
+          if (single) snprintf(t, sizeof(t), "%s", amsname.c_str());
+          else        snprintf(t, sizeof(t), "%s \u00B7 Slot %d", amsname.c_str(), id(modal_tray_slot) + 1);
+          id(keypad_open).execute(0, std::string(t));
+
+  # ---- Number keypad (keypad_modal in lvgl.yaml) ----
+  # mode 0: a spool ID to assign to the AMS slot in modal_ams_id/modal_tray_slot;
+  # mode 1: a spool ID to link the tag on the reader to (NFC spool picker);
+  # mode 2: the reference weight in grams to calibrate the scale with.
+  - id: keypad_open
+    parameters:
+      mode: int
+      subtitle: string
+    then:
+      - lambda: |-
+          static const char *const TITLE[] = {"Assign spool", "Link tag to spool", "Calibrate scale"};
+          static const char *const ENTER[] = {"Assign", "Link", "Calibrate"};
+          id(keypad_mode) = mode;
+          // Calibration starts from the last reference weight, so a repeat
+          // needs no typing; typing a digit replaces it.
+          const float w = id(cal_ref_weight);
+          id(keypad_value) = mode != 2 ? 0 : (w >= 1.0f && w <= 5000.0f) ? (int) w : 100;
+          id(keypad_fresh) = mode == 2;
+          // A new session starts without a lookup: the spool may have changed.
+          id(keypad_lookup).stop();
+          bambuddy->lookup_spool(0);
+          lv_label_set_text(id(keypad_title), TITLE[mode]);
+          lv_label_set_text(id(keypad_subtitle), subtitle.c_str());
+          lv_label_set_text(id(keypad_enter_lbl), ENTER[mode]);
+          // A spool ID reads "# 37", a weight "500 g".
+          if (mode == 2) lv_obj_add_flag(id(keypad_prefix), LV_OBJ_FLAG_HIDDEN);
+          else lv_obj_clear_flag(id(keypad_prefix), LV_OBJ_FLAG_HIDDEN);
+          lv_label_set_text(id(keypad_unit), mode == 2 ? "g" : "");
+          lv_obj_clear_flag(id(keypad_modal), LV_OBJ_FLAG_HIDDEN);
+      - script.execute: keypad_show
+
+  # A key: 0-9 appends a digit, -1 deletes the last one.
+  - id: keypad_key
+    parameters:
+      key: int
+    then:
+      - lambda: |-
+          // Spool IDs up to 5 digits; a reference weight up to 5000 g.
+          const int max = id(keypad_mode) == 2 ? 5000 : 99999;
+          int v = id(keypad_value);
+          if (key >= 0 && id(keypad_fresh)) v = 0;  // a pre-filled value is replaced
+          id(keypad_fresh) = false;
+          if (key < 0) v /= 10;
+          else if (v * 10 + key <= max) v = v * 10 + key;
+          id(keypad_value) = v;
+      - script.execute: keypad_show
+
+  # Show keypad_value; for a spool ID, look the spool up once typing pauses.
+  - id: keypad_show
+    then:
+      - lambda: |-
+          const int v = id(keypad_value);
+          char b[8] = "";
+          if (v > 0) snprintf(b, sizeof(b), "%d", v);
+          lv_label_set_text(id(keypad_number), b);
+          // Enter works for a weight at once; for a spool ID only once the
+          // lookup has found it (ui_refresh brightens it then).
+          const bool ready = id(keypad_mode) == 2 && v > 0;
+          lv_obj_set_style_opa(id(btn_keypad_enter), ready ? LV_OPA_COVER : LV_OPA_40, LV_PART_MAIN);
+      - if:
+          condition:
+            lambda: 'return id(keypad_mode) != 2;'
+          then:
+            - script.execute: keypad_lookup
+
+  # Look up the typed ID once typing pauses: each key restarts the wait.
+  - id: keypad_lookup
+    mode: restart
+    then:
+      - delay: 400ms
+      - lambda: 'bambuddy->lookup_spool(id(keypad_value));'
+
+  - id: keypad_enter
+    then:
+      - lambda: |-
+          const int v = id(keypad_value);
+          if (v <= 0) return;
+          if (id(keypad_mode) != 2) {
+            // Only a spool ID Bambuddy knows: "No spool #377" must not link 377.
+            const auto l = bambuddy->get_spool_lookup();
+            if (l.spool_id != v || l.state != bambuddy_api::SpoolLookup::FOUND) return;
+          }
+          lv_obj_add_flag(id(keypad_modal), LV_OBJ_FLAG_HIDDEN);
+          if (id(keypad_mode) == 2) {
+            id(cal_ref_weight) = v;  // remembered for the next calibration
+            bambuddy->request_calibration(v);
+          } else if (id(keypad_mode) == 1) {
+            bambuddy->link_tag_to_spool(v);
+            id(close_picker).execute();
+          } else {
+            bambuddy->assign_spool_to_slot(v, id(modal_ams_id), id(modal_tray_slot));
+          }
+
+  # Close the NFC spool picker, and the keypad if it was opened from it: with
+  # the picker gone, there is no tag for it to link.
+  - id: close_picker
+    then:
+      - lambda: |-
+          lv_obj_add_flag(id(nfc_picker_panel), LV_OBJ_FLAG_HIDDEN);
+          if (id(keypad_mode) == 1) lv_obj_add_flag(id(keypad_modal), LV_OBJ_FLAG_HIDDEN);
 
   # UI refresh: renders DisplayState into the LVGL widgets. Runs every 400 ms
   # from the interval below, and on demand (script.execute: ui_refresh) right
@@ -1202,6 +1300,39 @@ script:
             lv_obj_clear_flag(id(tag_write_modal), LV_OBJ_FLAG_HIDDEN);
           }
 
+          // ---- Number keypad: name the spool a typed spool ID matches ----
+          if (!lv_obj_has_flag(id(keypad_modal), LV_OBJ_FLAG_HIDDEN)) {
+            using bambuddy_api::SpoolLookup;
+            const int v = id(keypad_value);
+            const auto &l = s.spool_lookup;
+            if (v <= 0 || id(keypad_mode) == 2) {
+              lv_obj_add_flag(id(keypad_preview), LV_OBJ_FLAG_HIDDEN);
+            } else {
+              const bool found = l.spool_id == v && l.state == SpoolLookup::FOUND;
+              lv_obj_set_style_opa(id(btn_keypad_enter), found ? LV_OPA_COVER : LV_OPA_40, LV_PART_MAIN);
+              std::string name, detail;
+              uint32_t swatch = 0x555577;
+              if (l.spool_id != v || l.state == SpoolLookup::LOADING) {
+                name = "Looking up...";
+              } else if (l.state == SpoolLookup::NOT_FOUND) {
+                name = "No spool #" + std::to_string(v);
+              } else if (l.state != SpoolLookup::FOUND) {
+                name = "Couldn't reach Bambuddy";
+              } else {
+                name = l.subtype.empty() ? l.material : l.material + " " + l.subtype;
+                if (name.empty()) name = "Spool #" + std::to_string(v);
+                detail = l.brand;
+                if (!l.color_name.empty())
+                  detail += (detail.empty() ? "" : " \u00B7 ") + l.color_name;
+                if (l.color_hex.size() == 6) swatch = strtoul(l.color_hex.c_str(), nullptr, 16);
+              }
+              lv_label_set_text(id(keypad_spool_name), name.c_str());
+              lv_label_set_text(id(keypad_spool_detail), detail.c_str());
+              lv_obj_set_style_bg_color(id(keypad_swatch), lv_color_hex(swatch), LV_PART_MAIN);
+              lv_obj_clear_flag(id(keypad_preview), LV_OBJ_FLAG_HIDDEN);
+            }
+          }
+
           // ---- Header icons ----
           lv_obj_set_style_text_color(id(ic_printer),
               s.printer_connected ? lv_color_hex(0x4CAF50) : lv_color_hex(0xF44336),
@@ -1485,7 +1616,7 @@ script:
             // Make sure other NFC panels are hidden
             lv_obj_add_flag(id(nfc_waiting),        LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(id(nfc_unlinked_panel), LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(id(nfc_picker_panel),   LV_OBJ_FLAG_HIDDEN);
+            id(close_picker).execute();
 
           } else if (s.nfc_state == bambuddy_api::NFCTagState::PRESENT
                      && !s.tag_resolving
@@ -1572,7 +1703,7 @@ script:
             lv_obj_add_flag(id(nfc_spool_box),               LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(id(nfc_unlinked_panel),          LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(id(nfc_archive_proposal_popup),  LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(id(nfc_picker_panel),            LV_OBJ_FLAG_HIDDEN);
+            id(close_picker).execute();
             lv_obj_add_flag(id(nfc_write_banner),   LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(id(nfc_waiting),      LV_OBJ_FLAG_HIDDEN);
             lv_label_set_text(id(nfc_waiting_text),
