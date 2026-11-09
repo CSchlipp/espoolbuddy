@@ -312,7 +312,7 @@ script:
           // with the blocker list in ams_page_step below.
           lv_obj_t *blockers[] = {id(ams_modal_card), id(printer_modal), id(cal_modal),
                                   id(confirm_modal), id(assign_id_modal), id(plate_clear_popup),
-                                  id(location_link_modal), id(plug_list_modal),
+                                  id(tag_write_modal), id(location_link_modal), id(plug_list_modal),
                                   id(wake_guard), id(nfc_weight_popup),
                                   id(nfc_archive_proposal_popup), id(nfc_picker_panel)};
           for (auto *b : blockers)
@@ -407,7 +407,7 @@ script:
           lv_obj_t *blockers[] = {id(quick_settings), id(ams_modal_card), id(printer_modal),
                                   id(cal_modal), id(confirm_modal), id(assign_id_modal),
                                   id(location_link_modal), id(plug_list_modal),
-                                  id(plate_clear_popup), id(wake_guard)};
+                                  id(plate_clear_popup), id(tag_write_modal), id(wake_guard)};
           for (auto *b : blockers)
             if (!lv_obj_has_flag(b, LV_OBJ_FLAG_HIDDEN)) return;
           lv_obj_t *btn = delta > 0 ? id(ams_pg_next) : id(ams_pg_prev);
@@ -1156,6 +1156,52 @@ script:
             id(plate_clear_dismissed) = 0;
           }
 
+          // ---- Tag write modal ----
+          // Follows the write from request to result; see TagWriteStage.
+          if (s.tag_write_stage == bambuddy_api::TagWriteStage::NONE) {
+            lv_obj_add_flag(id(tag_write_modal), LV_OBJ_FLAG_HIDDEN);
+          } else {
+            using bambuddy_api::TagWriteStage;
+            const auto st = s.tag_write_stage;
+            char title[48];
+            std::string msg;
+            uint32_t icon_color = 0x7BB4FF;
+            snprintf(title, sizeof(title), "Write spool #%d", s.tag_write_spool_id);
+            if (st == TagWriteStage::REQUESTING) {
+              msg = "Asking Bambuddy...";
+            } else if (st == TagWriteStage::WAITING) {
+              const int32_t left_ms = (int32_t) (s.tag_write_deadline_ms - millis());
+              char buf[80];
+              snprintf(buf, sizeof(buf), "Place the tag on the %s reader (%d s)",
+                       s.tag_write_on_scale ? "scale's" : "console's",
+                       left_ms > 0 ? (int) ((left_ms + 999) / 1000) : 0);
+              msg = buf;
+            } else if (st == TagWriteStage::WRITING) {
+              snprintf(title, sizeof(title), "Writing spool #%d", s.tag_write_spool_id);
+              msg = "Hold the tag still";
+            } else if (st == TagWriteStage::DONE) {
+              snprintf(title, sizeof(title), "Tag written");
+              msg = "Spool #" + std::to_string(s.tag_write_spool_id) + " is on the tag.";
+              icon_color = 0x4CAF50;
+            } else {
+              snprintf(title, sizeof(title), "Tag not written");
+              msg = s.tag_write_message;
+              icon_color = 0xFF8888;
+            }
+            lv_label_set_text(id(tag_write_title), title);
+            lv_label_set_text(id(tag_write_msg), msg.c_str());
+            lv_obj_set_style_text_color(id(tag_write_icon), lv_color_hex(icon_color), LV_PART_MAIN);
+            // Cancel only while waiting for a tag: a request is answered within
+            // seconds, and a write on the tag runs to the end.
+            const bool waiting = st == TagWriteStage::WAITING;
+            const bool finished = st == TagWriteStage::DONE || st == TagWriteStage::FAILED;
+            if (waiting) lv_obj_clear_flag(id(btn_tag_write_cancel), LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_add_flag(id(btn_tag_write_cancel), LV_OBJ_FLAG_HIDDEN);
+            if (finished) lv_obj_clear_flag(id(btn_tag_write_ok), LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_add_flag(id(btn_tag_write_ok), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(tag_write_modal), LV_OBJ_FLAG_HIDDEN);
+          }
+
           // ---- Header icons ----
           lv_obj_set_style_text_color(id(ic_printer),
               s.printer_connected ? lv_color_hex(0x4CAF50) : lv_color_hex(0xF44336),
@@ -1392,8 +1438,13 @@ script:
             }
             #endif
 
-            // NFC write proposal banner
+            // NFC write proposal banner. A tag with other NDEF content gets
+            // overwritten, so it says so.
             if (s.propose_nfc_write) {
+              lv_label_set_text(id(nfc_write_banner_text),
+                                s.current_filament.tag_format == "ndef"
+                                    ? "Overwrite this tag with the spool?"
+                                    : "Write the spool to this tag?");
               lv_obj_clear_flag(id(nfc_write_banner), LV_OBJ_FLAG_HIDDEN);
             } else {
               lv_obj_add_flag(id(nfc_write_banner), LV_OBJ_FLAG_HIDDEN);

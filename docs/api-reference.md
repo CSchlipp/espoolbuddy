@@ -16,6 +16,7 @@ actually goes over the wire. The console consumes the Bambuddy API
 | POST | `/api/v1/spoolbuddy/nfc/tag-removed` | NFC tag removed event |
 | POST | `/api/v1/spoolbuddy/scale/reading` | Scale weight report |
 | POST | `/api/v1/spoolbuddy/nfc/write-result` | Result of NTAG write operation |
+| POST | `/api/v1/spoolbuddy/nfc/write-tag` | Ask Bambuddy to queue a tag write for this console (**Write** on the console) |
 | POST | `/api/v1/spoolbuddy/devices/{id}/calibration/set-tare` | Update tare offset |
 | POST | `/api/v1/spoolbuddy/diagnostics/{id}/result` | Diagnostic run result |
 | POST | `/api/v1/spoolbuddy/devices/{id}/system/command-result` | System command acknowledgement |
@@ -69,7 +70,11 @@ Commands received in the `pending_command` field of the heartbeat response:
 ## Tag writes
 
 Bambuddy builds the NDEF data (OpenTag3D) and repeats `write_tag` in every
-heartbeat until the device reports to `/nfc/write-result`.
+heartbeat until the device reports to `/nfc/write-result`. A write started on
+the console goes through Bambuddy too: **Write** posts `/nfc/write-tag` for this
+device and sends a heartbeat straight away to fetch the command. **Cancel** in
+the write popup ends a write still waiting for a tag as a failed write
+("Cancelled on the console"), which clears it in Bambuddy.
 
 - The write goes to the next NTAG presented, or to one already on the reader.
 - The data from Bambuddy starts with a Capability Container. The device removes

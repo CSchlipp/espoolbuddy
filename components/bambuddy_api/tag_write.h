@@ -71,7 +71,9 @@ class TagWriteCoordinator {
   // A heartbeat without write_tag. Returns the spool whose request ended (0 if
   // none was pending) and disarms its local write, if any (*dropped_local).
   int on_not_requested(bool *dropped_local);
-  // A result for spool_id exists: a local write ended, or the scale sent one.
+  // An answer to the request for spool_id is on its way to Bambuddy: a result
+  // (a local write ended, or the scale sent one) or the console's cancel.
+  // Repeats of the request are stale until result_sent().
   void result_ready(int spool_id);
   // Whether Bambuddy still waits for this result.
   bool result_wanted(int spool_id);
