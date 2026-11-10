@@ -315,10 +315,13 @@ class BambuddyNFCComponent : public Component {
   // bytes the old one used zeroed. Written and verified like a write.
   bool ntag_erase(uint8_t target_num, const std::vector<uint8_t> &uid, std::string &err);
   // Write an NDEF TLV area (starting with the 0x03 NDEF Message TLV) to the
-  // activated NTAG from page 4, if it fits the tag, then read it back. On
-  // failure, err holds a message for the user (shown in Bambuddy).
+  // activated NTAG from page 4, if it fits the tag, then read it back. data_v2
+  // (OpenTag3D v2, may be empty) is written instead of data when the tag has
+  // room for it; *wrote_v2 says whether it was. On failure, err
+  // holds a message for the user (shown in Bambuddy).
   bool ntag_write_ndef(uint8_t target_num, const std::vector<uint8_t> &uid,
-                       std::vector<uint8_t> data, std::string &err);
+                       std::vector<uint8_t> data, std::vector<uint8_t> data_v2,
+                       bool *wrote_v2, std::string &err);
   // Data-area size from the tag's Capability Container (page 3). A blank CC
   // is written first (ntag_format_blank); a read-only tag is refused.
   bool ntag_capacity(uint8_t target_num, const std::vector<uint8_t> &uid, size_t &capacity,

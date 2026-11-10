@@ -11,10 +11,16 @@ namespace bambuddy_api {
 // whatever NTAG is presented next, maybe hours later.
 static constexpr uint32_t WRITE_ARM_TTL_MS = 60000;
 
-// Bambuddy's OpenTag3D payload starts with a Capability Container (E1 xx xx
-// xx), which belongs in page 3, followed by the NDEF TLV for page 4. Returns
-// the payload without it, ready to write from page 4; anything else as is.
+// Bambuddy releases before maziggy/bambuddy#3500 start the OpenTag3D payload
+// with a Capability Container (E1 xx xx xx), which belongs in page 3, followed
+// by the NDEF TLV for page 4. Returns the payload without it, ready to write
+// from page 4; anything else (a current Bambuddy's payload) as is. Remove once
+// those releases are no longer supported.
 std::vector<uint8_t> strip_capability_container(std::vector<uint8_t> payload);
+
+// Whether data is a complete NDEF Message TLV (type 0x03, then a 1- or 3-byte
+// length that the buffer holds), the form the reader writes from page 4.
+bool is_ndef_message_tlv(const std::vector<uint8_t> &data);
 
 /**
  * Bookkeeping for the NTAG writes Bambuddy requests, shared by the HTTP, NFC
@@ -45,12 +51,16 @@ class TagWriteCoordinator {
     BUSY,          // another spool's write is running; its repeat comes again
     JUST_WRITTEN,  // scale: a stale copy for the spool it just wrote
   };
-  // ndef is the payload as Bambuddy sends it (see strip_capability_container).
-  Arm arm(int spool_id, std::vector<uint8_t> ndef, uint32_t now_ms);
+  // ndef is the payload as Bambuddy sends it (see strip_capability_container):
+  // OpenTag3D v1, which fits every NTAG. ndef_v2 is OpenTag3D v2, for a tag
+  // with room for it; empty from a Bambuddy that doesn't send it.
+  Arm arm(int spool_id, std::vector<uint8_t> ndef, std::vector<uint8_t> ndef_v2,
+          uint32_t now_ms);
   bool armed();
   // ARMED → WRITING, so this caller alone reports the outcome. Copies the
-  // payload and spool id when the pointers are non-null.
-  bool claim(std::vector<uint8_t> *ndef = nullptr, int *spool_id = nullptr);
+  // payloads and spool id when the pointers are non-null.
+  bool claim(std::vector<uint8_t> *ndef = nullptr, std::vector<uint8_t> *ndef_v2 = nullptr,
+             int *spool_id = nullptr);
   // claim() for a write armed WRITE_ARM_TTL_MS or longer.
   bool claim_expired(uint32_t now_ms);
   // ARMED → IDLE without a result. False if nothing was armed.
@@ -90,7 +100,7 @@ class TagWriteCoordinator {
 
  private:
   enum class State : uint8_t { IDLE, ARMED, WRITING };
-  bool claim_locked(std::vector<uint8_t> *ndef, int *spool_id);
+  bool claim_locked(std::vector<uint8_t> *ndef, std::vector<uint8_t> *ndef_v2, int *spool_id);
 
   Mutex mutex_;
   bool is_scale_{false};
@@ -98,6 +108,7 @@ class TagWriteCoordinator {
   State state_{State::IDLE};
   int spool_id_{0};
   std::vector<uint8_t> ndef_;
+  std::vector<uint8_t> ndef_v2_;
   uint32_t armed_ms_{0};
 
   // Scale: the spool it last wrote successfully. A copy of write_tag the

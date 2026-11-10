@@ -252,6 +252,11 @@ struct TagFilamentInfo {
   uint16_t bed_temp{0};
   uint16_t drying_temp{0};
   uint16_t drying_time{0};
+  // OpenTag3D only, from this console's reader (a scale doesn't forward them):
+  uint16_t version{0};         // Tag Version, 1000 = 1.000
+  uint16_t capacity{0};        // data-area bytes from the tag's CC; 0 = not read
+  bool cc_copy{false};         // written with a copy of the CC before the message
+                               // (Bambuddy before #3500): other readers see it empty
 };
 
 struct FilamentInfo {
@@ -381,6 +386,10 @@ enum class TagState : uint8_t {
   NONE,     // no OpenTag3D data read (blank, other NDEF data, Bambu, AMS): no chip text
   MATCHES,  // OpenTag3D data that agrees with the spool
   DIFFERS,  // OpenTag3D data whose material, brand or colour disagrees
+  // The data agrees, but a rewrite would improve the tag (this reader only):
+  NEEDS_REWRITE,  // written with a CC copy in the data area (Bambuddy before
+                  // maziggy/bambuddy#3500): other readers see it as empty
+  OLDER_FORMAT,   // OpenTag3D v1 on an NTAG215/216, and Bambuddy sends v2
 };
 
 // A spool looked up by ID for the spool-ID keypad (lookup_spool()).
@@ -868,7 +877,8 @@ class BambuddyAPIComponent : public Component {
   bool has_pending_write() { return tag_write_.armed(); }
   // Take the armed write so this caller alone reports its outcome; copies the
   // NDEF bytes (from page 4 on) and the spool id. False if nothing is armed.
-  bool claim_pending_write(std::vector<uint8_t> *ndef, int *spool_id);
+  bool claim_pending_write(std::vector<uint8_t> *ndef, std::vector<uint8_t> *ndef_v2,
+                           int *spool_id);
   // Ends the armed or running write and reports it: to Bambuddy in console
   // mode, to the console on a scale. Ignored when no write is active.
   void on_write_tag_result(const std::string &uid, bool success, const std::string &msg);
@@ -1201,6 +1211,15 @@ class BambuddyAPIComponent : public Component {
 
   // Tare/calibration persistence (scale: type: local only)
   void load_calibration_nvs();
+  // Whether Bambuddy sends OpenTag3D v2 with its writes (ndef_v2_hex, since
+  // maziggy/bambuddy#3500), learned from each write_tag and kept in NVS. Only
+  // then does a v1 tag's chip say it could take the newer format
+  // (update_tag_state_locked()).
+  void load_ot3d_v2_nvs();
+  void note_bambuddy_sends_v2(bool sends);
+  std::atomic<bool> bambuddy_sends_v2_{false};
+  std::atomic<bool> ot3d_v2_dirty_{false};  // set on the HTTP task, saved by loop()
+  void save_ot3d_v2_nvs();
   void save_calibration_nvs();
 
   // Console receive server (started on every console, port CONSOLE_PUSH_PORT)
@@ -1723,7 +1742,8 @@ class BambuddyAPIComponent : public Component {
   // Console, HTTP task: send a write result if Bambuddy still waits for it.
   void post_write_result(const HttpJob &job);
   // Arm a write for spool_id (payload as Bambuddy sends it).
-  void arm_pending_write(int spool_id, std::vector<uint8_t> ndef);
+  void arm_pending_write(int spool_id, std::vector<uint8_t> ndef,
+                         std::vector<uint8_t> ndef_v2 = {});
   // Drop an armed (not yet started) write without reporting it.
   void disarm_pending_write(const char *why);
   // Called from loop(): fail a write armed for WRITE_ARM_TTL_MS.
