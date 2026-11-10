@@ -883,7 +883,9 @@ script:
           if (!fi.color_name.empty()) sub += " \u00B7 " + fi.color_name;
           lv_label_set_text(id(tag_menu_sub), sub.c_str());
           lv_label_set_text(id(tag_menu_write_lbl),
-              s.tag_state == TagState::DIFFERS ? "Rewrite tag with spool"
+              s.tag_state == TagState::DIFFERS || s.tag_state == TagState::NEEDS_REWRITE
+                  ? "Rewrite tag with spool"
+              : s.tag_state == TagState::OLDER_FORMAT ? "Update tag to newer format"
               : s.tag_state == TagState::MATCHES ? "Write spool to tag again"
               : fi.tag_format == "ndef" ? "Overwrite tag with spool"
               : "Write spool to tag");
@@ -1574,6 +1576,10 @@ script:
                   txt = "Matches spool"; bg = 0x10301A; border = 0x3A8A4A; fg = 0x7CD68C;
                 } else if (s.tag_state == TagState::DIFFERS) {
                   txt = "Differs"; bg = 0x3A1A1A; border = 0xB04A4A; fg = 0xFF8888;
+                } else if (s.tag_state == TagState::NEEDS_REWRITE) {
+                  txt = "Needs rewrite"; bg = 0x3A2A10; border = 0xC08A30; fg = 0xFFC060;
+                } else if (s.tag_state == TagState::OLDER_FORMAT) {
+                  txt = "Older format"; bg = 0x1A2430; border = 0x3A6A8A; fg = 0x8FC8FF;
                 }
                 if (txt != nullptr) {
                   lv_label_set_text(id(nfc_tag_chip_lbl), txt);

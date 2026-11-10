@@ -105,6 +105,21 @@ static std::vector<uint8_t> hex_to_bytes(const std::string &hex) {
   return out;
 }
 
+// OpenTag3D v2 from a write request (ndef_v2_hex, maziggy/bambuddy#3500), or
+// nothing when absent or not a well-formed NDEF message: v1 is written then.
+static std::vector<uint8_t> ndef_v2_from_hex(const std::string &hex) {
+  if (hex.empty()) return {};
+  std::vector<uint8_t> out;
+  if (hex.size() % 2 == 0 &&
+      hex.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos)
+    out = hex_to_bytes(hex);
+  if (!is_ndef_message_tlv(out)) {
+    ESP_LOGW(TAG, "OpenTag3D v2 from Bambuddy is not an NDEF message - writing v1");
+    return {};
+  }
+  return out;
+}
+
 // Send a JSON response on an esp_http_server request.
 static esp_err_t send_json(httpd_req_t *req, const char *json) {
   httpd_resp_set_type(req, "application/json");
@@ -170,6 +185,7 @@ void BambuddyAPIComponent::setup() {
   // ---- Local load cell ----------------------------------------------------
   // Tare and calibration factor live in NVS on the device that owns the load
   // cell, so they survive reboots without a backend round trip.
+  if (!satellite()) load_ot3d_v2_nvs();
   if (scale_source_ == ScaleSource::LOCAL) {
     load_calibration_nvs();
     display_state_.calibration_factor = calibration_factor_;
@@ -291,6 +307,7 @@ void BambuddyAPIComponent::setup() {
 // reading has settled.
 void BambuddyAPIComponent::loop() {
   check_pending_write_timeout();
+  save_ot3d_v2_nvs();
   if (scale_source_ != ScaleSource::LOCAL) return;
   if (local_have_value_ && !local_stable_ &&
       millis() - local_change_ms_ >= local_stable_after_ms_) {
@@ -1165,8 +1182,9 @@ void BambuddyAPIComponent::on_write_tag_result(const std::string &uid,
   enqueue_job(job);
 }
 
-void BambuddyAPIComponent::arm_pending_write(int spool_id, std::vector<uint8_t> ndef) {
-  switch (tag_write_.arm(spool_id, std::move(ndef), millis())) {
+void BambuddyAPIComponent::arm_pending_write(int spool_id, std::vector<uint8_t> ndef,
+                                             std::vector<uint8_t> ndef_v2) {
+  switch (tag_write_.arm(spool_id, std::move(ndef), std::move(ndef_v2), millis())) {
     case TagWriteCoordinator::Arm::ARMED:
       set_status("Waiting for NTAG to write spool " + std::to_string(spool_id));
       set_tag_write_stage(TagWriteStage::WAITING, spool_id);
@@ -1246,8 +1264,15 @@ void BambuddyAPIComponent::on_bambuddy_write_command(const std::string &cmd,
   }
 
   const std::string ndef_hex = parse_json_string(resp, "ndef_data_hex");
+  // OpenTag3D v2, for a tag with room for it (maziggy/bambuddy#3500); absent
+  // from older releases.
+  const std::string ndef_v2_hex = parse_json_string(resp, "ndef_v2_hex");
   const int spool_id = parse_json_int(resp, "spool_id", 0);
   if (ndef_hex.empty() || spool_id <= 0) return;
+  // Counted only when usable: otherwise every v1 tag would be offered an
+  // upgrade that comes back v1.
+  std::vector<uint8_t> ndef_v2 = ndef_v2_from_hex(ndef_v2_hex);
+  note_bambuddy_sends_v2(!ndef_v2.empty());
   const auto req = tag_write_.on_requested(spool_id, last_tag_source_ == TagSource::SCALE);
   if (req.stale) {
     ESP_LOGD(TAG, "write_tag: spool %d has a result on its way — repeat ignored", spool_id);
@@ -1259,15 +1284,18 @@ void BambuddyAPIComponent::on_bambuddy_write_command(const std::string &cmd,
     // Every repeat: arm() ignores one for the write already armed or running,
     // and arms one deferred behind another write or whose result never
     // reached Bambuddy.
-    arm_pending_write(spool_id, hex_to_bytes(ndef_hex));
+    arm_pending_write(spool_id, hex_to_bytes(ndef_hex), std::move(ndef_v2));
     return;
   }
   // Re-sent with every repeat, so a delivery the scale missed is made up; the
   // scale ignores repeats itself.
   lock_state();
   pending_scale_cmd_ = "write_tag";
+  // ndef_v2_hex is ignored by a scale from before it: that one writes v1.
   pending_scale_cmd_payload_ = "\"spool_id\":" + std::to_string(spool_id) +
                                ",\"ndef_hex\":\"" + ndef_hex + "\"";
+  if (!ndef_v2.empty())
+    pending_scale_cmd_payload_ += ",\"ndef_v2_hex\":\"" + ndef_v2_hex + "\"";
   unlock_state();
   if (req.fresh) {
     set_status("Write queued for scale tag");
@@ -1305,9 +1333,10 @@ void BambuddyAPIComponent::post_write_result(const HttpJob &job) {
   tag_write_.result_sent(spool_id, delivered);
 }
 
-bool BambuddyAPIComponent::claim_pending_write(std::vector<uint8_t> *ndef, int *spool_id) {
+bool BambuddyAPIComponent::claim_pending_write(std::vector<uint8_t> *ndef,
+                                               std::vector<uint8_t> *ndef_v2, int *spool_id) {
   int id = 0;
-  if (!tag_write_.claim(ndef, &id)) return false;
+  if (!tag_write_.claim(ndef, ndef_v2, &id)) return false;
   if (spool_id != nullptr) *spool_id = id;
   set_tag_write_stage(TagWriteStage::WRITING, id);
   return true;
@@ -3642,7 +3671,8 @@ void BambuddyAPIComponent::handle_scale_command(const std::string &resp) {
     int spool_id = parse_json_int(resp, "spool_id", 0);
     if (!ndef_hex.empty()) {
       ESP_LOGD(TAG, "Scale received write_tag cmd via heartbeat: spool_id=%d", spool_id);
-      arm_pending_write(spool_id, hex_to_bytes(ndef_hex));
+      arm_pending_write(spool_id, hex_to_bytes(ndef_hex),
+                        ndef_v2_from_hex(parse_json_string(resp, "ndef_v2_hex")));
     }
   }
 }
@@ -4038,6 +4068,33 @@ esp_err_t BambuddyAPIComponent::console_http_scale_nfc_write_result(httpd_req_t 
 static const char *NVS_NS      = "spoolbuddy";
 static const char *NVS_TARE    = "tare_f";      // float bits (u32); old "tare_offset" (i32) abandoned
 static const char *NVS_CAL     = "cal_factor";
+static const char *NVS_OT3D_V2 = "ot3d_v2";     // u8: 1 = Bambuddy sends OpenTag3D v2
+
+void BambuddyAPIComponent::load_ot3d_v2_nvs() {
+  nvs_handle_t h;
+  if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return;
+  uint8_t v = 0;
+  if (nvs_get_u8(h, NVS_OT3D_V2, &v) == ESP_OK) bambuddy_sends_v2_ = v != 0;
+  nvs_close(h);
+}
+
+void BambuddyAPIComponent::note_bambuddy_sends_v2(bool sends) {
+  // Called on the HTTP task, whose stack is in PSRAM: a flash write from there
+  // aborts (the cache is off while flash is written), so loop() saves it.
+  // Every write_tag repeat lands here; NVS is written only on a change.
+  if (bambuddy_sends_v2_.exchange(sends) == sends) return;
+  ESP_LOGI(TAG, "Bambuddy %s OpenTag3D v2", sends ? "sends" : "does not send");
+  ot3d_v2_dirty_ = true;
+}
+
+void BambuddyAPIComponent::save_ot3d_v2_nvs() {
+  if (!ot3d_v2_dirty_.exchange(false)) return;
+  nvs_handle_t h;
+  if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
+  nvs_set_u8(h, NVS_OT3D_V2, bambuddy_sends_v2_ ? 1 : 0);
+  nvs_commit(h);
+  nvs_close(h);
+}
 
 void BambuddyAPIComponent::load_calibration_nvs() {
   nvs_handle_t h;

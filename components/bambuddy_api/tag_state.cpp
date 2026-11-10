@@ -49,7 +49,21 @@ void BambuddyAPIComponent::update_tag_state_locked() {
   const bool differs = !same_field(tf.material, fi.material_type, 5) ||
                        !same_field(tf.brand, fi.brand, 16) ||
                        !same_field(tf.color_hex, fi.color_hex, 6);
-  ds.tag_state = differs ? TagState::DIFFERS : TagState::MATCHES;
+  if (differs) {
+    ds.tag_state = TagState::DIFFERS;
+    return;
+  }
+  ds.tag_state = TagState::MATCHES;
+  // The tag's version, size and layout are only known for this reader.
+  if (last_tag_source_ != TagSource::LOCAL) return;
+  // v2 is about 190 bytes, so it needs an NTAG215 or NTAG216 (496 / 872).
+  static constexpr uint16_t V2_MIN_CAPACITY = 256;
+  if (tf.cc_copy) {
+    ds.tag_state = TagState::NEEDS_REWRITE;  // a write from here drops the CC copy
+  } else if (tf.version >= 1000 && tf.version < 2000 && tf.capacity >= V2_MIN_CAPACITY &&
+             bambuddy_sends_v2_) {
+    ds.tag_state = TagState::OLDER_FORMAT;
+  }
 }
 
 }  // namespace bambuddy_api

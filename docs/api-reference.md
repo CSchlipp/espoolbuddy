@@ -77,9 +77,18 @@ the write popup ends a write still waiting for a tag as a failed write
 ("Cancelled on the console"), which clears it in Bambuddy.
 
 - The write goes to the next NTAG presented, or to one already on the reader.
-- The data from Bambuddy starts with a Capability Container. The device removes
-  it and writes the NDEF message from page 4. Capacity comes from the tag's own
-  CC in page 3. A blank NTAG213/215/216 is formatted first.
+- `ndef_data_hex` is OpenTag3D v1. Bambuddy since maziggy/bambuddy#3500 also
+  sends `ndef_v2_hex` (OpenTag3D 2.004), which is written instead when the tag
+  has room for it (NTAG215/216). Capacity comes from the tag's own CC in page 3.
+  A blank NTAG213/215/216 is formatted first.
+- Older Bambuddy releases start the data with a copy of the Capability
+  Container. The device removes it and writes the NDEF message from page 4.
+- The result message says which went on: "Write successful (OpenTag3D v2)".
+- An `ndef_v2_hex` that isn't a complete NDEF message is ignored, with a
+  warning in the log, and v1 is written.
+- A write request without a usable `ndef_v2_hex` tells the console that
+  Bambuddy doesn't send v2, and one with it that it does. The console keeps this, and
+  marks v1 tags "Older format" only while Bambuddy sends v2.
 - Page 4 is written last, and the data is read back and compared.
 - A tag that is too small, write-protected or not an NTAG fails with a message
   that Bambuddy shows on its write page.
@@ -92,8 +101,10 @@ the write popup ends a write still waiting for a tag as a failed write
   A result is not sent once Bambuddy has stopped waiting for it. If Bambuddy
   doesn't answer at all, the result is sent up to 3 times.
 - A write that sees no tag within 60 s fails with `tag_uid` `00000000`.
-- Tags written by SpoolBuddy, which have the Capability Container at the start
-  of page 4, are still read.
+- Tags written by SpoolBuddy before #3500, which have the Capability Container
+  at the start of page 4, are still read, and marked "Needs rewrite".
+- The console forwards `ndef_v2_hex` to the scale with the write. A scale
+  without this support ignores it and writes v1.
 
 ## SSH key deployment
 

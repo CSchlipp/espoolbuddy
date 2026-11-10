@@ -140,15 +140,24 @@ through every screen.
   the tag's format. For a tag carrying [OpenTag3D](https://opentag3d.info)
   data it also says how that data compares with the spool in Bambuddy
   (material, brand and colour): *Matches spool* in green or *Differs* in red.
+  Two more say the data is right but a rewrite would improve the tag:
+  - *Older format* (blue): OpenTag3D v1 on an NTAG215 or NTAG216, once
+    Bambuddy has sent the newer v2 with a write.
+  - *Needs rewrite* (amber): written by Bambuddy before it fixed its layout.
+    The console reads such tags, but phones and other readers see them as
+    empty.
+
   A **›** next to it means it opens the tag menu:
   - **Write spool to tag**, for an NTAG linked to the spool, writes the spool
     to an NTAG213, NTAG215 or NTAG216 as an OpenTag3D record, which other
     readers (phones, printers) can read without Bambuddy. It reads *Overwrite
-    tag with spool* for a tag holding other NDEF data, and *Rewrite tag with
-    spool* when the data differs. The tag need not be on the reader yet: a
-    popup asks for it, follows the write and tells you when it's done or why
-    it failed. **Cancel** stops a write still waiting for a tag; after 60 s
-    without one it gives up by itself.
+    tag with spool* for a tag holding other NDEF data, *Rewrite tag with
+    spool* when the data differs or needs a rewrite, and *Update tag to newer
+    format* for an older format. With a Bambuddy that sends it, an NTAG215 or
+    NTAG216 gets OpenTag3D v2, and an NTAG213 keeps v1, as v2 doesn't fit. The
+    tag need not be on the reader yet: a popup asks for it, follows the write
+    and tells you when it's done or why it failed. **Cancel** stops a write
+    still waiting for a tag; after 60 s without one it gives up by itself.
   - **Unlink** removes the tag from the spool after a confirmation; the tag
     then shows as unlinked when scanned again. For an NTAG on the console's
     reader that holds data (an OpenTag3D record, say), the confirmation also
