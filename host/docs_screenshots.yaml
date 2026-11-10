@@ -99,8 +99,10 @@ esphome:
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: location}
 
-        # Unlink Tag → confirm (cancelled)
-        - lambda: 'lv_obj_send_event(id(btn_nfc_unlink), LV_EVENT_CLICKED, nullptr);'
+        # Tag chip → tag menu → Unlink → confirm (cancelled)
+        - lambda: 'lv_obj_send_event(id(nfc_tag_chip), LV_EVENT_CLICKED, nullptr);'
+        - delay: 500ms
+        - lambda: 'lv_obj_send_event(id(tag_menu_unlink_btn), LV_EVENT_CLICKED, nullptr);'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: unlink-confirm}
         - lambda: 'lv_obj_send_event(id(confirm_cancel_btn), LV_EVENT_CLICKED, nullptr);'
@@ -164,22 +166,26 @@ esphome:
         - lambda: 'lv_obj_send_event(id(btn_picker_cancel), LV_EVENT_CLICKED, nullptr);'
 
         # ==== Tag write (full UI only) ====
-        # A blank NTAG linked to a spool -> offer to write it -> Write ->
-        # waiting for the tag -> written.
+        # A blank NTAG linked to a spool -> tag chip -> tag menu -> Write ->
+        # waiting for the tag -> written -> the chip says it matches.
         - lambda: |-
             bambuddy->on_tag_scanned("04C0FFEE000001", "", 0x00, "ntag");
             bambuddy->set_tag_format("");  // blank: no NDEF on it, as the reader reports
         - delay: 1200ms
         - lambda: 'bambuddy->link_tag_to_spool(36);'
         - delay: 1200ms
-        - snapshot.take: {id: main_display, filename: tag-write-offer}
-        - lambda: 'lv_obj_send_event(id(btn_nfc_write_yes), LV_EVENT_CLICKED, nullptr);'
+        - lambda: 'lv_obj_send_event(id(nfc_tag_chip), LV_EVENT_CLICKED, nullptr);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: tag-menu}
+        - lambda: 'lv_obj_send_event(id(tag_menu_write_btn), LV_EVENT_CLICKED, nullptr);'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: tag-write-waiting}
         - lambda: 'bambuddy->sim_tag_write_result(true);'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: tag-write-done}
         - lambda: 'lv_obj_send_event(id(btn_tag_write_ok), LV_EVENT_CLICKED, nullptr);'
+        - delay: 1200ms
+        - snapshot.take: {id: main_display, filename: tag-chip}
 
         # Spool-ID keypad, opened for AMS A's empty slot 4 with 37 typed
         # (full UI only)

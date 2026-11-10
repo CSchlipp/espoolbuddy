@@ -234,6 +234,7 @@ void BambuddyAPIComponent::loop() {
 }
 
 DisplayState BambuddyAPIComponent::snapshot() {
+  update_tag_state_locked();
   DisplayState copy = display_state_;
   copy.uptime_s = (millis() - start_ms_) / 1000;
   return copy;
@@ -345,7 +346,6 @@ void BambuddyAPIComponent::link_tag_to_spool(int spool_id) {
   ds.unlinked_tag_expiry_ms = 0;
   unlinked_tag_expiry_ms_ = 0;
   ds.status_message = "Tag linked to spool #" + std::to_string(spool_id);
-  propose_tag_write(ds.last_tag_uid);
 }
 
 // Same end state as a successful unlink in the real api_link_tag(): back to
@@ -599,7 +599,6 @@ void BambuddyAPIComponent::on_write_tag_result(const std::string &uid, bool succ
 // Tag writes: no Bambuddy to queue them, so a request goes straight to
 // waiting for a tag; sim_tag_write_result() finishes it.
 void BambuddyAPIComponent::request_tag_write() {
-  display_state_.propose_nfc_write = false;
   set_tag_write_stage(TagWriteStage::WAITING, display_state_.current_filament.spool_id);
 }
 
@@ -609,7 +608,12 @@ void BambuddyAPIComponent::cancel_tag_write() {
 }
 
 void BambuddyAPIComponent::sim_tag_write_result(bool success) {
-  if (success) display_state_.current_filament.tag_format = "open_tag_3d";
+  if (success) {
+    display_state_.current_filament.tag_format = "open_tag_3d";
+    display_state_.tag_filament = TagFilamentInfo{};
+    tag_written_scan_gen_ = display_state_.nfc_scan_generation;
+    tag_written_spool_id_ = display_state_.current_filament.spool_id;
+  }
   set_tag_write_stage(success ? TagWriteStage::DONE : TagWriteStage::FAILED,
                       display_state_.tag_write_spool_id,
                       success ? "" : "Tag too small: needs 129 bytes, holds 48");

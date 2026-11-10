@@ -198,31 +198,43 @@ obj:
               text_align: CENTER
               align: TOP_LEFT
               hidden: true
-          # ---- Tag format icons — top-left corner, one shown at a time ----
-          # Shown/hidden each tick by the interval lambda based on fi.tag_format.
-          - image:
-              id: nfc_icon_bambu
-              src: img_icon_bambu
-              x: 6
-              y: 6
+          # ---- Tag chip — top-left corner: the tag's format icon (one shown
+          #      at a time) and, for OpenTag3D data, how it compares with the
+          #      spool (DisplayState::tag_state). For a spool with an id it
+          #      opens the tag menu (lvgl.yaml): write, unlink.
+          #      Styled each tick by the interval lambda in app.yaml.
+          - button:
+              id: nfc_tag_chip
+              x: 2
+              y: 2
               align: TOP_LEFT
-              hidden: true
-          - image:
-              id: nfc_icon_opentag3d
-              src: img_icon_opentag3d
-              x: 6
-              y: 6
-              align: TOP_LEFT
-              hidden: true
-          - image:
-              id: nfc_icon_nfc
-              src: img_icon_nfc
-              x: 6
-              y: 6
-              align: TOP_LEFT
-              hidden: true
+              width: SIZE_CONTENT
+              height: 32
+              bg_color: 0x12121A
+              bg_opa: TRANSP
+              border_width: 0
+              radius: 16
+              shadow_width: 0
+              pad_all: 0
+              pad_left: 4
+              pad_right: 4
+              scrollbar_mode: "OFF"
+              layout:
+                type: FLEX
+                flex_flow: ROW
+                flex_align_cross: CENTER
+                pad_column: 4
+              on_click:
+                then:
+                  - script.execute: tag_menu_open
+              widgets:
+                - image: {id: nfc_icon_bambu, src: img_icon_bambu, hidden: true}
+                - image: {id: nfc_icon_opentag3d, src: img_icon_opentag3d, hidden: true}
+                - image: {id: nfc_icon_nfc, src: img_icon_nfc, hidden: true}
+                - label: {id: nfc_tag_chip_lbl, text: "", text_font: roboto_16, pad_top: 2, hidden: true}
+                - label: {id: nfc_tag_chip_more, text: "\U000F0142", text_font: mdi_24, text_color: 0x777799, hidden: true}
 
-          # ---- Action row: Unlink | Quick Weight | Discard ----
+          # ---- Action row: Quick Weight | Discard ----
           # Flex row, bottom of the panel. Buttons stretch to share the
           # available width equally (flex_grow: 1); which are visible is
           # decided at runtime (LV_OBJ_FLAG_HIDDEN) by app.yaml —
@@ -244,26 +256,6 @@ obj:
                 pad_column: 8
               scrollbar_mode: "OFF"
               widgets:
-                # ---- Unlink tag ----
-                - button:
-                    id: btn_nfc_unlink
-                    flex_grow: 1
-                    height: 50
-                    bg_color: 0x2A1A1A
-                    border_color: 0x9C3A3A
-                    border_width: 2
-                    radius: 6
-                    scrollbar_mode: "OFF"
-                    hidden: true
-                    on_click:
-                      then:
-                        - script.execute: {id: confirm_open, action: 1, message: "Unlink this tag from its spool?", ok_label: "Unlink"}
-                    widgets:
-                      - label:
-                          text: "Unlink Tag"
-                          text_font: roboto_16
-                          text_color: 0xFF8888
-                          align: CENTER
                 # ---- Quick Weight ----
                 - button:
                     id: btn_nfc_weight
@@ -360,7 +352,7 @@ obj:
                         # itself only resets state (no network), so it's instant.
                         - lambda: |-
                             lv_obj_add_flag(id(nfc_spool_box), LV_OBJ_FLAG_HIDDEN);
-                            lv_obj_add_flag(id(nfc_write_banner), LV_OBJ_FLAG_HIDDEN);
+                            id(tag_menu_close).execute();
                             lv_obj_add_flag(id(nfc_archive_proposal_popup), LV_OBJ_FLAG_HIDDEN);
                             lv_label_set_text(id(nfc_waiting_text), "Place spool tag on reader");
                             lv_obj_clear_flag(id(nfc_waiting), LV_OBJ_FLAG_HIDDEN);
@@ -406,69 +398,6 @@ obj:
                     text_color: 0x4CAF50
                     text_align: CENTER
                     align: LEFT_MID
-
-          # ---- "Write the spool to this tag?" proposal overlay ----
-          # Shown after an NTAG without OpenTag3D data was linked to a spool
-          # or used to create one (propose_tag_write()). Overlays the bottom
-          # action row. Write asks Bambuddy to queue the write; the tag write
-          # modal (lvgl.yaml) follows it from there.
-          - obj:
-              id: nfc_write_banner
-              align: BOTTOM_MID
-              y: -6
-              width: 100%
-              height: 50  # the action row's height, so it covers the row
-              bg_color: 0x0D1E30
-              border_color: 0x3A6A9C
-              border_width: 2
-              radius: 6
-              pad_all: 0
-              pad_left: 8
-              pad_right: 8
-              layout:
-                type: FLEX
-                flex_flow: ROW
-                flex_align_cross: center
-                pad_column: 6
-              scrollbar_mode: "OFF"
-              hidden: true
-              widgets:
-                - label:
-                    id: nfc_write_banner_text
-                    flex_grow: 1
-                    text: "Write the spool to this tag?"
-                    text_font: roboto_12
-                    text_color: 0xAABBDD
-                    text_align: LEFT
-                - button:
-                    id: btn_nfc_write_yes
-                    width: 100
-                    height: 38
-                    bg_color: 0x0D2B14
-                    border_color: 0x4CAF50
-                    border_width: 2
-                    radius: 4
-                    scrollbar_mode: "OFF"
-                    on_click:
-                      then:
-                        - lambda: |-
-                            bambuddy->request_tag_write();
-                    widgets:
-                      - label: {text: "Write", text_font: roboto_12, text_color: 0x4CAF50, align: CENTER}
-                - button:
-                    id: btn_nfc_write_skip
-                    width: 100
-                    height: 38
-                    bg_color: 0x1E2030
-                    border_color: 0x6666AA
-                    border_width: 1
-                    radius: 4
-                    scrollbar_mode: "OFF"
-                    on_click:
-                      then:
-                        - lambda: bambuddy->dismiss_nfc_write_proposal();
-                    widgets:
-                      - label: {text: "Skip", text_font: roboto_12, text_color: 0xBBBBCC, align: CENTER}
 
           # ---- Quick Weight popup — sized to content, shown over spool detail ----
           - obj:

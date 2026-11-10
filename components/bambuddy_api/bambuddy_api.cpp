@@ -796,6 +796,7 @@ bool BambuddyAPIComponent::dequeue_job(HttpJob &job) {
 
 DisplayState BambuddyAPIComponent::snapshot() {
   lock_state();
+  update_tag_state_locked();
   DisplayState copy = display_state_;  // deep copy of vectors/strings
   unlock_state();
   // Keep uptime ticking smoothly between heartbeats.
@@ -948,8 +949,6 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
   display_state_.status_message = "Tag detected: " + uid;
   display_state_.nfc_scan_generation++;  // lets the UI detect new physical scans
   display_state_.propose_archive = false;  // new scan cancels any pending archive proposal
-  display_state_.propose_nfc_write = false;  // and any write offer for the previous tag
-  display_state_.write_offer_mismatch = false;
   last_tag_source_ = TagSource::LOCAL;   // overridden to SCALE by console_http_scale_nfc_scanned
   unlock_state();
 
@@ -1319,13 +1318,14 @@ void BambuddyAPIComponent::show_tag_write_result(int spool_id, const std::string
   lock_state();
   auto &ds = display_state_;
   const bool shown = ds.tag_write_stage != TagWriteStage::NONE && ds.tag_write_spool_id == spool_id;
-  if (success && ds.last_tag_uid == uid) {
-    // The tag on the reader now carries this spool's OpenTag3D data: no
-    // further offer, and the data read at the scan is out of date.
+  if (success && ds.last_tag_uid == uid && ds.current_filament.spool_id == spool_id) {
+    // The tag shown now carries this spool's OpenTag3D data, and the data read
+    // at the scan is out of date. (A write that went to another tag placed
+    // instead says nothing about the spool shown for that tag.)
     ds.current_filament.tag_format = "open_tag_3d";
-    ds.propose_nfc_write = false;
-    ds.write_offer_mismatch = false;
     ds.tag_filament = TagFilamentInfo{};
+    tag_written_scan_gen_ = ds.nfc_scan_generation;
+    tag_written_spool_id_ = spool_id;
   }
   unlock_state();
   if (shown)
@@ -1336,7 +1336,6 @@ void BambuddyAPIComponent::show_tag_write_result(int spool_id, const std::string
 void BambuddyAPIComponent::request_tag_write() {
   lock_state();
   const int spool_id = display_state_.current_filament.spool_id;
-  display_state_.propose_nfc_write = false;
   unlock_state();
   if (spool_id <= 0) return;
   set_tag_write_stage(TagWriteStage::REQUESTING, spool_id);
@@ -1413,46 +1412,6 @@ void BambuddyAPIComponent::end_scale_write(int spool_id, const char *msg) {
   job.b1 = false;
   job.s2 = msg;
   enqueue_job(job);
-}
-
-void BambuddyAPIComponent::check_tag_mismatch_locked() {
-  auto &ds = display_state_;
-  if (mismatch_checked_gen_ == ds.nfc_scan_generation) return;  // Skip stays skipped
-  const auto &fi = ds.current_filament;
-  const auto &tf = ds.tag_filament;
-  if (!tf.valid || tf.format != "open_tag_3d" || fi.tag_type != "ntag" ||
-      ds.nfc_state != NFCTagState::PRESENT || last_tag_source_ == TagSource::AMS)
-    return;
-  mismatch_checked_gen_ = ds.nfc_scan_generation;
-  // The tag holds the spool's value cut to its field (OpenTag3D v1: material
-  // 5 characters, brand 16), so compare against the spool's value cut the
-  // same way, ignoring case and surrounding spaces.
-  // A field the spool doesn't have is not a difference: a rewrite would only
-  // blank it on the tag.
-  auto same = [](const std::string &on_tag, const std::string &in_spool, size_t field) {
-    if (in_spool.empty()) return true;
-    auto norm = [](std::string v, size_t n) {
-      const size_t a = v.find_first_not_of(' ');
-      v = a == std::string::npos ? std::string() : v.substr(a);
-      if (v.size() > n) {
-        // Cut on a UTF-8 character boundary, as the encoder does.
-        while (n > 0 && ((unsigned char) v[n] & 0xC0) == 0x80) n--;
-        v.resize(n);
-      }
-      while (!v.empty() && v.back() == ' ') v.pop_back();
-      for (char &c : v) c = (char) tolower((unsigned char) c);
-      return v;
-    };
-    return norm(on_tag, field) == norm(in_spool, field);
-  };
-  const bool differs = !same(tf.material, fi.material_type, 5) ||
-                       !same(tf.brand, fi.brand, 16) || !same(tf.color_hex, fi.color_hex, 6);
-  if (!differs) return;
-  ESP_LOGI(TAG, "Tag data differs from spool %d: tag %s/%s/#%s, spool %s/%s/#%s", fi.spool_id,
-           tf.material.c_str(), tf.brand.c_str(), tf.color_hex.c_str(), fi.material_type.c_str(),
-           fi.brand.c_str(), fi.color_hex.c_str());
-  ds.propose_nfc_write = true;
-  ds.write_offer_mismatch = true;
 }
 
 void BambuddyAPIComponent::unlink_and_erase_current_tag() {
@@ -1859,8 +1818,8 @@ void BambuddyAPIComponent::activate_spool(FilamentInfo fi,
                                            TagSource source) {
   int spool_id = fi.spool_id;
   uint32_t expiry = spool_id > 0 ? millis() + ASSIGN_TTL_MS : 0;
-  last_tag_source_ = source;
   lock_state();
+  last_tag_source_ = source;
   display_state_.current_filament       = fi;
   display_state_.spool_selected         = true;
   display_state_.tag_resolving          = false;
@@ -2046,7 +2005,6 @@ void BambuddyAPIComponent::api_get_spool(int spool_id, bool check_empty) {
     if (check_empty && label_w > 0 && used_w >= label_w) {
       display_state_.propose_archive = true;
     }
-    check_tag_mismatch_locked();
   }
   unlock_state();
 
@@ -4006,7 +3964,9 @@ esp_err_t BambuddyAPIComponent::console_http_scale_nfc_scanned(httpd_req_t *req)
                        filament.valid ? &filament : nullptr);
   // Override source AFTER on_tag_scanned() so write_tag commands are routed back
   // to the scale's PN532 rather than waiting on the console's reader.
+  self->lock_state();
   self->last_tag_source_ = TagSource::SCALE;
+  self->unlock_state();
 
   return send_json(req, "{\"ok\":true}");
 }
@@ -4978,7 +4938,6 @@ void BambuddyAPIComponent::api_link_tag(int spool_id, const std::string &uid,
     display_state_.spool_selected   = true;
     display_state_.status_message   = "Tag linked to spool #" + std::to_string(spool_id);
     unlock_state();
-    propose_tag_write(uid);
     api_get_spool(spool_id);
   }
 }
@@ -5126,7 +5085,6 @@ void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid,
     fi.label_weight_g = 1000;
   }
   activate_spool(fi, uid, last_tag_source_);
-  propose_tag_write(uid);
   set_status("Created spool #" + std::to_string(new_id) +
              (tag_link_failed ? ", tag link failed" : ""));
 }
