@@ -184,11 +184,11 @@ obj:
                           radius: 2
                           scrollbar_mode: "OFF"
           # ---- Spool ID — small, top-right ----
-          - label: {id: nfc_spoolid, x: 400, y: 94, width: 76, height: 16, text: "", text_font: roboto_12, text_color: 0x777799, text_align: RIGHT, align: TOP_LEFT}
+          - label: {id: nfc_spoolid, x: -4, y: 94, width: 76, height: 16, text: "", text_font: roboto_12, text_color: 0x777799, text_align: RIGHT, align: TOP_RIGHT}
           # TTL countdown — shown while auto-assign is pending
           - label:
               id: nfc_ttl
-              x: 406
+              x: -6
               y: 6
               width: 68
               height: 22
@@ -196,7 +196,7 @@ obj:
               text_font: roboto_16
               text_color: 0xFFAA44
               text_align: CENTER
-              align: TOP_LEFT
+              align: TOP_RIGHT
               hidden: true
           # ---- Tag format icons — top-left corner, one shown at a time ----
           # Shown/hidden each tick by the interval lambda based on fi.tag_format.
