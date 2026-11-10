@@ -32,6 +32,7 @@ on:
       - '.github/workflows/esphome-compile.yml'
       - '.github/scripts/use_local_components.py'
       - '.github/legacy/**'
+      - 'host/**'
   pull_request:
     branches: [main]
     paths: *config_paths
@@ -130,4 +131,46 @@ jobs:
         run: esphome config ${{ matrix.config }}
 
       - name: Compile firmware
+        run: esphome compile ${{ matrix.config }}
+
+  # The desktop simulators (host/) build the same UI against
+  # host/bambuddy_api_mock.cpp instead of bambuddy_api.cpp. A public method the
+  # UI calls without a stub in the mock only fails here, at link time, so they
+  # are compiled too. They use the local checkout and need no secrets.yaml.
+  simulator:
+    name: Compile simulator ${{ matrix.config }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - host/espoolbuddy_console_host.yaml
+          - host/espoolbuddy_console_lite_host.yaml
+          - host/espoolbuddy_console_host_labels.yaml
+          - host/espoolbuddy_console_host_labels_network.yaml
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install SDL2 and latest ESPHome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev
+          pip install -U esphome
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: platformio-host-${{ runner.os }}-${{ hashFiles('host/*.yaml') }}
+          restore-keys: |
+            platformio-host-${{ runner.os }}-
+
+      - name: Compile simulator
         run: esphome compile ${{ matrix.config }}
