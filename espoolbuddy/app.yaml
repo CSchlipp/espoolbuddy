@@ -865,6 +865,38 @@ script:
           }
           #endif
 
+  # Open the tag menu (tag_menu in lvgl.yaml) from the tag chip, for the spool
+  # shown. Write is offered for a tag the console can write
+  # (DisplayState::tag_writable), and its label says what it will do to it.
+  - id: tag_menu_open
+    then:
+      - lambda: |-
+          using bambuddy_api::TagState;
+          auto s = bambuddy->snapshot();
+          const auto &fi = s.current_filament;
+          if (fi.spool_id <= 0) return;
+          const bool ams = s.last_tag_uid.rfind("ams:", 0) == 0;  // shown from an AMS slot
+          lv_label_set_text(id(tag_menu_title), (ams || s.last_tag_uid.empty()
+              ? "Spool #" + std::to_string(fi.spool_id) : "Tag " + s.last_tag_uid).c_str());
+          std::string sub = "Spool #" + std::to_string(fi.spool_id);
+          if (!fi.material_type.empty()) sub += " \u00B7 " + fi.material_type;
+          if (!fi.color_name.empty()) sub += " \u00B7 " + fi.color_name;
+          lv_label_set_text(id(tag_menu_sub), sub.c_str());
+          lv_label_set_text(id(tag_menu_write_lbl),
+              s.tag_state == TagState::DIFFERS ? "Rewrite tag with spool"
+              : s.tag_state == TagState::MATCHES ? "Write spool to tag again"
+              : fi.tag_format == "ndef" ? "Overwrite tag with spool"
+              : "Write spool to tag");
+          if (s.tag_writable)
+            lv_obj_clear_flag(id(tag_menu_write_btn), LV_OBJ_FLAG_HIDDEN);
+          else
+            lv_obj_add_flag(id(tag_menu_write_btn), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_clear_flag(id(tag_menu), LV_OBJ_FLAG_HIDDEN);
+
+  - id: tag_menu_close
+    then:
+      - lambda: 'lv_obj_add_flag(id(tag_menu), LV_OBJ_FLAG_HIDDEN);'
+
   # Open the confirm dialog (confirm_modal in lvgl.yaml) for confirm_action
   # `action`. Unlinking a spool's tag (action 1) also offers "Unlink + Erase"
   # when the tag on this reader holds data.
@@ -1059,6 +1091,7 @@ script:
               id(confirm_action) = 0;
               lv_obj_add_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
             }
+            id(tag_menu_close).execute();
             if (!nfc_episode_active) {
               nfc_ep_saw_content = false;
               nfc_return_tab = (id(active_tab) != 1) ? id(active_tab) : -1;
@@ -1511,18 +1544,66 @@ script:
               lv_obj_set_style_img_recolor(id(nfc_spool_fill), lv_color_hex(0x444466), LV_PART_MAIN);
             }
 
-            // ---- Tag format icon (top-left of spool box) ----
+            // ---- Tag chip (top-left of spool box): the format icon, how
+            // OpenTag3D data compares with the spool, and a chevron: it opens
+            // the tag menu for a spool with an id. Restyled only when one of
+            // those changes. ----
             {
+              using bambuddy_api::TagState;
               const std::string &fmt = fi.tag_format;
-              lv_obj_add_flag(id(nfc_icon_bambu), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_add_flag(id(nfc_icon_opentag3d), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_add_flag(id(nfc_icon_nfc), LV_OBJ_FLAG_HIDDEN);
-              if (fmt == "bambu_lab") {
-                lv_obj_clear_flag(id(nfc_icon_bambu), LV_OBJ_FLAG_HIDDEN);
-              } else if (fmt == "open_tag_3d") {
-                lv_obj_clear_flag(id(nfc_icon_opentag3d), LV_OBJ_FLAG_HIDDEN);
-              } else if (fmt == "ndef") {
-                lv_obj_clear_flag(id(nfc_icon_nfc), LV_OBJ_FLAG_HIDDEN);
+              const bool menu = fi.spool_id > 0;
+              const int fmt_idx = fmt == "bambu_lab" ? 1 : fmt == "open_tag_3d" ? 2
+                                : (fmt == "ndef" || menu) ? 3 : 0;  // generic icon: blank tag too
+              static int prev_key = -1;
+              const int key = (int) s.tag_state | fmt_idx << 4 | (menu ? 1 << 8 : 0);
+              if (key != prev_key) {
+                prev_key = key;
+                lv_obj_add_flag(id(nfc_icon_bambu), LV_OBJ_FLAG_HIDDEN);
+                lv_obj_add_flag(id(nfc_icon_opentag3d), LV_OBJ_FLAG_HIDDEN);
+                lv_obj_add_flag(id(nfc_icon_nfc), LV_OBJ_FLAG_HIDDEN);
+                if (fmt_idx == 1) {
+                  lv_obj_clear_flag(id(nfc_icon_bambu), LV_OBJ_FLAG_HIDDEN);
+                } else if (fmt_idx == 2) {
+                  lv_obj_clear_flag(id(nfc_icon_opentag3d), LV_OBJ_FLAG_HIDDEN);
+                } else if (fmt_idx == 3) {
+                  lv_obj_clear_flag(id(nfc_icon_nfc), LV_OBJ_FLAG_HIDDEN);
+                }
+                const char *txt = nullptr;
+                uint32_t bg = 0, border = 0, fg = 0x777799;
+                if (s.tag_state == TagState::MATCHES) {
+                  txt = "Matches spool"; bg = 0x10301A; border = 0x3A8A4A; fg = 0x7CD68C;
+                } else if (s.tag_state == TagState::DIFFERS) {
+                  txt = "Differs"; bg = 0x3A1A1A; border = 0xB04A4A; fg = 0xFF8888;
+                }
+                if (txt != nullptr) {
+                  lv_label_set_text(id(nfc_tag_chip_lbl), txt);
+                  lv_obj_set_style_text_color(id(nfc_tag_chip_lbl), lv_color_hex(fg), LV_PART_MAIN);
+                  lv_obj_clear_flag(id(nfc_tag_chip_lbl), LV_OBJ_FLAG_HIDDEN);
+                  lv_obj_set_style_bg_color(id(nfc_tag_chip), lv_color_hex(bg), LV_PART_MAIN);
+                  lv_obj_set_style_bg_opa(id(nfc_tag_chip), LV_OPA_COVER, LV_PART_MAIN);
+                  lv_obj_set_style_border_color(id(nfc_tag_chip), lv_color_hex(border), LV_PART_MAIN);
+                  lv_obj_set_style_border_width(id(nfc_tag_chip), 2, LV_PART_MAIN);
+                  lv_obj_set_style_pad_right(id(nfc_tag_chip), 8, LV_PART_MAIN);
+                } else {
+                  lv_obj_add_flag(id(nfc_tag_chip_lbl), LV_OBJ_FLAG_HIDDEN);
+                  lv_obj_set_style_bg_opa(id(nfc_tag_chip), LV_OPA_TRANSP, LV_PART_MAIN);
+                  lv_obj_set_style_border_width(id(nfc_tag_chip), 0, LV_PART_MAIN);
+                  lv_obj_set_style_pad_right(id(nfc_tag_chip), 4, LV_PART_MAIN);
+                }
+                lv_obj_set_style_text_color(id(nfc_tag_chip_more), lv_color_hex(fg), LV_PART_MAIN);
+                // On a coloured chip the icon takes the text colour.
+                for (lv_obj_t *icon : {id(nfc_icon_bambu), id(nfc_icon_opentag3d), id(nfc_icon_nfc)}) {
+                  lv_obj_set_style_img_recolor(icon, lv_color_hex(fg), LV_PART_MAIN);
+                  lv_obj_set_style_img_recolor_opa(icon, txt != nullptr ? LV_OPA_COVER : LV_OPA_TRANSP,
+                                                   LV_PART_MAIN);
+                }
+                if (menu) {
+                  lv_obj_clear_flag(id(nfc_tag_chip_more), LV_OBJ_FLAG_HIDDEN);
+                  lv_obj_add_flag(id(nfc_tag_chip), LV_OBJ_FLAG_CLICKABLE);
+                } else {
+                  lv_obj_add_flag(id(nfc_tag_chip_more), LV_OBJ_FLAG_HIDDEN);
+                  lv_obj_clear_flag(id(nfc_tag_chip), LV_OBJ_FLAG_CLICKABLE);
+                }
               }
             }
 
@@ -1553,13 +1634,12 @@ script:
               lv_obj_add_flag(id(nfc_assign_banner), LV_OBJ_FLAG_HIDDEN);
             }
 
-            // ---- Action row: Unlink | Quick Weight | Discard (nfc_action_row is a
+            // ---- Action row: Quick Weight | Discard (nfc_action_row is a
             // flex row with each button flex_grow:1 -- tab_nfc.yaml -- so hiding a
             // button is all that's needed for the remaining ones to reflow; no
             // width/x math to keep in sync with the YAML any more) ----
+            // Unlink is in the tag menu, opened from the tag chip.)
             if (fi.spool_id > 0 && s.scale_ok) {
-              // All three visible
-              lv_obj_clear_flag(id(btn_nfc_unlink), LV_OBJ_FLAG_HIDDEN);
               lv_obj_clear_flag(id(btn_nfc_weight), LV_OBJ_FLAG_HIDDEN);
               // Live weight shortcut: show net (filament only) and total (spool+filament).
               if (s.weight_stable && s.weight_grams > 5.0f) {
@@ -1575,13 +1655,8 @@ script:
                 lv_label_set_text(id(lbl_nfc_weight_btn), "Quick Weight");
                 lv_obj_set_style_text_color(id(lbl_nfc_weight_btn), lv_color_hex(0x4ECDC4), LV_PART_MAIN);
               }
-            } else if (fi.spool_id > 0) {
-              // Unlink + Discard (no scale)
-              lv_obj_clear_flag(id(btn_nfc_unlink), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_add_flag(id(btn_nfc_weight), LV_OBJ_FLAG_HIDDEN);
             } else {
-              // Discard only (unknown/unlinked spool)
-              lv_obj_add_flag(id(btn_nfc_unlink), LV_OBJ_FLAG_HIDDEN);
+              // Discard only (no scale, or an unknown/unlinked spool)
               lv_obj_add_flag(id(btn_nfc_weight), LV_OBJ_FLAG_HIDDEN);
             }
 
@@ -1599,19 +1674,6 @@ script:
               lv_obj_add_flag(id(btn_nfc_print), LV_OBJ_FLAG_HIDDEN);
             }
             #endif
-
-            // NFC write proposal banner. A tag with other NDEF content gets
-            // overwritten, so it says so.
-            if (s.propose_nfc_write) {
-              lv_label_set_text(id(nfc_write_banner_text),
-                                s.write_offer_mismatch ? "Tag data differs from the spool. Rewrite it?"
-                                : s.current_filament.tag_format == "ndef"
-                                    ? "Overwrite this tag with the spool?"
-                                    : "Write the spool to this tag?");
-              lv_obj_clear_flag(id(nfc_write_banner), LV_OBJ_FLAG_HIDDEN);
-            } else {
-              lv_obj_add_flag(id(nfc_write_banner), LV_OBJ_FLAG_HIDDEN);
-            }
 
             // ---- Quick Weight popup live update ----
             if (id(nfc_weight_popup_open) == 1) {
@@ -1736,7 +1798,7 @@ script:
             lv_obj_add_flag(id(nfc_unlinked_panel),          LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(id(nfc_archive_proposal_popup),  LV_OBJ_FLAG_HIDDEN);
             id(close_picker).execute();
-            lv_obj_add_flag(id(nfc_write_banner),   LV_OBJ_FLAG_HIDDEN);
+            id(tag_menu_close).execute();  // the spool it was opened for is gone
             lv_obj_clear_flag(id(nfc_waiting),      LV_OBJ_FLAG_HIDDEN);
             lv_label_set_text(id(nfc_waiting_text),
                 s.tag_resolving ? "Identifying tag..." : "Place spool tag on reader");

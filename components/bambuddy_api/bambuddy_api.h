@@ -375,6 +375,14 @@ enum class TagWriteStage : uint8_t {
   FAILED,      // tag_write_message says why
 };
 
+// What the tag on the reader holds compared with its spool, for the tag chip
+// on the spool view (update_tag_state_locked()).
+enum class TagState : uint8_t {
+  NONE,     // no OpenTag3D data read (blank, other NDEF data, Bambu, AMS): no chip text
+  MATCHES,  // OpenTag3D data that agrees with the spool
+  DIFFERS,  // OpenTag3D data whose material, brand or colour disagrees
+};
+
 // A spool looked up by ID for the spool-ID keypad (lookup_spool()).
 struct SpoolLookup {
   enum State : uint8_t { IDLE, LOADING, FOUND, NOT_FOUND, FAILED };
@@ -480,13 +488,13 @@ struct DisplayState {
   // also triggering that generation's tab-switch/panel side effects.
   uint32_t scan_chime_generation{0};
 
-  // Offer to write the spool to the NTAG on the reader (nfc_write_banner),
-  // set after the tag was linked to a spool or used to create one.
-  bool propose_nfc_write{false};
   bool propose_archive{false};  // set when Quick Weight confirms 0g remaining
-  // propose_nfc_write because the tag's OpenTag3D data differs from its spool
-  // (a rewrite), not because the tag is blank.
-  bool write_offer_mismatch{false};
+  // The tag chip: what the tag holds compared with the spool shown, and
+  // whether the tag menu can write it (an NTAG linked to the spool, on this
+  // console's reader or the scale's, not an AMS tray; it need not be on the
+  // reader: the write waits for it). Derived: snapshot() recomputes both.
+  TagState tag_state{TagState::NONE};
+  bool tag_writable{false};
 
   // Tag write shown in the write-status modal.
   TagWriteStage tag_write_stage{TagWriteStage::NONE};
@@ -768,16 +776,8 @@ class BambuddyAPIComponent : public Component {
     unlock_state();
   }
 
-  // "Skip" on the write proposal banner.
-  void dismiss_nfc_write_proposal() {
-    lock_state();
-    display_state_.propose_nfc_write = false;
-    display_state_.write_offer_mismatch = false;
-    unlock_state();
-  }
-
   // ---- Tag writes started on the console ----
-  // "Write" on the banner: ask Bambuddy to queue a write of the spool shown on
+  // "Write" in the tag menu: ask Bambuddy to queue a write of the spool shown on
   // the NFC tab to this console. Bambuddy builds the bytes and sends write_tag
   // back in the next heartbeat, which is sent at once.
   void request_tag_write();
@@ -832,8 +832,6 @@ class BambuddyAPIComponent : public Component {
     display_state_.spool_assign_expiry_ms = 0;
     display_state_.assign_success = false;
     display_state_.assign_slot_desc.clear();
-    display_state_.propose_nfc_write = false;
-    display_state_.write_offer_mismatch = false;
     display_state_.propose_archive = false;
     display_state_.unlinked_tag_expiry_ms = 0;
     pending_assign_spool_id_ = 0;
@@ -1324,29 +1322,19 @@ class BambuddyAPIComponent : public Component {
   // End a write sent to the scale as failed with msg: take back a write_tag
   // not yet handed over and send the result (which also cancels the scale).
   void end_scale_write(int spool_id, const char *msg);
-  // After a spool refresh: offer a rewrite if the linked tag on the reader
-  // carries OpenTag3D data that disagrees with the spool. Once per scan.
-  // Call with state_mutex_ held.
-  void check_tag_mismatch_locked();
-  uint32_t mismatch_checked_gen_{0};  // nfc_scan_generation already checked
+  // Sets display_state_.tag_state and tag_writable from the tag's data and
+  // the spool shown. snapshot() calls it, so they always fit the rest of the
+  // state. Call with state_mutex_ held. In tag_state.cpp, which the simulator
+  // also builds.
+  void update_tag_state_locked();
+  // The scan and spool whose tag this console wrote: the tag holds that spool
+  // now, though the data read at that scan is gone (state_mutex_).
+  uint32_t tag_written_scan_gen_{0};
+  int tag_written_spool_id_{0};
   // A write ended (here, or relayed from the scale): show the result unless the
   // user has closed the modal or moved on to another write.
   void show_tag_write_result(int spool_id, const std::string &uid, bool success,
                              const std::string &msg);
-  // After the tag uid was linked to a spool or used to create one: offer to
-  // write the spool to it if it is still on the reader and an NTAG without
-  // OpenTag3D data.
-  void propose_tag_write(const std::string &uid) {
-    lock_state();
-    auto &ds = display_state_;
-    const auto &fi = ds.current_filament;
-    ds.write_offer_mismatch = false;
-    ds.propose_nfc_write = ds.nfc_state == NFCTagState::PRESENT && ds.last_tag_uid == uid &&
-                           !uid.empty() && last_tag_source_ != TagSource::AMS &&
-                           fi.spool_id > 0 && fi.tag_type == "ntag" &&
-                           fi.tag_format != "open_tag_3d";
-    unlock_state();
-  }
   // Create a spool from the scanned tag (decoded filament payload when available,
   // otherwise a generic PLA placeholder) and link the tag to it.
   // Internal: single POST /inventory/spools with tag_uid in the body.

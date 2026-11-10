@@ -2407,6 +2407,102 @@ lvgl:
                               widgets:
                                 - label: {id: confirm_ok_lbl, text: "Confirm", text_font: roboto_16, text_color: 0xFF8888, align: CENTER}
 
+              # ================ TAG MENU ======================================
+              # Opened from the tag chip on the NFC spool view (tag_menu_open in
+              # app.yaml) for the spool shown. Write acts at once (opening the
+              # menu was the deliberate step) and is offered for a tag the
+              # console can write. Unlink opens the unlink confirm, which also
+              # offers Unlink + Erase for a tag with data on this reader.
+              - obj:
+                  id: tag_menu
+                  width: 85%
+                  height: SIZE_CONTENT
+                  align: CENTER
+                  bg_color: 0x1A1A2C
+                  bg_opa: COVER
+                  border_color: 0x8585B8
+                  border_width: 2
+                  border_opa: COVER
+                  radius: 12
+                  pad_left: 16
+                  pad_right: 16
+                  pad_top: 12
+                  pad_bottom: 14
+                  scrollbar_mode: "OFF"
+                  scrollable: false
+                  shadow_width: 16
+                  shadow_offset_x: 0
+                  shadow_offset_y: 6
+                  shadow_spread: 2
+                  shadow_color: 0x000000
+                  shadow_opa: COVER
+                  hidden: true
+                  layout:
+                    type: flex
+                    flex_flow: column
+                    flex_align_cross: center
+                    pad_row: 8
+                  widgets:
+                    - label:
+                        id: tag_menu_title
+                        width: 100%
+                        text: "Tag"
+                        text_font: roboto_20
+                        text_color: 0x7BB4FF
+                        text_align: CENTER
+                    - label:
+                        id: tag_menu_sub
+                        width: 100%
+                        text: ""
+                        text_font: roboto_12
+                        text_color: 0xAAAACC
+                        text_align: CENTER
+                        long_mode: DOT
+                    - button:
+                        id: tag_menu_write_btn
+                        width: 100%
+                        height: 40
+                        bg_color: 0x0D2B14
+                        border_color: 0x4CAF50
+                        border_width: 2
+                        radius: 6
+                        scrollbar_mode: "OFF"
+                        on_click:
+                          then:
+                            - script.execute: tag_menu_close
+                            - lambda: 'bambuddy->request_tag_write();'
+                        widgets:
+                          - label: {id: tag_menu_write_lbl, text: "Write spool to tag", text_font: roboto_16, text_color: 0x4CAF50, align: CENTER}
+                    - button:
+                        id: tag_menu_unlink_btn
+                        width: 100%
+                        height: 40
+                        bg_color: 0x2A1A1A
+                        border_color: 0x9C3A3A
+                        border_width: 2
+                        radius: 6
+                        scrollbar_mode: "OFF"
+                        on_click:
+                          then:
+                            - script.execute: tag_menu_close
+                            - script.execute: {id: confirm_open, action: 1, message: "Unlink this tag from its spool?", ok_label: "Unlink"}
+                        widgets:
+                          - label: {text: "Unlink", text_font: roboto_16, text_color: 0xFF8888, align: CENTER}
+                    - button:
+                        id: tag_menu_cancel_btn
+                        width: 100%
+                        height: 40
+                        bg_color: 0x1E2040
+                        border_color: 0x8585B8
+                        border_width: 2
+                        radius: 6
+                        scrollbar_mode: "OFF"
+                        on_click:
+                          then:
+                            - script.execute: tag_menu_close
+                        widgets:
+                          - label: {text: "Cancel", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
+
               # ================ TAG WRITE MODAL ===============================
               # Shows a tag write from request to result: asking Bambuddy,
               # waiting for a tag (with the time left), writing, done or

@@ -16,7 +16,7 @@ through every screen.
   that tab shows *Place spool tag on reader*.
 
   <img src="images/ui/full/nfc-waiting.png" alt="NFC tab waiting for a tag: NFC icon and Place spool tag on reader" width="360">
-  <img src="images/ui/full/nfc-spool.png" alt="NFC tab showing a scanned spool: name, colour, remaining weight, and Unlink Tag / Quick Weight / Discard buttons" width="360">
+  <img src="images/ui/full/nfc-spool.png" alt="NFC tab showing a scanned spool: name, colour, remaining weight, the tag chip in the top-left corner, and Quick Weight / Discard buttons" width="360">
 
 - **Scan + load auto-assigns the AMS slot**: after scanning a tag linked to
   a known spool, loading that physical spool into any AMS slot within the
@@ -136,37 +136,38 @@ through every screen.
   <img src="images/ui/full/weight-popup.png" alt="Update Spool Weight popup: PLA · Gold, current scale reading 1020 g, Update and Cancel" width="360">
   <img src="images/ui/full/archive.png" alt="Spool Empty popup: PLA Matte · Bambu Lab, Archive this spool?, Archive and Keep" width="360">
 
-- **Unlink or discard**: **Unlink Tag** removes the tag from the spool after
-  a confirmation; the tag then shows as unlinked when scanned again. For an
-  NTAG on the console's reader that holds data (an OpenTag3D record, say), the
-  confirmation also offers **Unlink + Erase**: once the unlink has gone
-  through, the tag's NDEF message is emptied, so it can be reused for another
-  spool. Keep the tag on the reader until the popup says *Tag erased*.
-  **Discard** clears the spool from the screen.
+- **Tag chip and tag menu**: the top-left corner of the spool view shows
+  the tag's format. For a tag carrying [OpenTag3D](https://opentag3d.info)
+  data it also says how that data compares with the spool in Bambuddy
+  (material, brand and colour): *Matches spool* in green or *Differs* in red.
+  A **›** next to it means it opens the tag menu:
+  - **Write spool to tag**, for an NTAG linked to the spool, writes the spool
+    to an NTAG213, NTAG215 or NTAG216 as an OpenTag3D record, which other
+    readers (phones, printers) can read without Bambuddy. It reads *Overwrite
+    tag with spool* for a tag holding other NDEF data, and *Rewrite tag with
+    spool* when the data differs. The tag need not be on the reader yet: a
+    popup asks for it, follows the write and tells you when it's done or why
+    it failed. **Cancel** stops a write still waiting for a tag; after 60 s
+    without one it gives up by itself.
+  - **Unlink** removes the tag from the spool after a confirmation; the tag
+    then shows as unlinked when scanned again. For an NTAG on the console's
+    reader that holds data (an OpenTag3D record, say), the confirmation also
+    offers **Unlink + Erase**: once the unlink has gone through, the tag's
+    NDEF message is emptied, so it can be reused for another spool. Keep the
+    tag on the reader until the popup says *Tag erased*.
 
-  <img src="images/ui/full/unlink-confirm.png" alt="Are you sure? Unlink this tag from its spool? with Cancel and Unlink" width="360">
+  The console never asks to write a tag by itself, so nothing changes for
+  tags that are never written. The write popup also shows for writes started
+  from Bambuddy's SpoolBuddy **Write** page (`/spoolbuddy/write-tag`).
+  Whatever is on the tag is overwritten; Bambu Lab tags are never written.
 
-- **Write a tag**: the console can write the spool to an NTAG213, NTAG215 or
-  NTAG216 as an [OpenTag3D](https://opentag3d.info) record, which other
-  readers (phones, printers) can read without Bambuddy. After you link a tag
-  to a spool (**Assign Spool**) or create a spool from it (**Add to
-  Inventory**), the console offers **Write the spool to this tag?**. A tag
-  holding other NDEF data asks *Overwrite this tag with the spool?*, and one
-  that already carries OpenTag3D data isn't offered, unless that data
-  disagrees with the spool in Bambuddy (material, brand or colour): scanning
-  it then offers *Tag data differs from the spool. Rewrite it?*. Tap **Write** and keep
-  the tag on the reader: a popup follows the write and tells you when it's
-  done or why it failed. **Cancel** stops a write that is still waiting for a
-  tag; after 60 s without one it gives up by itself.
-
-  The same popup shows for writes started from Bambuddy's SpoolBuddy
-  **Write** page (`/spoolbuddy/write-tag`), which also covers tags linked
-  earlier. Whatever is on the tag is overwritten; Bambu Lab tags are never
-  written.
-
-  <img src="images/ui/full/tag-write-offer.png" alt="Spool view of eSUN PLA Plus Bone White spool #36 with the banner Write the spool to this tag? and Write / Skip buttons" width="360">
+  <img src="images/ui/full/tag-menu.png" alt="Tag menu for tag 04C0FFEE000001, spool #36 PLA Bone White: Write spool to tag, Unlink and Cancel" width="360">
   <img src="images/ui/full/tag-write-waiting.png" alt="Popup Write spool #36: Place the tag on the console's reader (60 s), with a Cancel button" width="360">
   <img src="images/ui/full/tag-write-done.png" alt="Popup Tag written: Spool #36 is on the tag, with an OK button" width="360">
+  <img src="images/ui/full/tag-chip.png" alt="Spool view of eSUN PLA Plus Bone White with a green Matches spool chip in the top-left corner" width="360">
+  <img src="images/ui/full/unlink-confirm.png" alt="Are you sure? Unlink this tag from its spool? with Cancel and Unlink" width="360">
+
+- **Discard** clears the spool from the screen.
 - **AMS / printer status**: the console's AMS tab shows live slot/filament
   state polled from Bambuddy, along with each AMS unit's temperature,
   humidity, and its custom name if one was set in Bambuddy (falls back to a
