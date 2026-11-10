@@ -56,12 +56,17 @@ interval:
       - lambda: |-
           bool backend_ok, printer_ok, nfc_ok, scale_ok;
           bambuddy->get_health(backend_ok, printer_ok, nfc_ok, scale_ok);
-          id(health_bambuddy).publish_state(backend_ok);
-          id(health_printer).publish_state(printer_ok);
-          // The PN532 and a remote scale take a few seconds to come up after
-          // boot. Hold off on "problem" until then, so a restart doesn't flap
-          // the sensors (and any HA alert on them).
-          if (millis() < 30000) return;
+          // Bambuddy, the printer, the PN532 and a remote scale all take a few
+          // seconds to come up after boot. Until then don't let a connection
+          // start out as off, so a restart doesn't flap the sensors (and any
+          // HA alert on them): before the console has registered, they would
+          // read off for a moment. Once a sensor has a state it always updates.
+          const bool settled = millis() >= 30000;
+          if (backend_ok || settled || id(health_bambuddy).has_state())
+            id(health_bambuddy).publish_state(backend_ok);
+          if (printer_ok || settled || id(health_printer).has_state())
+            id(health_printer).publish_state(printer_ok);
+          if (!settled) return;
           if (bambuddy->has_nfc()) id(health_nfc).publish_state(!nfc_ok);
           if (bambuddy->has_scale())
             id(health_scale).publish_state(!scale_ok);
