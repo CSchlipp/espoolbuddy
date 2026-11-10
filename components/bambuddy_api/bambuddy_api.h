@@ -1080,7 +1080,8 @@ class BambuddyAPIComponent : public Component {
 
   // Tare/calibration persistence (scale: type: local only)
   void load_calibration_nvs();
-  void save_calibration_nvs();
+  void save_calibration_nvs();   // any task: marks the values for saving
+  void write_calibration_nvs();  // loop(): writes them if marked
 
   // Console receive server (started on every console, port CONSOLE_PUSH_PORT)
   // Accepts POST requests from satellites and routes them through the same
@@ -1465,6 +1466,8 @@ class BambuddyAPIComponent : public Component {
   // LOCAL source: NVS holds a tare or factor. Without one the values are only
   // defaults, and registration restores the backend's copy.
   std::atomic<bool> local_cal_in_nvs_{false};
+  // Set by save_calibration_nvs(), cleared when loop() has written NVS.
+  std::atomic<bool> cal_nvs_dirty_{false};
 
   // Pending console→scale command: delivered in the next /scale/heartbeat response.
   // Written by request_tare() / request_calibration() / handle_command() (under state_mutex_).
