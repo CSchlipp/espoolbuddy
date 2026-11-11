@@ -175,14 +175,14 @@ up or tap ✕ to close. The panel scrolls.
 
 | | |
 |---|---|
-| <img src="images/ui/lite/settings.png" alt="Settings: Printer tile (X1C Workshop, 1 / 3), Power tile (On), Tare and Calibrate, brightness and inactivity rows" width="172"> | **Printer** — tap to switch to the next printer; auto-assign uses the selected one. **Power** — tap to switch the printer's power plug (the plug Bambuddy marks as controlling the printer; the tile is hidden without one). **Tare** and **Calibrate** the scale. **Brightness** (−/+). |
-| <img src="images/ui/lite/settings-more.png" alt="Settings scrolled: inactivity 10 min, NFC in sleep Slow, Clear Location on AMS Load On, connection icons and version" width="172"> | **Inactivity** (−/+) — sleep after 5–60 min without touch, scan or weight change, or *Never*. **NFC in sleep** — tap to switch between *Slow* (default) and *On*, which keep scanning so a tag wakes the screen, and *Off*, which stops the reader while asleep. **Clear Location on AMS Load** — tap for On/Off. WiFi, Bambuddy and scale status, and the firmware version. |
+| <img src="images/ui/lite/settings.png" alt="Settings: Printer tile (X1C Workshop, 1 / 3), Power tile (On), Tare and Calibrate, brightness, dim and inactivity rows" width="172"> | **Printer** — tap to switch to the next printer; auto-assign uses the selected one. **Power** — tap to switch the printer's power plug (the plug Bambuddy marks as controlling the printer; the tile is hidden without one). **Tare** and **Calibrate** the scale. **Brightness** (−/+). |
+| <img src="images/ui/lite/settings-more.png" alt="Settings scrolled: dim after 5 min, inactivity 10 min, NFC in sleep Slow, Clear Location on AMS Load On, connection icons and version" width="172"> | **Dim after** (−/+) — dim the backlight after 1–30 min, or *Never* (5 min by default). **Inactivity** (−/+) — sleep after 5–60 min without touch, scan or weight change, or *Never*. **NFC in sleep** — tap to switch between *Slow* (default) and *On*, which keep scanning so a tag wakes the screen, and *Off*, which stops the reader while asleep. **Clear Location on AMS Load** — tap for On/Off. WiFi, Bambuddy and scale status, and the firmware version. |
 | <img src="images/ui/lite/calibrate.png" alt="'Calibrate Scale': 100 g with -1/+1, -10/+10, -100/+100, Cancel and Calibrate" width="172"> | **Calibrate Scale.** Put a known weight on the empty scale, set it with the buttons, tap **Calibrate**. |
 
 All settings are kept across restarts.
 
-**Dim and sleep.** As on the full console, the backlight dims after 60 s
-without activity and turns off after the *Inactivity* time. Putting a spool
+**Dim and sleep.** As on the full console, the backlight dims after the
+*Dim after* time without activity and turns off after the *Inactivity* time. Putting a spool
 on the scale, scanning a tag (unless NFC in sleep is *Off*), a build-plate
 popup or a touch wakes it. The waking touch doesn't also press a button.
 

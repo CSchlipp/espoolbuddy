@@ -78,6 +78,7 @@ font:
       - "\U000F0374"   # minus (settings steppers)
       - "\U000F0415"   # plus
       - "\U000F05A8"   # white-balance-sunny (brightness)
+      - "\U000F00DD"   # brightness-4 (dim after)
       - "\U000F04B2"   # sleep (inactivity)
   - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
     id: mdi_lite_48
@@ -139,10 +140,12 @@ lvgl:
       radius: 0
       pad_all: 6
 
-  # Same as the full UI: dim to 20 % after 60 s idle; the wake guard swallows
-  # the first touch (app_lite.yaml restores the brightness on activity).
+  # Same as the full UI: dim to 20 % after dim_timeout_min (0 = Never); the
+  # wake guard swallows the first touch (app_lite.yaml restores the brightness
+  # on activity).
   on_idle:
-    timeout: 60s
+    timeout: !lambda |-
+      return id(dim_timeout_min) > 0 ? (uint32_t) id(dim_timeout_min) * 60000u : UINT32_MAX;
     then:
       - light.turn_on:
           id: display_backlight
@@ -896,6 +899,51 @@ lvgl:
                                     on_click:
                                       then:
                                         - script.execute: {id: lite_brightness_step, delta: 25}
+                                    widgets:
+                                      - label: {align: CENTER, text: "\U000F0415", text_font: mdi_lite_20, text_color: 0xDDDDEE}
+
+                          # ---- Dim after  [-]  ◐ 5 min  [+] ----
+                          - obj:
+                              width: 100%
+                              height: 44
+                              styles: sty_card
+                              clickable: false
+                              scrollable: false
+                              layout:
+                                type: flex
+                                flex_flow: row
+                                flex_align_main: space_between
+                                flex_align_cross: center
+                                flex_align_track: center
+                              widgets:
+                                - button:
+                                    id: lite_btn_dim_minus
+                                    width: 44
+                                    height: 100%
+                                    styles: sty_lite_flat
+                                    on_click:
+                                      then:
+                                        - script.execute: {id: lite_dim_step, delta: -1}
+                                    widgets:
+                                      - label: {align: CENTER, text: "\U000F0374", text_font: mdi_lite_20, text_color: 0xDDDDEE}
+                                - obj:
+                                    width: SIZE_CONTENT
+                                    height: SIZE_CONTENT
+                                    styles: sty_lite_flat
+                                    clickable: false
+                                    scrollable: false
+                                    layout: {type: flex, flex_flow: row, flex_align_cross: center, pad_column: 4}
+                                    widgets:
+                                      - label: {text: "\U000F00DD", text_font: mdi_lite_20, text_color: 0x7B9EFF}
+                                      - label: {id: lite_dim_lbl, text: "5 min", text_font: lite_16, text_color: 0xDDDDEE}
+                                - button:
+                                    id: lite_btn_dim_plus
+                                    width: 44
+                                    height: 100%
+                                    styles: sty_lite_flat
+                                    on_click:
+                                      then:
+                                        - script.execute: {id: lite_dim_step, delta: 1}
                                     widgets:
                                       - label: {align: CENTER, text: "\U000F0415", text_font: mdi_lite_20, text_color: 0xDDDDEE}
 
