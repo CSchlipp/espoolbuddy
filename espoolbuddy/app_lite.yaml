@@ -96,6 +96,10 @@ globals:
     type: int
     restore_value: yes
     initial_value: '100'
+  - id: dim_timeout_min      # inactivity before the backlight dims to 20 %: 0 = Never, else 1-30 min
+    type: int
+    restore_value: yes
+    initial_value: '5'
   - id: sleep_timeout_min    # inactivity before sleep: 0 = Never, 5-60 in 5-min steps
     type: int
     restore_value: yes
@@ -210,7 +214,7 @@ script:
     then:
       - lambda: |-
           auto s = bambuddy->snapshot();
-          // Unlink Tag only for a spool with an id (full UI: btn_nfc_unlink).
+          // Unlink Tag only for a spool with an id (full UI: Unlink in the tag menu).
           if (s.spool_selected && s.current_filament.spool_id > 0)
             lv_obj_clear_flag(id(lite_act_unlink), LV_OBJ_FLAG_HIDDEN);
           else
@@ -271,8 +275,27 @@ script:
           if (id(sleep_timeout_min) == 0) snprintf(buf, sizeof(buf), "Never");
           else snprintf(buf, sizeof(buf), "%d min", id(sleep_timeout_min));
           lv_label_set_text(id(lite_sleep_lbl), buf);
+          if (id(dim_timeout_min) == 0) snprintf(buf, sizeof(buf), "Never");
+          else snprintf(buf, sizeof(buf), "%d min", id(dim_timeout_min));
+          lv_label_set_text(id(lite_dim_lbl), buf);
           snprintf(buf, sizeof(buf), "%.0f g", id(cal_ref_weight));
           lv_label_set_text(id(lite_cal_weight), buf);
+
+  # Dim after -/+ through Never, 1, 2, 3, 5, 10, 15, 30 min (full UI: dim_timeout_step).
+  - id: lite_dim_step
+    parameters:
+      delta: int
+    then:
+      - lambda: |-
+          static const int steps[] = {0, 1, 2, 3, 5, 10, 15, 30};
+          const int n = sizeof(steps) / sizeof(steps[0]);
+          int i = 0;
+          while (i < n - 1 && steps[i] < id(dim_timeout_min)) i++;
+          i += delta;
+          if (i < 0) i = 0;
+          if (i > n - 1) i = n - 1;
+          id(dim_timeout_min) = steps[i];
+      - script.execute: lite_update_settings
 
   # Inactivity -/+ in 5-minute steps, 0 = Never (full UI: Sleep Settings).
   - id: lite_sleep_step
@@ -317,7 +340,7 @@ script:
       - script.execute: lite_update_settings
       - lambda: 'lv_obj_clear_flag(id(lite_cal), LV_OBJ_FLAG_HIDDEN);'
 
-  # Reference weight steps, clamped to 1-5000 g (full UI: cal_modal).
+  # Reference weight steps, clamped to 1-5000 g (full UI: the number keypad).
   - id: lite_cal_step
     parameters:
       delta: int
@@ -415,9 +438,11 @@ script:
           }
 
           // ---- Dim / sleep / wake (full UI: app.yaml) ----
-          // Dim at 60 s comes from lvgl on_idle. Any activity (touch, scan,
-          // weight change, prompt) restores the brightness.
+          // Dim after dim_timeout_min comes from lvgl on_idle. Any activity
+          // (touch, scan, weight change, prompt) restores the brightness.
           {
+            uint32_t dim_after = id(dim_timeout_min) > 0
+                ? (uint32_t) id(dim_timeout_min) * 60000u : UINT32_MAX;
             uint32_t sleep_after = bambuddy->sleep_timeout_ms();
             uint32_t inactive = lv_disp_get_inactive_time(NULL);
             if (!id(lite_is_sleeping) && sleep_after > 0 && inactive >= sleep_after) {
@@ -441,7 +466,7 @@ script:
               id(display_backlight).turn_on()
                 .set_brightness(id(backlight_brightness_pct) / 100.0f)
                 .set_transition_length(150).perform();
-            } else if (!id(lite_is_sleeping) && inactive < 60000
+            } else if (!id(lite_is_sleeping) && inactive < dim_after
                        && !lv_obj_has_flag(id(lite_wake_guard), LV_OBJ_FLAG_HIDDEN)) {
               // Dimmed, and a scan / the scale / a prompt was activity.
               lv_obj_add_flag(id(lite_wake_guard), LV_OBJ_FLAG_HIDDEN);
