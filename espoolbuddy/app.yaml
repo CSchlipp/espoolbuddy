@@ -172,6 +172,10 @@ globals:
     type: int
     restore_value: yes
     initial_value: '10'
+  - id: dim_timeout_min      # Inactivity before the backlight dims to 20%: 0=Never, else 1-30 min
+    type: int                # (steps in dim_timeout_step). Read by lvgl on_idle each loop.
+    restore_value: yes
+    initial_value: '5'
   - id: backlight_brightness_pct  # Active (awake) backlight brightness 25-100
     type: int
     restore_value: yes
@@ -200,7 +204,7 @@ globals:
 
 # ============================================================================
 # Diagnostic: power/wake state, reported to Home Assistant as text.
-# "Awake" (full brightness) → "Dim" (60 s idle, backlight 20%) → "Sleep"
+# "Awake" (full brightness) → "Dim" (dim_timeout_min idle, backlight 20%) → "Sleep"
 # (deep idle: backlight off + reduced cadence). Published on change by the
 # sleep state machine in the UI interval lambda below.
 # ============================================================================
@@ -283,6 +287,7 @@ script:
           id(update_sound_btn).execute();
           id(update_wifi_sleep_btn).execute();
           id(update_sleep_timeout_lbl).execute();
+          id(update_dim_timeout_lbl).execute();
           id(update_backlight_brightness).execute();
           id(update_ams_rows_btn).execute();
           id(update_clearloc_btn).execute();
@@ -711,6 +716,31 @@ script:
           if (m == 0) snprintf(buf, sizeof(buf), "Never");
           else        snprintf(buf, sizeof(buf), "%d min", m);
           lv_label_set_text(id(lbl_sleep_timeout), buf);
+
+  # Step the dim timeout through Never, 1, 2, 3, 5, 10, 15, 30 min and refresh its label.
+  - id: dim_timeout_step
+    parameters:
+      delta: int
+    then:
+      - lambda: |-
+          static const int steps[] = {0, 1, 2, 3, 5, 10, 15, 30};
+          const int n = sizeof(steps) / sizeof(steps[0]);
+          int i = 0;
+          while (i < n - 1 && steps[i] < id(dim_timeout_min)) i++;
+          i += delta;
+          if (i < 0) i = 0;
+          if (i > n - 1) i = n - 1;
+          id(dim_timeout_min) = steps[i];
+          id(update_dim_timeout_lbl).execute();
+
+  - id: update_dim_timeout_lbl
+    then:
+      - lambda: |-
+          int m = id(dim_timeout_min);
+          char buf[12];
+          if (m == 0) snprintf(buf, sizeof(buf), "Never");
+          else        snprintf(buf, sizeof(buf), "%d min", m);
+          lv_label_set_text(id(lbl_dim_timeout), buf);
 
   # Apply the stored active brightness to the backlight, sync the slider + value label.
   - id: update_backlight_brightness
@@ -1155,7 +1185,7 @@ script:
           // ticks.  The baseline follows decreases, so removing weight does
           // NOT wake but re-arms the trigger for the next placement.
           // lv_disp_trig_activity restarts the LVGL idle timer so the screen
-          // re-dims 60 s after the placement instead of staying on forever.
+          // re-dims dim_timeout_min after the placement instead of staying on forever.
           static float bl_weight_baseline = 1e9f;  // first tick: adopts current weight
           if (s.weight_grams < bl_weight_baseline) bl_weight_baseline = s.weight_grams;
           if (s.scale_ok && s.weight_grams - bl_weight_baseline >= 5.0f) {
@@ -1256,12 +1286,14 @@ script:
               }
             }
             // Power-state diagnostic → HA (published on change). Three tiers that
-            // mirror the backlight: Sleep (deep idle) > Dim (LVGL on_idle at 60 s,
-            // backlight 20%) > Awake. 60000 ms matches the lvgl `on_idle: 60s`.
+            // mirror the backlight: Sleep (deep idle) > Dim (LVGL on_idle after
+            // dim_timeout_min, backlight 20%) > Awake. Same threshold as on_idle.
             // Published BEFORE the deferred sleep_wifi_off script runs, so HA
             // receives "Sleep" while the connection is still up.
             {
-              const char *st = sleeping ? "Sleep" : (inactive >= 60000 ? "Dim" : "Awake");
+              uint32_t dim_after = id(dim_timeout_min) > 0
+                  ? (uint32_t) id(dim_timeout_min) * 60000u : UINT32_MAX;
+              const char *st = sleeping ? "Sleep" : (inactive > dim_after ? "Dim" : "Awake");
               static const char *prev_st = nullptr;
               if (st != prev_st) { prev_st = st; id(power_state).publish_state(st); }
             }

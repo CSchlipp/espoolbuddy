@@ -244,9 +244,10 @@ through every screen.
 
   <img src="images/ui/full/quick-settings.png" alt="Quick settings drawer with Power and Printer tiles" width="360">
 
-- **Sleep**: the console dims its backlight after 60 s idle and can go into
-  a deep-idle "sleep" tier (backlight off, reduced network cadence) after a
-  configurable timeout — any touch, new tag, or weight change wakes it.
+- **Sleep**: the console dims its backlight to 20 % after the **Dim after**
+  time (Settings → Sleep; 1–30 min or *Never*, 5 min by default) and can go
+  into a deep-idle "sleep" tier (backlight off, reduced network cadence) after
+  the **Sleep after** time — any touch, new tag, or weight change wakes it.
 - **Scale status LED**: red = no WiFi, blue = WiFi up but console
   unreachable, green = fully connected. With several consoles: green = all
   reachable, blue = only some, red = none.

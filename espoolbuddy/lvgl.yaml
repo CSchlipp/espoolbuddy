@@ -1135,7 +1135,7 @@ lvgl:
                                             grid_cell_y_align: stretch
                                             pad_row: 6
                                           widgets:
-                                            # ---- Row: Inactivity timeout (-/value/+) ----
+                                            # ---- Row: Dim after (-/value/+): Never, 1-30 min ----
                                             - obj:
                                                 grid_cell_row_pos: 0
                                                 grid_cell_column_pos: 0
@@ -1155,7 +1155,62 @@ lvgl:
                                                 widgets:
                                                   - label:
                                                       width: 130
-                                                      text: "Inactivity"
+                                                      text: "Dim after"
+                                                      text_font: roboto_16
+                                                      pad_top: 4
+                                                      text_color: 0xAAAAAA
+                                                  - button:
+                                                      id: btn_dim_dec
+                                                      width: 44
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - script.execute: {id: dim_timeout_step, delta: -1}
+                                                      widgets:
+                                                        - label: {text: "-", text_font: roboto_20, pad_top: 5, text_color: 0xDDDDEE, align: CENTER}
+                                                  - label:
+                                                      id: lbl_dim_timeout
+                                                      flex_grow: 1
+                                                      text: "5 min"
+                                                      text_font: roboto_16
+                                                      pad_top: 4
+                                                      text_color: 0xDDDDEE
+                                                      text_align: CENTER
+                                                  - button:
+                                                      id: btn_dim_inc
+                                                      width: 44
+                                                      height: 32
+                                                      styles: sty_card
+                                                      scrollbar_mode: "OFF"
+                                                      on_click:
+                                                        then:
+                                                          - script.execute: {id: dim_timeout_step, delta: 1}
+                                                      widgets:
+                                                        - label: {text: "+", text_font: roboto_20, pad_top: 5, text_color: 0xDDDDEE, align: CENTER}
+
+                                            # ---- Row: Sleep after (inactivity timeout) (-/value/+) ----
+                                            - obj:
+                                                grid_cell_row_pos: 1
+                                                grid_cell_column_pos: 0
+                                                bg_opa: TRANSP
+                                                border_width: 0
+                                                pad_left: 14
+                                                pad_top: 0
+                                                pad_bottom: 0
+                                                pad_right: 10
+                                                scrollbar_mode: "OFF"
+                                                layout:
+                                                  type: flex
+                                                  flex_flow: row
+                                                  flex_align_cross: center
+                                                  flex_align_track: center
+                                                  pad_column: 8
+                                                widgets:
+                                                  - label:
+                                                      width: 130
+                                                      text: "Sleep after"
                                                       text_font: roboto_16
                                                       pad_top: 4
                                                       text_color: 0xAAAAAA
@@ -1205,7 +1260,7 @@ lvgl:
                                             # ---- Row: NFC in sleep (Off | Slow | On) ----
                                             - obj:
                                                 id: row_nfc_sleep_toggle
-                                                grid_cell_row_pos: 1
+                                                grid_cell_row_pos: 2
                                                 grid_cell_column_pos: 0
                                                 bg_opa: TRANSP
                                                 border_width: 0
@@ -1267,7 +1322,7 @@ lvgl:
                                             # ---- Row: WiFi in sleep (Power Save | Off) ----
                                             - obj:
                                                 id: row_wifi_sleep_toggle
-                                                grid_cell_row_pos: 2
+                                                grid_cell_row_pos: 3
                                                 grid_cell_column_pos: 0
                                                 bg_opa: TRANSP
                                                 border_width: 0
@@ -3448,7 +3503,10 @@ lvgl:
                           }
 
   on_idle:
-    timeout: 60s
+    # Settings > Sleep > Dim after (dim_timeout_min, 0 = Never). Evaluated on
+    # every LVGL loop, so a change applies without a reboot.
+    timeout: !lambda |-
+      return id(dim_timeout_min) > 0 ? (uint32_t) id(dim_timeout_min) * 60000u : UINT32_MAX;
     then:
       - light.turn_on:
           id: display_backlight
