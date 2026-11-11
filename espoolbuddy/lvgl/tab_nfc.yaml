@@ -198,31 +198,43 @@ obj:
               text_align: CENTER
               align: TOP_LEFT
               hidden: true
-          # ---- Tag format icons — top-left corner, one shown at a time ----
-          # Shown/hidden each tick by the interval lambda based on fi.tag_format.
-          - image:
-              id: nfc_icon_bambu
-              src: img_icon_bambu
-              x: 6
-              y: 6
+          # ---- Tag chip — top-left corner: the tag's format icon (one shown
+          #      at a time) and, for OpenTag3D data, how it compares with the
+          #      spool (DisplayState::tag_state). For a spool with an id it
+          #      opens the tag menu (lvgl.yaml): write, unlink.
+          #      Styled each tick by the interval lambda in app.yaml.
+          - button:
+              id: nfc_tag_chip
+              x: 2
+              y: 2
               align: TOP_LEFT
-              hidden: true
-          - image:
-              id: nfc_icon_opentag3d
-              src: img_icon_opentag3d
-              x: 6
-              y: 6
-              align: TOP_LEFT
-              hidden: true
-          - image:
-              id: nfc_icon_nfc
-              src: img_icon_nfc
-              x: 6
-              y: 6
-              align: TOP_LEFT
-              hidden: true
+              width: SIZE_CONTENT
+              height: 32
+              bg_color: 0x12121A
+              bg_opa: TRANSP
+              border_width: 0
+              radius: 16
+              shadow_width: 0
+              pad_all: 0
+              pad_left: 4
+              pad_right: 4
+              scrollbar_mode: "OFF"
+              layout:
+                type: FLEX
+                flex_flow: ROW
+                flex_align_cross: CENTER
+                pad_column: 4
+              on_click:
+                then:
+                  - script.execute: tag_menu_open
+              widgets:
+                - image: {id: nfc_icon_bambu, src: img_icon_bambu, hidden: true}
+                - image: {id: nfc_icon_opentag3d, src: img_icon_opentag3d, hidden: true}
+                - image: {id: nfc_icon_nfc, src: img_icon_nfc, hidden: true}
+                - label: {id: nfc_tag_chip_lbl, text: "", text_font: roboto_16, pad_top: 2, hidden: true}
+                - label: {id: nfc_tag_chip_more, text: "\U000F0142", text_font: mdi_24, text_color: 0x777799, hidden: true}
 
-          # ---- Action row: Unlink | Quick Weight | Discard ----
+          # ---- Action row: Quick Weight | Discard ----
           # Flex row, bottom of the panel. Buttons stretch to share the
           # available width equally (flex_grow: 1); which are visible is
           # decided at runtime (LV_OBJ_FLAG_HIDDEN) by app.yaml —
@@ -244,30 +256,6 @@ obj:
                 pad_column: 8
               scrollbar_mode: "OFF"
               widgets:
-                # ---- Unlink tag ----
-                - button:
-                    id: btn_nfc_unlink
-                    flex_grow: 1
-                    height: 50
-                    bg_color: 0x2A1A1A
-                    border_color: 0x9C3A3A
-                    border_width: 2
-                    radius: 6
-                    scrollbar_mode: "OFF"
-                    hidden: true
-                    on_click:
-                      then:
-                        - lambda: |-
-                            id(confirm_action) = 1;
-                            lv_label_set_text(id(confirm_msg), "Unlink this tag from its spool?");
-                            lv_label_set_text(id(confirm_ok_lbl), "Unlink");
-                            lv_obj_clear_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
-                    widgets:
-                      - label:
-                          text: "Unlink Tag"
-                          text_font: roboto_16
-                          text_color: 0xFF8888
-                          align: CENTER
                 # ---- Quick Weight ----
                 - button:
                     id: btn_nfc_weight
@@ -364,7 +352,7 @@ obj:
                         # itself only resets state (no network), so it's instant.
                         - lambda: |-
                             lv_obj_add_flag(id(nfc_spool_box), LV_OBJ_FLAG_HIDDEN);
-                            lv_obj_add_flag(id(nfc_write_banner), LV_OBJ_FLAG_HIDDEN);
+                            id(tag_menu_close).execute();
                             lv_obj_add_flag(id(nfc_archive_proposal_popup), LV_OBJ_FLAG_HIDDEN);
                             lv_label_set_text(id(nfc_waiting_text), "Place spool tag on reader");
                             lv_obj_clear_flag(id(nfc_waiting), LV_OBJ_FLAG_HIDDEN);
@@ -410,67 +398,6 @@ obj:
                     text_color: 0x4CAF50
                     text_align: CENTER
                     align: LEFT_MID
-
-          # ---- "Write NFC tag?" proposal overlay ----
-          # Shown after linking a writable (non-Bambu) tag to a
-          # spool. Overlays the bottom action row.
-          - obj:
-              id: nfc_write_banner
-              align: BOTTOM_MID
-              y: -6
-              width: 100%
-              height: 40
-              bg_color: 0x0D1E30
-              border_color: 0x3A6A9C
-              border_width: 2
-              radius: 6
-              pad_all: 0
-              pad_left: 8
-              pad_right: 8
-              layout:
-                type: FLEX
-                flex_flow: ROW
-                flex_align_cross: center
-                pad_column: 6
-              scrollbar_mode: "OFF"
-              hidden: true
-              widgets:
-                - label:
-                    flex_grow: 1
-                    text: "Write spool to NFC tag?"
-                    text_font: roboto_12
-                    text_color: 0xAABBDD
-                    text_align: LEFT
-                - button:
-                    id: btn_nfc_write_yes
-                    width: 100
-                    height: 38
-                    bg_color: 0x0D2B14
-                    border_color: 0x4CAF50
-                    border_width: 2
-                    radius: 4
-                    scrollbar_mode: "OFF"
-                    on_click:
-                      then:
-                        - lambda: |-
-                            bambuddy->dismiss_nfc_write_proposal();
-                            // TODO: trigger NFC write action here
-                    widgets:
-                      - label: {text: "Write", text_font: roboto_12, text_color: 0x4CAF50, align: CENTER}
-                - button:
-                    id: btn_nfc_write_skip
-                    width: 100
-                    height: 38
-                    bg_color: 0x1E2030
-                    border_color: 0x6666AA
-                    border_width: 1
-                    radius: 4
-                    scrollbar_mode: "OFF"
-                    on_click:
-                      then:
-                        - lambda: bambuddy->dismiss_nfc_write_proposal();
-                    widgets:
-                      - label: {text: "Skip", text_font: roboto_12, text_color: 0xBBBBCC, align: CENTER}
 
           # ---- Quick Weight popup — sized to content, shown over spool detail ----
           - obj:
@@ -813,10 +740,6 @@ obj:
                       then:
                         - lambda: |-
                             bambuddy->request_recent_spools();
-                            // Reset the manual ID entry to #1 each time the picker opens.
-                            id(nfc_assign_spool_id) = 1;
-                            lv_label_set_text(id(lbl_picker_id), "ID: 1");
-                            lv_label_set_text(id(lbl_picker_assign_id), "Assign #1");
                             // Clear the stale grid right away so the previous spools don't
                             // flash before the refetch populates (the UI tick is up to 400ms).
                             lv_obj_t *pbtns[9] = {id(picker_btn_0), id(picker_btn_1), id(picker_btn_2),
@@ -2269,127 +2192,19 @@ obj:
                                                       - lambda: |-
                                                           intptr_t d=(intptr_t)lv_obj_get_user_data(id(picker_btn_8));
                                                           if(d>0){bambuddy->link_tag_to_spool((int)d);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
-          # ---- Manual ID input row ----
-          # Layout: [-10] [-] [ID label, flex_grow] [+] [+10] [Assign]
-          # Flex row; the stepper buttons and Assign keep fixed
-          # content-sized widths, the ID label absorbs remaining space.
-          - obj:
+          # ---- Spool ID entry: opens the spool-ID keypad (lvgl.yaml) ----
+          - button:
+              id: btn_picker_enter_id
               width: 100%
               height: 44
-              bg_opa: TRANSP
-              border_width: 0
-              pad_all: 0
-              pad_left: 2
-              pad_right: 2
-              layout:
-                type: FLEX
-                flex_flow: ROW
-                pad_column: 4
+              bg_color: 0x0D1E2B
+              border_color: 0x2A6A82
+              border_width: 2
+              radius: 6
               scrollbar_mode: "OFF"
+              on_click:
+                then:
+                  - script.execute: {id: keypad_open, mode: 1, subtitle: "The tag on the reader"}
               widgets:
-                - button:
-                    id: btn_id_minus10
-                    width: 50
-                    height: 44
-                    bg_color: 0x1E1E30
-                    border_color: 0x3A3A56
-                    border_width: 1
-                    radius: 4
-                    scrollbar_mode: "OFF"
-                    on_click:
-                      then:
-                        - lambda: |-
-                            int v=(int)id(nfc_assign_spool_id)-10; if(v<1)v=1;
-                            id(nfc_assign_spool_id)=v;
-                            char b[16]; snprintf(b,sizeof(b),"ID: %d",v);
-                            lv_label_set_text(id(lbl_picker_id),b);
-                            char a[24]; snprintf(a,sizeof(a),"Assign #%d",v);
-                            lv_label_set_text(id(lbl_picker_assign_id),a);
-                    widgets:
-                      - label: {text: "-10", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
-                - button:
-                    id: btn_id_minus
-                    width: 40
-                    height: 44
-                    bg_color: 0x1E1E30
-                    border_color: 0x3A3A56
-                    border_width: 1
-                    radius: 4
-                    scrollbar_mode: "OFF"
-                    on_click:
-                      then:
-                        - lambda: |-
-                            if((int)id(nfc_assign_spool_id)>1) id(nfc_assign_spool_id)--;
-                            int v=(int)id(nfc_assign_spool_id);
-                            char b[16]; snprintf(b,sizeof(b),"ID: %d",v);
-                            lv_label_set_text(id(lbl_picker_id),b);
-                            char a[24]; snprintf(a,sizeof(a),"Assign #%d",v);
-                            lv_label_set_text(id(lbl_picker_assign_id),a);
-                    widgets:
-                      - label: {text: "-", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
-                - label:
-                    id: lbl_picker_id
-                    flex_grow: 1
-                    height: 44
-                    text: "ID: 1"
-                    text_font: roboto_16
-                    text_color: 0xFFFFFF
-                    text_align: CENTER
-                    align: CENTER
-                - button:
-                    id: btn_id_plus
-                    width: 40
-                    height: 44
-                    bg_color: 0x1E1E30
-                    border_color: 0x3A3A56
-                    border_width: 1
-                    radius: 4
-                    scrollbar_mode: "OFF"
-                    on_click:
-                      then:
-                        - lambda: |-
-                            id(nfc_assign_spool_id)++;
-                            int v=(int)id(nfc_assign_spool_id);
-                            char b[16]; snprintf(b,sizeof(b),"ID: %d",v);
-                            lv_label_set_text(id(lbl_picker_id),b);
-                            char a[24]; snprintf(a,sizeof(a),"Assign #%d",v);
-                            lv_label_set_text(id(lbl_picker_assign_id),a);
-                    widgets:
-                      - label: {text: "+", text_font: roboto_16, text_color: 0xDDDDEE, align: CENTER}
-                - button:
-                    id: btn_id_plus10
-                    width: 50
-                    height: 44
-                    bg_color: 0x1E1E30
-                    border_color: 0x3A3A56
-                    border_width: 1
-                    radius: 4
-                    scrollbar_mode: "OFF"
-                    on_click:
-                      then:
-                        - lambda: |-
-                            int v=(int)id(nfc_assign_spool_id)+10;
-                            id(nfc_assign_spool_id)=v;
-                            char b[16]; snprintf(b,sizeof(b),"ID: %d",v);
-                            lv_label_set_text(id(lbl_picker_id),b);
-                            char a[24]; snprintf(a,sizeof(a),"Assign #%d",v);
-                            lv_label_set_text(id(lbl_picker_assign_id),a);
-                    widgets:
-                      - label: {text: "+10", text_font: roboto_12, text_color: 0xDDDDEE, align: CENTER}
-                - button:
-                    id: btn_picker_assign_id
-                    width: 150
-                    height: 44
-                    bg_color: 0x0D2B14
-                    border_color: 0x4CAF50
-                    border_width: 2
-                    radius: 4
-                    scrollbar_mode: "OFF"
-                    on_click:
-                      then:
-                        - lambda: |-
-                            int sid=(int)id(nfc_assign_spool_id);
-                            if(sid>0){bambuddy->link_tag_to_spool(sid);lv_obj_add_flag(id(nfc_picker_panel),LV_OBJ_FLAG_HIDDEN);}
-                    widgets:
-                      - label: {id: lbl_picker_assign_id, text: "Assign #1", text_font: roboto_16, text_color: 0x4CAF50, align: CENTER}
+                - label: {text: "Enter spool ID ...", text_font: roboto_20, text_color: 0x4ECDC4, align: CENTER}
 

@@ -37,8 +37,23 @@ static constexpr uint8_t PN532_CMD_RFCONFIGURATION   = 0x32;
 static constexpr uint8_t MFC_AUTH_KEY_A  = 0x60;
 static constexpr uint8_t MFC_READ        = 0x30;
 
+// Tag family from the SAK the reader reports at selection. NTAG (NFC Forum
+// Type 2) reports 0x00; some readers report 0x04. MIFARE Classic 1K/4K report
+// 0x08/0x18.
+inline bool is_ntag_sak(uint8_t sak) { return sak == 0x00 || sak == 0x04; }
+inline bool is_mifare_classic_sak(uint8_t sak) { return sak == 0x08 || sak == 0x18; }
+
 // NTAG commands
 static constexpr uint8_t NTAG_WRITE = 0xA2;
+static constexpr uint8_t NTAG_GET_VERSION = 0x60;
+
+// NFC Forum Type 2 layout: the Capability Container sits in page 3 and the
+// data area (TLVs) starts at page 4.
+static constexpr uint8_t NTAG_CC_PAGE = 3;
+static constexpr uint8_t NTAG_DATA_PAGE = 4;
+static constexpr uint8_t NDEF_CC_MAGIC = 0xE1;
+static constexpr uint8_t NDEF_TLV_MESSAGE = 0x03;
+static constexpr uint8_t NDEF_TLV_TERMINATOR = 0xFE;
 
 // Bambu MIFARE Classic HKDF key derivation constants
 // (ported from pico-nfc-bridge.ino / spoolbuddy pn5180.py)
@@ -81,6 +96,15 @@ inline bool bambu_block_is_required(uint8_t block) {
 // reader. Retry the series a few times while the same tag stays present.
 static const uint8_t BAMBU_READ_ATTEMPTS = 4;
 static const uint16_t BAMBU_RETRY_DELAY_MS = 30;
+
+// NTAG reads and writes are retried the same way: a failed command drops the
+// tag out of the selected state, so each retry re-selects it first and checks
+// it is still the same tag. A tag that has only just landed on the reader
+// often loses a READ halfway through a long NDEF message.
+static const uint8_t NTAG_IO_ATTEMPTS = 4;
+// How long an erase request waits for its tag (it is normally still on the
+// reader, having just been unlinked).
+static const uint32_t ERASE_WAIT_MS = 10000;
 
 // ACK frame: sent by the PN532 to accept a command, and by the host to abort
 // the command the PN532 is still executing.
@@ -158,6 +182,13 @@ class BambuddyNFCComponent : public Component {
   // RF field off and idles — used for "NFC in sleep: Off" (max power saving, no
   // local-reader wake). Re-enabled on wake.
   void set_scan_enabled(bool v) { scan_enabled_ = v; }
+  // Erase the NTAG with this UID (hex) the next time it is on the reader,
+  // within ERASE_WAIT_MS; the result goes to the API's on_tag_erased().
+  void request_erase(const std::string &uid_hex) {
+    LockGuard guard(erase_mutex_);
+    erase_uid_ = uid_hex;
+    erase_requested_ms_ = millis();
+  }
 
  protected:
   // ---- Background polling task ----
@@ -255,12 +286,61 @@ class BambuddyNFCComponent : public Component {
   // Read the NDEF message from the NTAG data area (pages 4+) and walk its
   // records.  Returns "open_tag_3d" for an OpenTag3D record (decoded into
   // `info` when it is the spec'd application/opentag3d MIME record), "ndef"
-  // for any other valid NDEF, or "" if the tag is unreadable/blank.
-  std::string ntag_read_ndef(uint8_t target_num, bambuddy_api::TagFilamentInfo &info);
+  // for any other valid NDEF, or "" if the tag is unreadable, blank or holds
+  // an empty NDEF message.
+  std::string ntag_read_ndef(uint8_t target_num, const std::vector<uint8_t> &uid,
+                             bambuddy_api::TagFilamentInfo &info);
+  // Re-select the tag after a failed NTAG command. False if it left the
+  // reader or another tag took its place.
+  bool ntag_reselect(const std::vector<uint8_t> &uid);
+  // Run op up to NTAG_IO_ATTEMPTS times, re-selecting the tag (same UID)
+  // between attempts. what/page only label the log line.
+  template<typename Op>
+  bool ntag_retry(const std::vector<uint8_t> &uid, const char *what, uint8_t page, Op op);
+  // ntag_read_pages / ntag_write_page through ntag_retry().
+  bool ntag_read_pages_retry(uint8_t target_num, const std::vector<uint8_t> &uid,
+                             uint8_t start_page, uint8_t out[16]);
+  bool ntag_write_page_retry(uint8_t target_num, const std::vector<uint8_t> &uid,
+                             uint8_t page, const uint8_t data[4]);
   // If the API has a pending NDEF write and the activated tag is an NTAG,
   // perform it.  Returns true if a write was attempted (success or failure),
   // false if there was nothing to do.  Fully logged for diagnosis.
   bool attempt_pending_write(const std::vector<uint8_t> &uid, uint8_t sak);
+  // If an erase was requested for this tag, run it and report the result.
+  void attempt_pending_erase(const std::vector<uint8_t> &uid, uint8_t sak);
+  // Every poll: drop (and report) an erase whose tag didn't come within
+  // ERASE_WAIT_MS, so a tag that returns later is never erased unasked.
+  void expire_pending_erase();
+  // Empty the NDEF message on the activated NTAG: an empty message, and the
+  // bytes the old one used zeroed. Written and verified like a write.
+  bool ntag_erase(uint8_t target_num, const std::vector<uint8_t> &uid, std::string &err);
+  // Write an NDEF TLV area (starting with the 0x03 NDEF Message TLV) to the
+  // activated NTAG from page 4, if it fits the tag, then read it back. data_v2
+  // (OpenTag3D v2, may be empty) is written instead of data when the tag has
+  // room for it; *wrote_v2 says whether it was. On failure, err
+  // holds a message for the user (shown in Bambuddy).
+  bool ntag_write_ndef(uint8_t target_num, const std::vector<uint8_t> &uid,
+                       std::vector<uint8_t> data, std::vector<uint8_t> data_v2,
+                       bool *wrote_v2, std::string &err);
+  // Data-area size from the tag's Capability Container (page 3). A blank CC
+  // is written first (ntag_format_blank); a read-only tag is refused.
+  bool ntag_capacity(uint8_t target_num, const std::vector<uint8_t> &uid, size_t &capacity,
+                     std::string &err);
+  // Write the CC of a never-formatted NTAG213/215/216, identified by
+  // GET_VERSION. Fills cc with what was written.
+  bool ntag_format_blank(uint8_t target_num, const std::vector<uint8_t> &uid, uint8_t cc[4],
+                         std::string &err);
+  // Write data (whole pages) from page 4. Page 4 is written as an empty
+  // message first and with the real length last, so a tag pulled away
+  // mid-write reads as empty, not as a valid length over half-written data.
+  bool ntag_write_data_area(uint8_t target_num, const std::vector<uint8_t> &uid,
+                            const std::vector<uint8_t> &data, std::string &err);
+  // Read the pages written by ntag_write_data_area() back and compare.
+  bool ntag_verify_data_area(uint8_t target_num, const std::vector<uint8_t> &uid,
+                             const std::vector<uint8_t> &data, std::string &err);
+  // NTAG21x GET_VERSION: fills the 8-byte version. False if the tag doesn't
+  // answer (MIFARE Ultralight and other Type 2 tags without the command).
+  bool ntag_get_version(uint8_t target_num, uint8_t out[8]);
 
   // ---- HKDF-SHA256 ----
   // Derive 96 bytes of key material from UID using Bambu master key
@@ -298,6 +378,10 @@ class BambuddyNFCComponent : public Component {
   uint32_t poll_interval_ms_{300};
   std::atomic<bool> low_power_{false};  // true while the console sleeps → slow polling
   std::atomic<bool> scan_enabled_{true};  // false → skip detection entirely (RF off)
+  // Pending erase (request_erase()): set by the API, run by the poll task.
+  Mutex erase_mutex_;
+  std::string erase_uid_;  // empty = none
+  uint32_t erase_requested_ms_{0};
   // true once the PN532 answered pn532_init(). Written by setup() and later
   // by the poll task (init retries), read by dump_config() on the main task.
   std::atomic<bool> nfc_ok_{false};
