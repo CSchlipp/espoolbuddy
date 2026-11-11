@@ -289,6 +289,7 @@ void BambuddyAPIComponent::setup() {
 // local_stable_after_ms_. It also carries out a pending tare/calibrate once the
 // reading has settled.
 void BambuddyAPIComponent::loop() {
+  write_calibration_nvs();
   if (scale_source_ != ScaleSource::LOCAL) return;
   if (local_have_value_ && !local_stable_ &&
       millis() - local_change_ms_ >= local_stable_after_ms_) {
@@ -3762,21 +3763,34 @@ void BambuddyAPIComponent::load_calibration_nvs() {
            tare_offset_, calibration_factor_);
 }
 
+// Callers include the HTTP task (calibration from the backend at registration
+// or in a heartbeat, a tare or calibrate command), whose stack is in PSRAM. A
+// flash write from such a task aborts: the cache is off while flash is written.
+// So this only marks the values for saving, and loop() writes them.
 void BambuddyAPIComponent::save_calibration_nvs() {
   local_cal_in_nvs_ = true;
+  cal_nvs_dirty_ = true;
+}
+
+void BambuddyAPIComponent::write_calibration_nvs() {
+  if (!cal_nvs_dirty_.exchange(false)) return;
   nvs_handle_t h;
   if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
     ESP_LOGW(TAG, "NVS open (rw) failed");
     return;
   }
-  uint32_t tare_bits; memcpy(&tare_bits, &tare_offset_, sizeof(tare_bits));
+  // The HTTP task changes these under the state lock; copy them as a pair.
+  lock_state();
+  const float tare = tare_offset_;
+  const float factor = calibration_factor_;
+  unlock_state();
+  uint32_t tare_bits; memcpy(&tare_bits, &tare, sizeof(tare_bits));
   nvs_set_u32(h, NVS_TARE, tare_bits);
-  uint32_t cal_bits; memcpy(&cal_bits, &calibration_factor_, sizeof(cal_bits));
+  uint32_t cal_bits; memcpy(&cal_bits, &factor, sizeof(cal_bits));
   nvs_set_u32(h, NVS_CAL, cal_bits);
   nvs_commit(h);
   nvs_close(h);
-  ESP_LOGI(TAG, "Calibration saved to NVS: tare=%.2f factor=%.6f",
-           tare_offset_, calibration_factor_);
+  ESP_LOGI(TAG, "Calibration saved to NVS: tare=%.2f factor=%.6f", tare, factor);
 }
 
 void BambuddyAPIComponent::parse_ams_data(const std::string &json,
