@@ -210,7 +210,7 @@ script:
     then:
       - lambda: |-
           auto s = bambuddy->snapshot();
-          // Unlink Tag only for a spool with an id (full UI: btn_nfc_unlink).
+          // Unlink Tag only for a spool with an id (full UI: Unlink in the tag menu).
           if (s.spool_selected && s.current_filament.spool_id > 0)
             lv_obj_clear_flag(id(lite_act_unlink), LV_OBJ_FLAG_HIDDEN);
           else
@@ -317,7 +317,7 @@ script:
       - script.execute: lite_update_settings
       - lambda: 'lv_obj_clear_flag(id(lite_cal), LV_OBJ_FLAG_HIDDEN);'
 
-  # Reference weight steps, clamped to 1-5000 g (full UI: cal_modal).
+  # Reference weight steps, clamped to 1-5000 g (full UI: the number keypad).
   - id: lite_cal_step
     parameters:
       delta: int

@@ -147,6 +147,7 @@ static bool read_req_body(httpd_req_t *req, std::string &out) {
 
 void BambuddyAPIComponent::setup() {
   start_ms_ = millis();
+  tag_write_.set_scale(satellite());
 
   // ESPHome builds with SPIRAM_USE_CAPS_ALLOC, so plain malloc() and new never
   // use PSRAM. HTTP response bodies (a spool list can pass 20 KB, growing with
@@ -289,6 +290,7 @@ void BambuddyAPIComponent::setup() {
 // local_stable_after_ms_. It also carries out a pending tare/calibrate once the
 // reading has settled.
 void BambuddyAPIComponent::loop() {
+  check_pending_write_timeout();
   if (scale_source_ != ScaleSource::LOCAL) return;
   if (local_have_value_ && !local_stable_ &&
       millis() - local_change_ms_ >= local_stable_after_ms_) {
@@ -531,7 +533,7 @@ void BambuddyAPIComponent::http_task_loop() {
           api_tag_removed(job.s1);
           break;
         case HttpJob::WRITE_RESULT:
-          api_write_tag_result(job.i1, job.s1, job.b1, job.s2);
+          post_write_result(job);
           break;
         case HttpJob::UPDATE_TARE:
           // Every UPDATE_TARE / UPDATE_CALIBRATION job was queued through
@@ -570,7 +572,7 @@ void BambuddyAPIComponent::http_task_loop() {
           api_get_recent_spools();
           break;
         case HttpJob::LINK_TAG_TO_SPOOL:
-          api_link_tag(job.i1, job.s1, job.s2, job.s3);
+          api_link_tag(job.i1, job.s1, job.s2, job.s3, job.s4);
           break;
         case HttpJob::CREATE_SPOOL_FROM_TAG:
           api_create_spool_from_tag(job.s1, job.s2, job.filament);
@@ -590,6 +592,12 @@ void BambuddyAPIComponent::http_task_loop() {
           break;
         case HttpJob::FETCH_LOCATIONS:
           api_get_locations();
+          break;
+        case HttpJob::REQUEST_TAG_WRITE:
+          api_request_tag_write(job.i1);
+          break;
+        case HttpJob::LOOKUP_SPOOL:
+          api_lookup_spool(job.i1);
           break;
         case HttpJob::LINK_LOCATION_TAG:
           api_link_location_tag(job.i1, job.s1);
@@ -788,6 +796,7 @@ bool BambuddyAPIComponent::dequeue_job(HttpJob &job) {
 
 DisplayState BambuddyAPIComponent::snapshot() {
   lock_state();
+  update_tag_state_locked();
   DisplayState copy = display_state_;  // deep copy of vectors/strings
   unlock_state();
   // Keep uptime ticking smoothly between heartbeats.
@@ -944,15 +953,11 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
   unlock_state();
 
   // Wrong tag type for a pending write → report failure (queued, non-blocking).
-  if (pending_write_active_.load() && !(sak == 0x00 || sak == 0x04)) {
-    char buf[4];
-    snprintf(buf, sizeof(buf), "%02X", sak);
-    std::string msg = std::string("Incompatible tag type (SAK=0x") + buf +
-                      "). Place an NTAG tag to write.";
-    on_write_tag_result(uid, false, msg);
-  } else if (pending_write_active_.load()) {
-    ESP_LOGI(TAG, "Pending write for spool %d — NFC component will execute",
-             pending_write_spool_id_);
+  // A wrong tag type for an armed write is reported by the NFC component that
+  // read the tag (attempt_pending_write()). Not here: this also runs for tags
+  // the scale forwards, which must not fail a write armed on this console.
+  if (has_pending_write()) {
+    ESP_LOGI(TAG, "Pending write armed — NFC component will execute");
   }
 
   // Queue the HTTP work for the background task so this callback returns instantly.
@@ -1146,22 +1151,287 @@ void BambuddyAPIComponent::on_write_tag_result(const std::string &uid,
                                                 const std::string &msg) {
   ESP_LOGI(TAG, "Write tag result: uid=%s success=%d msg=%s",
            uid.c_str(), success, msg.c_str());
-  if (pending_write_active_.load()) {
-    int spool_id = pending_write_spool_id_;
-    pending_write_active_.store(false);
-    lock_state();
-    display_state_.status_message = success ? "Tag written successfully"
-                                            : "Tag write failed: " + msg;
-    unlock_state();
+  int spool_id = 0;
+  if (!tag_write_.finish(success, millis(), &spool_id)) return;
+  set_status(success ? "Tag written successfully" : "Tag write failed: " + msg);
+  show_tag_write_result(spool_id, uid, success, msg);
 
-    HttpJob job;
-    job.kind = HttpJob::WRITE_RESULT;
-    job.i1 = spool_id;
-    job.s1 = uid;
-    job.b1 = success;
-    job.s2 = msg;
-    enqueue_job(job);
+  HttpJob job;
+  job.kind = HttpJob::WRITE_RESULT;
+  job.i1 = spool_id;
+  job.s1 = uid.empty() ? WRITE_NO_TAG_UID : uid;
+  job.b1 = success;
+  job.s2 = msg;
+  enqueue_job(job);
+}
+
+void BambuddyAPIComponent::arm_pending_write(int spool_id, std::vector<uint8_t> ndef) {
+  switch (tag_write_.arm(spool_id, std::move(ndef), millis())) {
+    case TagWriteCoordinator::Arm::ARMED:
+      set_status("Waiting for NTAG to write spool " + std::to_string(spool_id));
+      set_tag_write_stage(TagWriteStage::WAITING, spool_id);
+      ESP_LOGI(TAG, "write_tag: spool %d — waiting for NTAG (%u s)", spool_id,
+               (unsigned) (WRITE_ARM_TTL_MS / 1000));
+      break;
+    case TagWriteCoordinator::Arm::REPEAT:
+      ESP_LOGV(TAG, "write_tag: spool %d already armed — repeat ignored", spool_id);
+      break;
+    case TagWriteCoordinator::Arm::BUSY:
+      ESP_LOGW(TAG, "write_tag: spool %d arrived while another write runs — deferred", spool_id);
+      break;
+    case TagWriteCoordinator::Arm::JUST_WRITTEN:
+      ESP_LOGD(TAG, "write_tag: spool %d was just written — stale copy ignored", spool_id);
+      break;
   }
+}
+
+void BambuddyAPIComponent::disarm_pending_write(const char *why) {
+  int spool_id = 0;
+  if (!tag_write_.disarm(&spool_id)) return;
+  ESP_LOGI(TAG, "Tag write for spool %d dropped: %s", spool_id, why);
+  set_status("Tag write cancelled");
+  set_tag_write_stage(TagWriteStage::NONE);
+}
+
+void BambuddyAPIComponent::check_pending_write_timeout() {
+  // A write on the scale times out there and reports back. If nothing comes
+  // back (scale offline), end it here once the scale's own limit has passed.
+  lock_state();
+  const auto &ds = display_state_;
+  const bool scale_silent =
+      ds.tag_write_stage == TagWriteStage::WAITING && ds.tag_write_on_scale &&
+      (int32_t) (millis() - ds.tag_write_deadline_ms) > (int32_t) SCALE_WRITE_REPORT_GRACE_MS;
+  const int scale_spool = ds.tag_write_spool_id;
+  unlock_state();
+  if (scale_silent) {
+    end_scale_write(scale_spool, "The scale did not report back");
+    show_tag_write_result(scale_spool, "", false, "The scale did not report back");
+  }
+
+  // Claimed like the NFC task does, so the two can't both end the write.
+  if (!tag_write_.claim_expired(millis())) return;
+  // Reported as a failure rather than dropped: that clears the command in
+  // Bambuddy and shows the reason on its write page.
+  char msg[64];
+  snprintf(msg, sizeof(msg), "No tag presented within %u s",
+           (unsigned) (WRITE_ARM_TTL_MS / 1000));
+  on_write_tag_result(WRITE_NO_TAG_UID, false, msg);
+}
+
+void BambuddyAPIComponent::on_bambuddy_write_command(const std::string &cmd,
+                                                     const std::string &resp) {
+  if (cmd != "write_tag") {
+    // Bambuddy repeats write_tag until it has a result, so it has stopped
+    // asking: the write was cancelled there or replaced by another command,
+    // and a result now would link the tag to a spool nobody asked for.
+    bool dropped_local = false;
+    const int spool_id = tag_write_.on_not_requested(&dropped_local);
+    if (spool_id == 0) return;
+    lock_state();
+    if (pending_scale_cmd_ == "write_tag") {  // not handed to the scale yet
+      pending_scale_cmd_.clear();
+      pending_scale_cmd_payload_.clear();
+    }
+    unlock_state();
+    ESP_LOGI(TAG, "write_tag for spool %d no longer requested by Bambuddy", spool_id);
+    if (dropped_local) set_status("Tag write cancelled");
+    // Still waiting in the modal: cancelled from Bambuddy's side.
+    lock_state();
+    const bool shown = display_state_.tag_write_spool_id == spool_id &&
+                       (display_state_.tag_write_stage == TagWriteStage::REQUESTING ||
+                        display_state_.tag_write_stage == TagWriteStage::WAITING);
+    unlock_state();
+    if (shown) set_tag_write_stage(TagWriteStage::NONE);
+    return;
+  }
+
+  const std::string ndef_hex = parse_json_string(resp, "ndef_data_hex");
+  const int spool_id = parse_json_int(resp, "spool_id", 0);
+  if (ndef_hex.empty() || spool_id <= 0) return;
+  const auto req = tag_write_.on_requested(spool_id, last_tag_source_ == TagSource::SCALE);
+  if (req.stale) {
+    ESP_LOGD(TAG, "write_tag: spool %d has a result on its way — repeat ignored", spool_id);
+    return;
+  }
+  if (req.dropped_local)
+    ESP_LOGI(TAG, "write_tag: earlier local write dropped for spool %d", spool_id);
+  if (!req.to_scale) {
+    // Every repeat: arm() ignores one for the write already armed or running,
+    // and arms one deferred behind another write or whose result never
+    // reached Bambuddy.
+    arm_pending_write(spool_id, hex_to_bytes(ndef_hex));
+    return;
+  }
+  // Re-sent with every repeat, so a delivery the scale missed is made up; the
+  // scale ignores repeats itself.
+  lock_state();
+  pending_scale_cmd_ = "write_tag";
+  pending_scale_cmd_payload_ = "\"spool_id\":" + std::to_string(spool_id) +
+                               ",\"ndef_hex\":\"" + ndef_hex + "\"";
+  unlock_state();
+  if (req.fresh) {
+    set_status("Write queued for scale tag");
+    set_tag_write_stage(TagWriteStage::WAITING, spool_id, "", true);
+    ESP_LOGI(TAG, "write_tag: routing spool %d to the scale's reader (%zu ndef bytes)",
+             spool_id, ndef_hex.size() / 2);
+  }
+}
+
+void BambuddyAPIComponent::post_write_result(const HttpJob &job) {
+  const int spool_id = job.i1;
+  bool delivered = true;
+  if (!tag_write_.result_wanted(spool_id)) {
+    // Cancelled, or replaced by another spool's request. Bambuddy would take
+    // a success as a request to link the tag anyway, so it is not sent.
+    ESP_LOGW(TAG, "Write result for spool %d not sent: Bambuddy no longer waits for it",
+             spool_id);
+  } else {
+    for (uint8_t attempt = 1;; attempt++) {
+      int status = 0;
+      // Any answer, even an error (Bambuddy returns 502 when it could not
+      // link the tag), means Bambuddy has processed the result: sending it
+      // again would act on it twice. Only silence is retried.
+      if (api_write_tag_result(spool_id, job.s1, job.b1, job.s2, &status) || status != 0)
+        break;
+      if (attempt == WRITE_RESULT_ATTEMPTS) {
+        delivered = false;
+        ESP_LOGW(TAG, "Write result for spool %d: no answer from Bambuddy after %u attempts",
+                 spool_id, (unsigned) WRITE_RESULT_ATTEMPTS);
+        break;
+      }
+      vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+  }
+  tag_write_.result_sent(spool_id, delivered);
+}
+
+bool BambuddyAPIComponent::claim_pending_write(std::vector<uint8_t> *ndef, int *spool_id) {
+  int id = 0;
+  if (!tag_write_.claim(ndef, &id)) return false;
+  if (spool_id != nullptr) *spool_id = id;
+  set_tag_write_stage(TagWriteStage::WRITING, id);
+  return true;
+}
+
+void BambuddyAPIComponent::show_tag_write_result(int spool_id, const std::string &uid,
+                                                  bool success, const std::string &msg) {
+  lock_state();
+  auto &ds = display_state_;
+  const bool shown = ds.tag_write_stage != TagWriteStage::NONE && ds.tag_write_spool_id == spool_id;
+  if (success && ds.last_tag_uid == uid && ds.current_filament.spool_id == spool_id) {
+    // The tag shown now carries this spool's OpenTag3D data, and the data read
+    // at the scan is out of date. (A write that went to another tag placed
+    // instead says nothing about the spool shown for that tag.)
+    ds.current_filament.tag_format = "open_tag_3d";
+    ds.tag_filament = TagFilamentInfo{};
+    tag_written_scan_gen_ = ds.nfc_scan_generation;
+    tag_written_spool_id_ = spool_id;
+  }
+  unlock_state();
+  if (shown)
+    set_tag_write_stage(success ? TagWriteStage::DONE : TagWriteStage::FAILED, spool_id,
+                        success ? "" : msg);
+}
+
+void BambuddyAPIComponent::request_tag_write() {
+  lock_state();
+  const int spool_id = display_state_.current_filament.spool_id;
+  unlock_state();
+  if (spool_id <= 0) return;
+  set_tag_write_stage(TagWriteStage::REQUESTING, spool_id);
+  HttpJob job;
+  job.kind = HttpJob::REQUEST_TAG_WRITE;
+  job.i1 = spool_id;
+  enqueue_job(job);
+}
+
+void BambuddyAPIComponent::api_request_tag_write(int spool_id) {
+  const std::string body = "{\"device_id\":" + json_string(device_id_) +
+                           ",\"spool_id\":" + std::to_string(spool_id) + "}";
+  std::string resp;
+  int status = 0;
+  std::string msg;
+  if (http_post("/nfc/write-tag", body, resp, &status)) {
+    // write_tag comes back in the heartbeat response: fetch it now rather
+    // than at the next heartbeat, up to 10 s away.
+    api_heartbeat();
+    last_heartbeat_ms_ = millis();
+    if (tag_write_.result_wanted(spool_id)) {
+      ESP_LOGI(TAG, "Tag write for spool %d queued in Bambuddy", spool_id);
+      return;
+    }
+    // Queued, but the heartbeat didn't bring it back (it failed, or Bambuddy
+    // holds another command for this device).
+    msg = "Bambuddy did not send the write - try again";
+  } else {
+    // Bambuddy's reasons, by status (its error text isn't kept on failure).
+    switch (status) {
+      case 0:   msg = "Bambuddy did not answer"; break;
+      case 404: msg = "Spool not found in Bambuddy"; break;
+      case 409: msg = "This spool is linked to its Bambu tag through the AMS"; break;
+      case 503: msg = "Spoolman is unavailable"; break;
+      default:  msg = "Bambuddy refused the write (HTTP " + std::to_string(status) + ")"; break;
+    }
+  }
+  ESP_LOGW(TAG, "Tag write for spool %d not started: %s", spool_id, msg.c_str());
+  show_tag_write_result(spool_id, "", false, msg);
+}
+
+void BambuddyAPIComponent::cancel_tag_write() {
+  lock_state();
+  const auto &ds = display_state_;
+  const int spool_id = ds.tag_write_spool_id;
+  const bool waiting = ds.tag_write_stage == TagWriteStage::WAITING && spool_id > 0;
+  const bool on_scale = ds.tag_write_on_scale;
+  unlock_state();
+  if (!waiting) return;
+  // Ended as a failed write, the way every write ends: Bambuddy clears its
+  // command and shows the reason, and the scale is cancelled with it.
+  if (on_scale) {
+    end_scale_write(spool_id, "Cancelled on the console");
+  } else {
+    // Claimed first, so a write the NFC task has just started runs to the end.
+    if (!tag_write_.claim()) return;
+    on_write_tag_result(WRITE_NO_TAG_UID, false, "Cancelled on the console");
+  }
+  set_tag_write_stage(TagWriteStage::NONE);
+}
+
+void BambuddyAPIComponent::end_scale_write(int spool_id, const char *msg) {
+  lock_state();
+  if (pending_scale_cmd_ == "write_tag") {  // not handed to the scale yet
+    pending_scale_cmd_.clear();
+    pending_scale_cmd_payload_.clear();
+  }
+  unlock_state();
+  tag_write_.result_ready(spool_id);
+  HttpJob job;
+  job.kind = HttpJob::WRITE_RESULT;
+  job.i1 = spool_id;
+  job.s1 = WRITE_NO_TAG_UID;
+  job.b1 = false;
+  job.s2 = msg;
+  enqueue_job(job);
+}
+
+void BambuddyAPIComponent::unlink_and_erase_current_tag() {
+  // Unlinked either way; erased only if the tag is still on this reader.
+  std::string uid;
+  if (current_tag_erasable()) {
+    lock_state();
+    uid = display_state_.last_tag_uid;
+    unlock_state();
+  } else {
+    ESP_LOGW(TAG, "Unlink + Erase: tag no longer on the reader, unlinking only");
+  }
+  unlink_current_tag(uid);
+}
+
+void BambuddyAPIComponent::on_tag_erased(const std::string &uid, bool success,
+                                         const std::string &msg) {
+  ESP_LOGI(TAG, "Tag erase: uid=%s success=%d msg=%s", uid.c_str(), success, msg.c_str());
+  set_tag_erase_stage(success ? TagWriteStage::DONE : TagWriteStage::FAILED, msg);
+  set_status(success ? "Tag erased" : "Tag not erased: " + msg);
 }
 
 // ---------------------------------------------------------------------------
@@ -1441,6 +1711,7 @@ void BambuddyAPIComponent::api_heartbeat() {
 
   // Process pending_command
   std::string cmd = parse_json_string(resp, "pending_command");
+  on_bambuddy_write_command(cmd, resp);
   if (!cmd.empty()) {
     ESP_LOGD(TAG, "Heartbeat received command: '%s'", cmd.c_str());
     handle_command(cmd, resp, resp);
@@ -1547,8 +1818,8 @@ void BambuddyAPIComponent::activate_spool(FilamentInfo fi,
                                            TagSource source) {
   int spool_id = fi.spool_id;
   uint32_t expiry = spool_id > 0 ? millis() + ASSIGN_TTL_MS : 0;
-  last_tag_source_ = source;
   lock_state();
+  last_tag_source_ = source;
   display_state_.current_filament       = fi;
   display_state_.spool_selected         = true;
   display_state_.tag_resolving          = false;
@@ -1684,15 +1955,21 @@ bool BambuddyAPIComponent::api_get_inventory_mode() {
   return true;
 }
 
-void BambuddyAPIComponent::api_get_spool(int spool_id, bool check_empty) {
-  std::string resp;
+bool BambuddyAPIComponent::api_fetch_spool(int spool_id, std::string &resp, int *status,
+                                           bool quiet) {
   const std::string path =
       std::string(spoolman_inventory_ ? "/spoolman/inventory/spools/" : "/inventory/spools/") +
       std::to_string(spool_id);
-  if (!http_get_api(path, resp)) {
-    ESP_LOGW(TAG, "GET %s failed", path.c_str());
-    return;
-  }
+  if (http_request(HTTP_METHOD_GET, backend_url_for("/api/v1", path), "", resp, 5000, true,
+                   quiet, status))
+    return true;
+  if (!quiet) ESP_LOGW(TAG, "GET %s failed", path.c_str());
+  return false;
+}
+
+void BambuddyAPIComponent::api_get_spool(int spool_id, bool check_empty) {
+  std::string resp;
+  if (!api_fetch_spool(spool_id, resp)) return;
 
   std::string material   = parse_json_string(resp, "material");
   std::string subtype    = parse_json_string(resp, "subtype");
@@ -1734,6 +2011,33 @@ void BambuddyAPIComponent::api_get_spool(int spool_id, bool check_empty) {
   ESP_LOGI(TAG, "Spool %d: %s %s '%s' brand=%s rgba=%s %.0f/%.0f g",
            spool_id, material.c_str(), subtype.c_str(), color_name.c_str(),
            brand.c_str(), rgba.c_str(), used_w, label_w);
+}
+
+void BambuddyAPIComponent::api_lookup_spool(int spool_id) {
+  // Skip an ID the user has already typed past.
+  lock_state();
+  const bool current = display_state_.spool_lookup.spool_id == spool_id;
+  unlock_state();
+  if (!current) return;
+
+  std::string resp;
+  int status = 0;
+  SpoolLookup r;
+  r.spool_id = spool_id;
+  if (api_fetch_spool(spool_id, resp, &status, true)) {
+    r.state      = SpoolLookup::FOUND;
+    r.material   = parse_json_string(resp, "material");
+    r.subtype    = parse_json_string(resp, "subtype");
+    r.brand      = parse_json_string(resp, "brand");
+    r.color_name = parse_json_string(resp, "color_name");
+    const std::string rgba = parse_json_string(resp, "rgba");
+    if (rgba.size() >= 6) r.color_hex = rgba.substr(0, 6);
+  } else {
+    r.state = status == 404 ? SpoolLookup::NOT_FOUND : SpoolLookup::FAILED;
+  }
+  lock_state();
+  if (display_state_.spool_lookup.spool_id == spool_id) display_state_.spool_lookup = r;
+  unlock_state();
 }
 
 bool BambuddyAPIComponent::api_tag_removed(const std::string &uid) {
@@ -1897,7 +2201,8 @@ void BambuddyAPIComponent::apply_local_calibration(float reference_weight_g) {
 bool BambuddyAPIComponent::api_write_tag_result(int spool_id,
                                                  const std::string &uid,
                                                  bool success,
-                                                 const std::string &message) {
+                                                 const std::string &message,
+                                                 int *status) {
   std::ostringstream js;
   js << "{"
      << "\"device_id\":" << json_string(device_id_) << ","
@@ -1907,7 +2212,7 @@ bool BambuddyAPIComponent::api_write_tag_result(int spool_id,
      << "\"message\":" << json_string(message)
      << "}";
   std::string resp;
-  return http_post("/nfc/write-result", js.str(), resp);
+  return http_post("/nfc/write-result", js.str(), resp, status);
 }
 
 bool BambuddyAPIComponent::api_diagnostic_result(
@@ -1957,32 +2262,7 @@ void BambuddyAPIComponent::handle_command(const std::string &cmd,
     request_calibration(ref_g);
 
   } else if (cmd == "write_tag") {
-    std::string ndef_hex = parse_json_string(payload_json, "ndef_data_hex");
-    int spool_id = parse_json_int(payload_json, "spool_id", 0);
-    if (!ndef_hex.empty()) {
-      if (last_tag_source_ == TagSource::SCALE) {
-        // Tag is on the scale's PN532 — relay the write command via the push
-        // response channel so the scale can perform the write locally.
-        char spool_buf[32];
-        snprintf(spool_buf, sizeof(spool_buf), "\"spool_id\":%d", spool_id);
-        lock_state();
-        pending_scale_cmd_         = "write_tag";
-        pending_scale_cmd_payload_ = std::string(spool_buf) +
-                                     ",\"ndef_hex\":\"" + ndef_hex + "\"";
-        unlock_state();
-        set_status("Write queued for scale tag");
-        ESP_LOGI(TAG, "write_tag: routing to scale PN532 (spool %d, %zu ndef bytes)",
-                 spool_id, ndef_hex.size() / 2);
-      } else {
-        // Tag is on the console's PN532 — arm local write as before.
-        pending_write_ndef_      = hex_to_bytes(ndef_hex);
-        pending_write_spool_id_  = spool_id;
-        pending_write_active_.store(true);
-        set_status("Waiting for NTAG to write spool " + std::to_string(spool_id));
-        ESP_LOGI(TAG, "write_tag: spool_id=%d ndef_len=%zu — waiting for NTAG",
-                 spool_id, pending_write_ndef_.size());
-      }
-    }
+    // Handled for every heartbeat by on_bambuddy_write_command().
 
   } else if (cmd == "run_nfc_diag") {
     // ESPHome cannot run external scripts; return a mock diagnostic result
@@ -2113,8 +2393,9 @@ bool BambuddyAPIComponent::http_request(esp_http_client_method_t method,
                                          const std::string &json_body,
                                          std::string &response_body,
                                          int timeout_ms, bool with_api_key,
-                                         bool quiet) {
+                                         bool quiet, int *status_out) {
   const char *m = method_name(method);
+  if (status_out != nullptr) *status_out = 0;  // until an answer arrives
 
   // All requests rooted at backend_url_ share a persistent TLS connection so
   // the full mbedTLS cert-chain handshake happens once on first connect (or
@@ -2196,6 +2477,7 @@ bool BambuddyAPIComponent::http_request(esp_http_client_method_t method,
     if (!satellite()) arch_feed_wdt();
     esp_err_t err = esp_http_client_perform(client);
     int status = esp_http_client_get_status_code(client);
+    if (status_out != nullptr) *status_out = (err == ESP_OK) ? status : 0;
 
     if (!is_backend) {
       esp_http_client_cleanup(client);
@@ -2248,10 +2530,10 @@ std::string BambuddyAPIComponent::backend_url_for(const char *prefix,
 
 bool BambuddyAPIComponent::http_post(const std::string &path,
                                       const std::string &json_body,
-                                      std::string &response_body) {
+                                      std::string &response_body, int *status) {
   return http_request(HTTP_METHOD_POST,
                       backend_url_for("/api/v1/spoolbuddy", path), json_body,
-                      response_body, 5000, true, false);
+                      response_body, 5000, true, false, status);
 }
 
 bool BambuddyAPIComponent::http_get_api(const std::string &path,
@@ -3200,7 +3482,9 @@ void BambuddyAPIComponent::drain_console(ConsoleWorker *w) {
       xSemaphoreGive(w->lock);
     }
     if (ok) {
-      if (kind == ConsolePush::HEARTBEAT && !parse_json_string(resp, "cmd").empty()) {
+      if (kind == ConsolePush::HEARTBEAT &&
+          (!parse_json_string(resp, "cmd").empty() ||
+           parse_json_bool(resp, "cancel_write", false))) {
         xSemaphoreTake(job_mutex_, portMAX_DELAY);
         if (console_cmd_resp_.empty()) console_cmd_resp_ = std::move(resp);
         xSemaphoreGive(job_mutex_);
@@ -3320,6 +3604,14 @@ void BambuddyAPIComponent::api_scale_push_heartbeat() {
 // Runs a tare/calibrate/set_calibration/write_tag command from a console's
 // heartbeat response. Push task only (calibration and tare state live there).
 void BambuddyAPIComponent::handle_scale_command(const std::string &resp) {
+  // Sent as its own flag, alongside (or without) any command.
+  if (parse_json_bool(resp, "cancel_write", false)) {
+    const int spool_id = tag_write_.scale_cancelled();
+    if (spool_id != 0) {
+      ESP_LOGI(TAG, "Tag write for spool %d dropped: cancelled by the console", spool_id);
+      set_status("Tag write cancelled");
+    }
+  }
   std::string cmd = parse_json_string(resp, "cmd");
   if (cmd == "tare") {
     ESP_LOGI(TAG, "Scale received tare command via heartbeat");
@@ -3349,11 +3641,8 @@ void BambuddyAPIComponent::handle_scale_command(const std::string &resp) {
     std::string ndef_hex = parse_json_string(resp, "ndef_hex");
     int spool_id = parse_json_int(resp, "spool_id", 0);
     if (!ndef_hex.empty()) {
-      pending_write_ndef_     = hex_to_bytes(ndef_hex);
-      pending_write_spool_id_ = spool_id;
-      pending_write_active_.store(true);
-      ESP_LOGI(TAG, "Scale received write_tag cmd via heartbeat: spool_id=%d ndef_len=%zu",
-               spool_id, pending_write_ndef_.size());
+      ESP_LOGD(TAG, "Scale received write_tag cmd via heartbeat: spool_id=%d", spool_id);
+      arm_pending_write(spool_id, hex_to_bytes(ndef_hex));
     }
   }
 }
@@ -3605,8 +3894,11 @@ esp_err_t BambuddyAPIComponent::console_http_scale_heartbeat(httpd_req_t *req) {
   if (cmd == "tare" && !expired) self->tare_ack_pending_ = true;
   if (cmd == "calibrate" && !expired) self->calibrate_ack_pending_ = true;
   if ((cmd == "tare" || cmd == "calibrate") && !expired) self->scale_cmd_delivered_ms_ = millis();
-
   self->unlock_state();
+  // A cancel for a tag write travels as its own flag next to any command, so
+  // a tare or calibration sync in the command slot can't displace it.
+  const bool cancel_write = self->tag_write_.take_scale_cancel();
+  if (cancel_write) ESP_LOGI(TAG, "Console: delivering cancel_write to scale via heartbeat");
 
   if (expired) {
     ESP_LOGW(TAG, "Console: dropping %s command queued %lu ms ago (older than %lu ms)",
@@ -3616,26 +3908,26 @@ esp_err_t BambuddyAPIComponent::console_http_scale_heartbeat(httpd_req_t *req) {
 
   // Respond — include pending command if any.
   // Use std::string for write_tag so large NDEF hex payloads don't truncate.
+  std::string out = cancel_write ? "{\"ok\":true,\"cancel_write\":true" : "{\"ok\":true";
   if (cmd == "tare") {
     ESP_LOGI(TAG, "Console: delivering tare command to scale via heartbeat");
-    return send_json(req, "{\"ok\":true,\"cmd\":\"tare\"}");
+    out += ",\"cmd\":\"tare\"";
   } else if (cmd == "calibrate") {
-    char buf[64];
-    snprintf(buf, sizeof(buf), "{\"ok\":true,\"cmd\":\"calibrate\",\"value\":%.2f}", cmdval);
+    char buf[48];
+    snprintf(buf, sizeof(buf), ",\"cmd\":\"calibrate\",\"value\":%.2f", cmdval);
     ESP_LOGI(TAG, "Console: delivering calibrate command to scale via heartbeat (ref=%.1f g)", cmdval);
-    return send_json(req, buf);
+    out += buf;
   } else if (cmd == "set_calibration" && !cmdpayload.empty()) {
-    std::string resp_str = std::string("{\"ok\":true,\"cmd\":\"set_calibration\",") + cmdpayload + "}";
     ESP_LOGI(TAG, "Console: delivering set_calibration command to scale via heartbeat (%s)",
              cmdpayload.c_str());
-    return send_json(req, resp_str.c_str());
+    out += ",\"cmd\":\"set_calibration\"," + cmdpayload;
   } else if (cmd == "write_tag" && !cmdpayload.empty()) {
-    std::string resp_str = std::string("{\"ok\":true,\"cmd\":\"write_tag\",") + cmdpayload + "}";
     ESP_LOGI(TAG, "Console: delivering write_tag command to scale via heartbeat (%zu payload bytes)",
              cmdpayload.size());
-    return send_json(req, resp_str.c_str());
+    out += ",\"cmd\":\"write_tag\"," + cmdpayload;
   }
-  return send_json(req, "{\"ok\":true}");
+  out += "}";
+  return send_json(req, out.c_str());
 }
 
 esp_err_t BambuddyAPIComponent::console_http_scale_nfc_scanned(httpd_req_t *req) {
@@ -3672,7 +3964,9 @@ esp_err_t BambuddyAPIComponent::console_http_scale_nfc_scanned(httpd_req_t *req)
                        filament.valid ? &filament : nullptr);
   // Override source AFTER on_tag_scanned() so write_tag commands are routed back
   // to the scale's PN532 rather than waiting on the console's reader.
+  self->lock_state();
   self->last_tag_source_ = TagSource::SCALE;
+  self->unlock_state();
 
   return send_json(req, "{\"ok\":true}");
 }
@@ -3713,6 +4007,17 @@ esp_err_t BambuddyAPIComponent::console_http_scale_nfc_write_result(httpd_req_t 
 
   ESP_LOGI(TAG, "Console received scale write-result: spool=%d uid=%s success=%d msg=%s",
            spool_id, uid.c_str(), (int)success, msg.c_str());
+
+  // Repeats of write_tag for this spool are stale until Bambuddy has the
+  // result, and a copy not yet handed to the scale is taken back.
+  self->tag_write_.result_ready(spool_id);
+  self->show_tag_write_result(spool_id, uid, success, msg);
+  self->lock_state();
+  if (self->pending_scale_cmd_ == "write_tag") {
+    self->pending_scale_cmd_.clear();
+    self->pending_scale_cmd_payload_.clear();
+  }
+  self->unlock_state();
 
   // Relay to BamBuddy via the existing WRITE_RESULT path on the console's HTTP task.
   HttpJob job;
@@ -4554,7 +4859,8 @@ void BambuddyAPIComponent::api_update_spool_weight(int spool_id, float total_gra
 
 void BambuddyAPIComponent::api_link_tag(int spool_id, const std::string &uid,
                                         const std::string &tray_uuid,
-                                        const std::string &tag_type) {
+                                        const std::string &tag_type,
+                                        const std::string &erase_uid) {
   // uid="" means unlink; otherwise link the tag.
   bool is_unlink = uid.empty();
   std::ostringstream js;
@@ -4582,10 +4888,13 @@ void BambuddyAPIComponent::api_link_tag(int spool_id, const std::string &uid,
   }
   std::string resp;
   bool ok = http_patch_api(path, js.str(), resp);
+  // Unlink + Erase: the tag (erase_uid) is erased only once the unlink has
+  // gone through.
   if (!ok) {
     ESP_LOGW(TAG, "api_link_tag spool %d %s: failed", spool_id,
              is_unlink ? "unlink" : "link");
-    set_status(is_unlink ? "Unlink failed" : "Tag link failed");
+    set_status(!is_unlink ? "Tag link failed"
+               : erase_uid.empty() ? "Unlink failed" : "Unlink failed - tag not erased");
     return;
   }
   ESP_LOGI(TAG, "api_link_tag spool %d %s: ok", spool_id,
@@ -4595,13 +4904,18 @@ void BambuddyAPIComponent::api_link_tag(int spool_id, const std::string &uid,
     lock_state();
     display_state_.spool_selected   = false;
     display_state_.current_filament = FilamentInfo{};
-    display_state_.status_message   = "Tag unlinked";
+    display_state_.status_message   = erase_uid.empty() ? "Tag unlinked"
+                                      : "Tag unlinked - erasing it, keep it on the reader";
     display_state_.nfc_state        = NFCTagState::ABSENT;
     display_state_.spool_assign_expiry_ms = 0;
     unlinked_tag_expiry_ms_ = 0;
     display_state_.unlinked_tag_expiry_ms = 0;
     pending_assign_spool_id_ = 0;
     unlock_state();
+    if (!erase_uid.empty() && nfc_ != nullptr) {
+      nfc_->request_erase(erase_uid);
+      set_tag_erase_stage(TagWriteStage::WRITING);
+    }
   } else {
     // Arm the pending-assign TTL for AMS slot auto-assignment.
     // Seed the spool immediately so the NFC tab stays on the spool view;
@@ -4614,6 +4928,12 @@ void BambuddyAPIComponent::api_link_tag(int spool_id, const std::string &uid,
     display_state_.unlinked_tag_expiry_ms = 0;
     FilamentInfo seed{};
     seed.spool_id = spool_id;
+    if (display_state_.last_tag_uid == uid) {
+      // Still the tag on the reader: keep what was read from it.
+      seed.tag_type   = display_state_.current_filament.tag_type;
+      seed.tag_format = display_state_.current_filament.tag_format;
+      seed.sak        = display_state_.current_filament.sak;
+    }
     display_state_.current_filament = seed;
     display_state_.spool_selected   = true;
     display_state_.status_message   = "Tag linked to spool #" + std::to_string(spool_id);
@@ -4771,6 +5091,24 @@ void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid,
 
 // ---- Public method implementations ----
 
+void BambuddyAPIComponent::lookup_spool(int spool_id) {
+  // Always fetched afresh: the spool may have changed in Bambuddy since.
+  lock_state();
+  auto &l = display_state_.spool_lookup;
+  l = SpoolLookup{};
+  l.spool_id = spool_id;
+  l.state = spool_id > 0 ? SpoolLookup::LOADING : SpoolLookup::IDLE;
+  unlock_state();
+  if (spool_id <= 0) return;
+  HttpJob job;
+  job.kind = HttpJob::LOOKUP_SPOOL;
+  job.i1 = spool_id;
+  if (enqueue_job(job)) return;
+  lock_state();
+  if (l.spool_id == spool_id) l.state = SpoolLookup::FAILED;
+  unlock_state();
+}
+
 void BambuddyAPIComponent::request_recent_spools() {
   lock_state();
   display_state_.recent_spools_loading = true;
@@ -4882,7 +5220,7 @@ void BambuddyAPIComponent::link_tag_to_spool(int spool_id) {
   enqueue_job(job);
 }
 
-void BambuddyAPIComponent::unlink_current_tag() {
+void BambuddyAPIComponent::unlink_current_tag(const std::string &erase_uid) {
   int spool_id;
   lock_state();
   spool_id = display_state_.current_filament.spool_id;
@@ -4891,7 +5229,8 @@ void BambuddyAPIComponent::unlink_current_tag() {
   HttpJob job;
   job.kind = HttpJob::LINK_TAG_TO_SPOOL;
   job.i1   = spool_id;
-  job.s1   = "";    // empty = unlink
+  job.s1   = "";          // empty = unlink
+  job.s4   = erase_uid;   // erased only if this unlink succeeds
   enqueue_job(job);
 }
 

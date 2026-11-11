@@ -16,7 +16,7 @@ through every screen.
   that tab shows *Place spool tag on reader*.
 
   <img src="images/ui/full/nfc-waiting.png" alt="NFC tab waiting for a tag: NFC icon and Place spool tag on reader" width="360">
-  <img src="images/ui/full/nfc-spool.png" alt="NFC tab showing a scanned spool: name, colour, remaining weight, and Unlink Tag / Quick Weight / Discard buttons" width="360">
+  <img src="images/ui/full/nfc-spool.png" alt="NFC tab showing a scanned spool: name, colour, remaining weight, the tag chip in the top-left corner, and Quick Weight / Discard buttons" width="360">
 
 - **Scan + load auto-assigns the AMS slot**: after scanning a tag linked to
   a known spool, loading that physical spool into any AMS slot within the
@@ -104,10 +104,11 @@ through every screen.
 - **Unknown tag → link to an existing spool**: from that same panel, use
   **Assign Spool** instead to link the tag to an existing, untagged spool.
   The picker shows your 9 most recently added spools in a grid for quick
-  selection, but you're not limited to those — a numeric field with ±1/10
-  steppers lets you type/dial in any spool ID directly.
+  selection, but you're not limited to those: **Enter spool ID** opens a
+  keypad for any spool ID. Below the number it names the spool that ID
+  belongs to, so a typo shows before you tap **Link**.
 
-  <img src="images/ui/full/nfc-picker.png" alt="Spool picker: a grid of the 9 most recent spools plus an ID field with ±1/±10 steppers" width="360">
+  <img src="images/ui/full/nfc-picker.png" alt="Spool picker: a grid of the 9 most recent spools and an Enter spool ID button" width="360">
 
 - **Weigh a spool**: place it on the scale — the weight and a "stable"
   indicator show on the console once the reading settles (~750 ms after it
@@ -118,10 +119,11 @@ through every screen.
   <img src="images/ui/full/scale-settling.png" alt="Scale tab: 1019.8 g, Settling" width="360">
   <img src="images/ui/full/scale-no-scale.png" alt="Scale tab: No scale connected" width="360">
 
-  **Calibrate** asks for a known weight on the empty scale: set it with the
-  ±1/10/100 buttons and confirm.
+  **Calibrate** asks for a known weight on the empty scale: type its weight
+  in grams on the keypad (it starts at the last one used) and tap
+  **Calibrate**.
 
-  <img src="images/ui/full/calibrate.png" alt="Calibrate Scale popup: reference weight 100 g with -100 to +100 steps, Cancel and Calibrate" width="360">
+  <img src="images/ui/full/calibrate.png" alt="Calibrate scale keypad: 100 g entered, a 10-key pad with backspace, Cancel and Calibrate" width="360">
 
 - **Quick Weight**: with a spool shown and the scale stable, the **Quick
   Weight** button shows the filament and total weight (e.g. *773g (1023g)*);
@@ -134,14 +136,38 @@ through every screen.
   <img src="images/ui/full/weight-popup.png" alt="Update Spool Weight popup: PLA · Gold, current scale reading 1020 g, Update and Cancel" width="360">
   <img src="images/ui/full/archive.png" alt="Spool Empty popup: PLA Matte · Bambu Lab, Archive this spool?, Archive and Keep" width="360">
 
-- **Unlink or discard**: **Unlink Tag** removes the tag from the spool after
-  a confirmation; the tag then shows as unlinked when scanned again.
-  **Discard** clears the spool from the screen.
+- **Tag chip and tag menu**: the top-left corner of the spool view shows
+  the tag's format. For a tag carrying [OpenTag3D](https://opentag3d.info)
+  data it also says how that data compares with the spool in Bambuddy
+  (material, brand and colour): *Matches spool* in green or *Differs* in red.
+  A **›** next to it means it opens the tag menu:
+  - **Write spool to tag**, for an NTAG linked to the spool, writes the spool
+    to an NTAG213, NTAG215 or NTAG216 as an OpenTag3D record, which other
+    readers (phones, printers) can read without Bambuddy. It reads *Overwrite
+    tag with spool* for a tag holding other NDEF data, and *Rewrite tag with
+    spool* when the data differs. The tag need not be on the reader yet: a
+    popup asks for it, follows the write and tells you when it's done or why
+    it failed. **Cancel** stops a write still waiting for a tag; after 60 s
+    without one it gives up by itself.
+  - **Unlink** removes the tag from the spool after a confirmation; the tag
+    then shows as unlinked when scanned again. For an NTAG on the console's
+    reader that holds data (an OpenTag3D record, say), the confirmation also
+    offers **Unlink + Erase**: once the unlink has gone through, the tag's
+    NDEF message is emptied, so it can be reused for another spool. Keep the
+    tag on the reader until the popup says *Tag erased*.
 
+  The console never asks to write a tag by itself, so nothing changes for
+  tags that are never written. The write popup also shows for writes started
+  from Bambuddy's SpoolBuddy **Write** page (`/spoolbuddy/write-tag`).
+  Whatever is on the tag is overwritten; Bambu Lab tags are never written.
+
+  <img src="images/ui/full/tag-menu.png" alt="Tag menu for tag 04C0FFEE000001, spool #36 PLA Bone White: Write spool to tag, Unlink and Cancel" width="360">
+  <img src="images/ui/full/tag-write-waiting.png" alt="Popup Write spool #36: Place the tag on the console's reader (60 s), with a Cancel button" width="360">
+  <img src="images/ui/full/tag-write-done.png" alt="Popup Tag written: Spool #36 is on the tag, with an OK button" width="360">
+  <img src="images/ui/full/tag-chip.png" alt="Spool view of eSUN PLA Plus Bone White with a green Matches spool chip in the top-left corner" width="360">
   <img src="images/ui/full/unlink-confirm.png" alt="Are you sure? Unlink this tag from its spool? with Cancel and Unlink" width="360">
 
-- **Write a tag**: trigger `write_tag` from the Bambuddy dashboard, then
-  present a blank/writable NTAG to the console or scale within the timeout.
+- **Discard** clears the spool from the screen.
 - **AMS / printer status**: the console's AMS tab shows live slot/filament
   state polled from Bambuddy, along with each AMS unit's temperature,
   humidity, and its custom name if one was set in Bambuddy (falls back to a
@@ -151,11 +177,12 @@ through every screen.
   shows in the header next to the clock; it only scrolls if the text is too
   long to fit, otherwise it just sits centered. Tap a slot to see its
   spool's details (brand, material, colour, temperatures, remaining weight)
-  and to clear its assignment; tapping an empty slot lets you assign a spool
-  to it by ID.
+  and to clear its assignment; tapping an empty slot opens the same spool-ID
+  keypad to assign a spool to it.
 
   <img src="images/ui/full/ams.png" alt="AMS tab: AMS units with spool colours, material, spool IDs, remaining-filament bars, temperature and humidity" width="360">
   <img src="images/ui/full/ams-slot.png" alt="AMS slot detail: spool brand and material, colour, temperature range, AMS and slot, weight bar and Clear Assignment button" width="360">
+  <img src="images/ui/full/spool-keypad.png" alt="Spool-ID keypad for Drawer slot 4: 37 typed, matching TPU 95A, Bambu Lab, Orange, with a 10-key pad, backspace and Assign" width="360">
 
 - **Swipe between AMS pages**: on the AMS tab, swipe left for the next page and
   right for the previous one — the same thing the prev/next buttons do, and
