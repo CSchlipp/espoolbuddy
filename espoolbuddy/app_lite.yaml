@@ -134,8 +134,12 @@ globals:
     type: int
     restore_value: no
     initial_value: '0'
-  - id: lite_confirm_action  # what lite_confirm asks: 0 = closed, 1 = unlink tag
+  - id: lite_confirm_action  # what lite_confirm asks: 0 = closed, 1 = unlink tag, 2 = overwrite tag
     type: int
+    restore_value: no
+    initial_value: '0'
+  - id: lite_confirm_scan_gen  # nfc_scan_generation when action 2 was asked (as app.yaml's confirm_scan_gen)
+    type: uint32_t
     restore_value: no
     initial_value: '0'
   # Tag that last resolved to a spool. Keeps the view from flipping to the
@@ -208,14 +212,78 @@ script:
   # Tap on the spool / unlinked view: the actions the full UI shows as buttons.
   - id: lite_open_actions
     then:
+      - script.execute: lite_update_actions
+      - lambda: 'lv_obj_clear_flag(id(lite_actions), LV_OBJ_FLAG_HIDDEN);'
+
+  # Which sheet items show, and their texts. Also run every tick while the
+  # sheet is open, so Write Tag and Print Label show how they're going.
+  - id: lite_update_actions
+    then:
       - lambda: |-
+          using bambuddy_api::TagState;
+          using bambuddy_api::TagWriteStage;
           auto s = bambuddy->snapshot();
+          const auto &fi = s.current_filament;
+          const bool spool = s.spool_selected && fi.spool_id > 0;
+          auto show = [](lv_obj_t *o, bool v) {
+            if (v) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+          };
           // Unlink Tag only for a spool with an id (full UI: Unlink in the tag menu).
-          if (s.spool_selected && s.current_filament.spool_id > 0)
-            lv_obj_clear_flag(id(lite_act_unlink), LV_OBJ_FLAG_HIDDEN);
-          else
-            lv_obj_add_flag(id(lite_act_unlink), LV_OBJ_FLAG_HIDDEN);
-          lv_obj_clear_flag(id(lite_actions), LV_OBJ_FLAG_HIDDEN);
+          show(id(lite_act_unlink), spool);
+          // Write Tag: for a tag the console can write (full UI: Write in the
+          // tag menu), labelled for what it will do to the tag. Hidden while
+          // a write for another spool is under way.
+          const bool busy = s.tag_write_stage == TagWriteStage::REQUESTING ||
+                            s.tag_write_stage == TagWriteStage::WAITING ||
+                            s.tag_write_stage == TagWriteStage::WRITING;
+          const bool mine = busy && s.tag_write_spool_id == fi.spool_id;
+          const bool write = spool && s.tag_writable && (!busy || mine);
+          show(id(lite_act_write), write);
+          if (write) {
+            const char *wt = mine ? "Writing..."
+                : s.tag_state == TagState::DIFFERS || s.tag_state == TagState::NEEDS_REWRITE ? "Rewrite Tag"
+                : s.tag_state == TagState::OLDER_FORMAT ? "Update Tag"
+                : s.tag_state == TagState::MATCHES ? "Write Tag Again"
+                : fi.tag_format == "ndef" ? "Overwrite Tag"
+                : "Write Tag";
+            if (strcmp(lv_label_get_text(id(lite_act_write_lbl)), wt) != 0)
+              lv_label_set_text(id(lite_act_write_lbl), wt);
+          }
+          // Print Label, with a label printer package (full UI: btn_nfc_print).
+          #ifdef USE_LABEL_PRINTER
+          const bool print = spool && label_printer::global_label_printer != nullptr;
+          show(id(lite_act_print), print);
+          if (print) {
+            bool small;
+            if (const char *t = label_printer::button_text_update(id(lite_act_print_lbl), fi.spool_id, &small)) {
+              lv_obj_set_style_text_font(id(lite_act_print_lbl), small ? id(lite_14) : id(lite_16), LV_PART_MAIN);
+              lv_label_set_text(id(lite_act_print_lbl), t);
+            }
+          }
+          #endif
+
+  # Write Tag: a blank tag or a spool record is written at once, and the sheet
+  # stays open to show "Writing..."; other NDEF data (a URL, another app's
+  # record) is confirmed first (full UI: confirm_action 5).
+  - id: lite_ask_write
+    then:
+      - lambda: |-
+          using bambuddy_api::TagWriteStage;
+          auto s = bambuddy->snapshot();
+          if (!s.tag_writable || s.tag_write_stage == TagWriteStage::REQUESTING ||
+              s.tag_write_stage == TagWriteStage::WAITING || s.tag_write_stage == TagWriteStage::WRITING)
+            return;
+          if (s.current_filament.tag_format != "ndef") {
+            bambuddy->request_tag_write();
+            return;
+          }
+          lv_obj_add_flag(id(lite_actions), LV_OBJ_FLAG_HIDDEN);
+          id(lite_confirm_action) = 2;
+          id(lite_confirm_scan_gen) = s.nfc_scan_generation;
+          lv_label_set_text(id(lite_confirm_msg), "Overwrite the data on this tag?");
+          lv_label_set_text(id(lite_confirm_ok_lbl), "Overwrite");
+          lv_obj_clear_flag(id(lite_confirm), LV_OBJ_FLAG_HIDDEN);
+      - script.execute: lite_update_actions
 
   # Unlink Tag → confirm (full UI: confirm_action 1).
   - id: lite_ask_unlink
@@ -233,6 +301,16 @@ script:
           if (id(lite_confirm_action) == 1) {
             bambuddy->unlink_current_tag();
             id(lite_known_uid) = "";  // a rescan of this tag now shows it as unlinked
+          } else if (id(lite_confirm_action) == 2) {
+            // Only for the scan it was asked about (the dialog closes on a new
+            // scan, but only at the next tick), and not over a write that
+            // Bambuddy started meanwhile.
+            using bambuddy_api::TagWriteStage;
+            auto s = bambuddy->snapshot();
+            if (s.nfc_scan_generation == id(lite_confirm_scan_gen) && s.spool_selected &&
+                (s.tag_write_stage == TagWriteStage::NONE || s.tag_write_stage == TagWriteStage::DONE ||
+                 s.tag_write_stage == TagWriteStage::FAILED))
+              bambuddy->request_tag_write();
           }
           id(lite_confirm_action) = 0;
           lv_obj_add_flag(id(lite_confirm), LV_OBJ_FLAG_HIDDEN);
@@ -336,19 +414,29 @@ script:
   - id: lite_render_status
     then:
       - lambda: |-
+          // A tag write (from here or Bambuddy's Write page) shows as
+          // "Writing tag..." for as long as it lasts, instead of a status that
+          // times out; its result then shows as a status. The Lite has no write
+          // popup to show or clear it.
+          const bool writing = bambuddy->tag_write_status_poll();
           if (id(lite_is_sleeping)) return;  // screen is off: skip redraws
           static std::string last_status;
           static uint32_t last_generation = 0;
           static uint32_t status_since = 0;
-          std::string status = bambuddy->get_status();
+          static bool was_writing = false;
+          std::string status = writing ? std::string("Writing tag...") : bambuddy->get_status();
           uint32_t generation = bambuddy->status_generation();
+          // A write that ended with no result (Bambuddy dropped it): the status
+          // underneath is from before the write ended, so it isn't shown again.
+          const bool stale = was_writing && !writing && generation == last_generation;
+          was_writing = writing;
           if (status != last_status || generation != last_generation) {
             last_status = status;
             last_generation = generation;
-            status_since = millis();
+            status_since = stale ? millis() - 6001 : millis();
             lv_label_set_text(id(lite_status), status.c_str());
           }
-          bool show_msg = !status.empty() && (millis() - status_since) <= 6000;
+          bool show_msg = writing || (!status.empty() && (millis() - status_since) <= 6000);
           if (show_msg) {
             lv_obj_clear_flag(id(lite_status), LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(id(lite_clock), LV_OBJ_FLAG_HIDDEN);
@@ -362,6 +450,12 @@ script:
       - lambda: |-
           const bambuddy_api::DisplayState s = bambuddy->snapshot();
           const uint32_t now = millis();
+          // An overwrite asked for a spool that has gone (its time ran out, or
+          // it was discarded) must not write (as app.yaml's confirm_action 5).
+          if (id(lite_confirm_action) == 2 && !s.spool_selected) {
+            id(lite_confirm_action) = 0;
+            lv_obj_add_flag(id(lite_confirm), LV_OBJ_FLAG_HIDDEN);
+          }
           const int np  = (int) s.printers.size();
           const int sel = s.selected_printer_idx;
           const bool has_sel = np > 0 && sel >= 0 && sel < np;
@@ -385,7 +479,7 @@ script:
               id(lite_wp_open) = 0;
               lv_obj_add_flag(id(lite_weight_popup), LV_OBJ_FLAG_HIDDEN);
             }
-            if (id(lite_confirm_action) == 1) {
+            if (id(lite_confirm_action) == 1 || id(lite_confirm_action) == 2) {
               id(lite_confirm_action) = 0;
               lv_obj_add_flag(id(lite_confirm), LV_OBJ_FLAG_HIDDEN);
             }
@@ -730,3 +824,8 @@ interval:
     then:
       - script.execute: lite_refresh
       - script.execute: lite_render_status
+      - if:
+          condition:
+            lambda: 'return !lv_obj_has_flag(id(lite_actions), LV_OBJ_FLAG_HIDDEN);'
+          then:
+            - script.execute: lite_update_actions

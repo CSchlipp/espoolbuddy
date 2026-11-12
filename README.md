@@ -113,7 +113,7 @@ just works without you thinking about it.
 <table>
   <tr>
     <td align="center" width="50%">
-      <img src="docs/images/ui/full/ams-slot.png" alt="AMS slot detail popup: spool brand and material, colour, temperature range, AMS and slot, remaining weight and a Clear Assignment button" width="380"><br>
+      <img src="docs/images/ui/full/ams-slot.png" alt="AMS slot detail popup: spool brand and material, colour, temperature range, AMS and slot, remaining weight, and Print Label and Clear Assignment buttons" width="380"><br>
       <sub><b>AMS slot</b> — tap a slot for its spool's details</sub>
     </td>
     <td align="center" width="50%">

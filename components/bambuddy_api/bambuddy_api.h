@@ -149,6 +149,10 @@ static constexpr const char *WRITE_NO_TAG_UID = "00000000";
 // A write on the scale reports its own timeout. The console waits this much
 // longer for that report before ending the write itself (scale offline).
 static constexpr uint32_t SCALE_WRITE_REPORT_GRACE_MS = 15000;
+// A write request (REQUESTING) that hasn't turned into a write by then ends as
+// failed (check_pending_write_timeout()); the request and its heartbeat take
+// well under this even with slow HTTP.
+static constexpr uint32_t TAG_WRITE_REQUEST_TIMEOUT_MS = 30000;
 // Scale push: after CONSOLE_BACKOFF_AFTER consecutive failures a console is
 // skipped for CONSOLE_BACKOFF_MIN_MS, doubling per further failure up to
 // CONSOLE_BACKOFF_MAX_MS. A single failure (a dropped packet) is not skipped,
@@ -795,6 +799,28 @@ class BambuddyAPIComponent : public Component {
   void cancel_tag_write();
   // The modal's OK on a finished write.
   void dismiss_tag_write() { set_tag_write_stage(TagWriteStage::NONE); }
+  // For a UI without the write popup (the Lite): true while a tag write is
+  // under way. Once one has ended, puts its result in the status line and
+  // clears it, as the popup's OK does, and returns false. Checked and cleared
+  // under one lock, so a write started meanwhile isn't dismissed.
+  bool tag_write_status_poll() {
+    lock_state();
+    auto &ds = display_state_;
+    const TagWriteStage st = ds.tag_write_stage;
+    std::string result;
+    if (st == TagWriteStage::DONE || st == TagWriteStage::FAILED) {
+      result = st == TagWriteStage::DONE ? (ds.tag_write_erase ? "Tag erased" : "Tag written")
+               : (ds.tag_write_erase ? "Tag not erased: " : "Tag write failed: ") + ds.tag_write_message;
+      ds.tag_write_stage = TagWriteStage::NONE;
+      ds.tag_write_spool_id = 0;
+      ds.tag_write_message.clear();
+      ds.tag_write_erase = false;
+    }
+    unlock_state();
+    if (!result.empty()) set_status(result);
+    return st == TagWriteStage::REQUESTING || st == TagWriteStage::WAITING ||
+           st == TagWriteStage::WRITING;
+  }
 
   // Show a tag write in the write-status modal.
   void set_tag_write_stage(TagWriteStage stage, int spool_id = 0, const std::string &msg = "",
@@ -809,14 +835,7 @@ class BambuddyAPIComponent : public Component {
       ds.tag_write_on_scale = on_scale;
       ds.tag_write_deadline_ms = millis() + WRITE_ARM_TTL_MS;
     }
-    unlock_state();
-  }
-
-  // Called by the NFC component after reading NDEF pages to refine the format
-  // detected from SAK alone.  Runs on the NFC poll task, so it must be brief.
-  void set_tag_format(const std::string &fmt) {
-    lock_state();
-    display_state_.current_filament.tag_format = fmt;
+    if (stage == TagWriteStage::REQUESTING) tag_write_requested_ms_ = millis();
     unlock_state();
   }
 
@@ -854,9 +873,13 @@ class BambuddyAPIComponent : public Component {
   // or nullptr when the tag carries none / the decode failed.  Passing it in (rather than
   // a separate setter afterwards) keeps the scale push race-free: the value is
   // snapshotted into the queued job while the caller still owns it.
+  // ndef_format: what the NFC component's NDEF read found on an NTAG
+  // ("open_tag_3d", "ndef", or "" for blank/unread), passed in with the scan
+  // so a scale can forward it in the same push.
   void on_tag_scanned(const std::string &uid, const std::string &tray_uuid,
                       int sak, const std::string &tag_type,
-                      const TagFilamentInfo *filament = nullptr);
+                      const TagFilamentInfo *filament = nullptr,
+                      const std::string &ndef_format = "");
   void on_tag_removed(const std::string &uid);
 
 #ifdef USE_HOST
@@ -1116,6 +1139,8 @@ class BambuddyAPIComponent : public Component {
     // never reads a display_state_.tag_filament that a later scan has already
     // overwritten.
     TagFilamentInfo filament{};
+    // SCALE_PUSH_NFC_SCANNED: what the scale's NDEF read found (on_tag_scanned()'s ndef_format).
+    std::string tag_format;
   };
 
   static void http_task_trampoline(void *arg);
@@ -1240,7 +1265,8 @@ class BambuddyAPIComponent : public Component {
   void api_scale_push_nfc_scanned(const std::string &uid,
                                    const std::string &tray_uuid,
                                    int sak, const std::string &tag_type,
-                                   const TagFilamentInfo &filament);
+                                   const TagFilamentInfo &filament,
+                                   const std::string &tag_format);
   void api_scale_push_nfc_removed(const std::string &uid);
   void api_scale_push_write_result(int spool_id, const std::string &uid,
                                     bool success, const std::string &msg);
@@ -1748,6 +1774,7 @@ class BambuddyAPIComponent : public Component {
   void disarm_pending_write(const char *why);
   // Called from loop(): fail a write armed for WRITE_ARM_TTL_MS.
   void check_pending_write_timeout();
+  uint32_t tag_write_requested_ms_{0};  // millis() when the stage went to REQUESTING (under state_mutex_)
 
   // ------------------------------------------------------------------
   // Threading

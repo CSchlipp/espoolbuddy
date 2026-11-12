@@ -16,7 +16,7 @@ through every screen.
   that tab shows *Place spool tag on reader*.
 
   <img src="images/ui/full/nfc-waiting.png" alt="NFC tab waiting for a tag: NFC icon and Place spool tag on reader" width="360">
-  <img src="images/ui/full/nfc-spool.png" alt="NFC tab showing a scanned spool: name, colour, remaining weight, the tag chip in the top-left corner, and Quick Weight / Discard buttons" width="360">
+  <img src="images/ui/full/nfc-spool.png" alt="NFC tab showing a scanned spool: name, colour, remaining weight, the tag chip in the top-left corner, and Quick Weight / Print Label / Discard buttons" width="360">
 
 - **Scan + load auto-assigns the AMS slot**: after scanning a tag linked to
   a known spool, loading that physical spool into any AMS slot within the
@@ -151,7 +151,9 @@ through every screen.
   - **Write spool to tag**, for an NTAG linked to the spool, writes the spool
     to an NTAG213, NTAG215 or NTAG216 as an OpenTag3D record, which other
     readers (phones, printers) can read without Bambuddy. It reads *Overwrite
-    tag with spool* for a tag holding other NDEF data, *Rewrite tag with
+    tag with spool* for a tag holding other NDEF data (a URL, another app's
+    record), and asks before writing over it; this works for a tag on the
+    scale too, with scale firmware from this version on. *Rewrite tag with
     spool* when the data differs or needs a rewrite, and *Update tag to newer
     format* for an older format. With a Bambuddy that sends it, an NTAG215 or
     NTAG216 gets OpenTag3D v2, and an NTAG213 keeps v1, as v2 doesn't fit. The
@@ -190,7 +192,7 @@ through every screen.
   keypad to assign a spool to it.
 
   <img src="images/ui/full/ams.png" alt="AMS tab: AMS units with spool colours, material, spool IDs, remaining-filament bars, temperature and humidity" width="360">
-  <img src="images/ui/full/ams-slot.png" alt="AMS slot detail: spool brand and material, colour, temperature range, AMS and slot, weight bar and Clear Assignment button" width="360">
+  <img src="images/ui/full/ams-slot.png" alt="AMS slot detail: spool brand and material, colour, temperature range, AMS and slot, weight bar, and Print Label and Clear Assignment buttons" width="360">
   <img src="images/ui/full/spool-keypad.png" alt="Spool-ID keypad for Drawer slot 4: 37 typed, matching TPU 95A, Bambu Lab, Orange, with a 10-key pad, backspace and Assign" width="360">
 
 - **Swipe between AMS pages**: on the AMS tab, swipe left for the next page and
