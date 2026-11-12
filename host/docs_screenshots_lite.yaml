@@ -4,8 +4,9 @@
 # Don't run this directly; use host/update_screenshots.py, which compiles it,
 # runs it and copies the results into docs/images/ui/lite/.
 #
-# Builds espoolbuddy_console_lite_host.yaml unchanged and adds a boot sequence
-# that drives the mock through every Lite feature (scale readings, tag scans,
+# Builds espoolbuddy_console_lite_host.yaml plus a label printer (as
+# docs_screenshots.yaml does for the full UI, so Print Label shows in the
+# action sheet) and adds a boot sequence that drives the mock through every Lite feature (scale readings, tag scans,
 # AMS insert/remove, location tag, popups, action sheet, settings), saves a
 # snapshot of each screen to .esphome/snapshots/espoolbuddy-docs-lite/, then
 # exits.
@@ -24,6 +25,23 @@
 
 packages:
   host: !include espoolbuddy_console_lite_host.yaml
+
+# Label printer writing to a file, as in espoolbuddy_console_host_labels.yaml.
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [label_printer, label_printer_file]
+
+label_printer_file:
+  id: label_file
+  path: label.pbm
+
+label_printer:
+  id: spool_label_printer
+  api_id: bambuddy
+  driver_id: label_file
+  transport_id: label_file
 
 esphome:
   # Separate build dir and snapshot folder from the interactive simulator.
@@ -51,7 +69,7 @@ esphome:
         - lambda: 'bambuddy->sim_scale_reading(1023.4f, true);'
 
         # ==== Scan + auto-assign ====
-        - lambda: 'bambuddy->on_tag_scanned("04A1B2C3D4E5F6", "", 0x00, "ntag");'
+        - lambda: 'bambuddy->on_tag_scanned("04A1B2C3D4E5F6", "", 0x00, "ntag", nullptr, "ndef");'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: nfc-spool}
 
@@ -70,7 +88,7 @@ esphome:
         - lambda: 'bambuddy->sim_scale_reading(1023.4f, true);'
 
         # Storage-location tag while the spool is shown
-        - lambda: 'bambuddy->on_tag_scanned("04AABBCCDDEE01", "", 0x00, "ntag");'
+        - lambda: 'bambuddy->on_tag_scanned("04AABBCCDDEE01", "", 0x00, "ntag", nullptr, "ndef");'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: location}
 
@@ -109,7 +127,7 @@ esphome:
         - snapshot.take: {id: main_display, filename: timeout}
 
         # ==== Unlinked tags ====
-        - lambda: 'bambuddy->on_tag_scanned("04DEADBEEF0001", "", 0x00, "ntag");'
+        - lambda: 'bambuddy->on_tag_scanned("04DEADBEEF0001", "", 0x00, "ntag", nullptr, "ndef");'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: nfc-unlinked}
 

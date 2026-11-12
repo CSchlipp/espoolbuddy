@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include "esphome/core/component.h"
+#include "tag_write.h"
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/defines.h"
@@ -74,6 +75,9 @@ class NFCScanControl {
   virtual void set_low_power(bool low_power) = 0;
   // Host interface of the reader ("SPI" or "I2C"), reported to the backend.
   virtual const char *connection_type() const = 0;
+  // Erase the NTAG with this UID (hex) once it is on the reader; the reader
+  // reports back with BambuddyAPIComponent::on_tag_erased().
+  virtual void request_erase(const std::string &uid) = 0;
 };
 
 template<typename T>
@@ -83,6 +87,7 @@ class NFCScanControlAdapter : public NFCScanControl {
   void set_scan_enabled(bool enabled) override { nfc_->set_scan_enabled(enabled); }
   void set_low_power(bool low_power) override { nfc_->set_low_power(low_power); }
   const char *connection_type() const override { return nfc_->get_connection_type(); }
+  void request_erase(const std::string &uid) override { nfc_->request_erase(uid); }
 
  private:
   T *nfc_;
@@ -135,6 +140,19 @@ static constexpr uint32_t SCALE_HEARTBEAT_FAST_MS = 200;
 // has already been reported as failed there, and applying it later (possibly
 // with a spool on the platform) would set a wrong zero point.
 static constexpr uint32_t PENDING_SCALE_CMD_TTL_MS = 15000;
+// Attempts to deliver a write result to Bambuddy when it doesn't answer at
+// all. An answered POST is never repeated: Bambuddy acts on the first one.
+static constexpr uint8_t WRITE_RESULT_ATTEMPTS = 3;
+// tag_uid reported when a write ends without a tag (timeout). Bambuddy's
+// write-result requires 8-30 hex characters.
+static constexpr const char *WRITE_NO_TAG_UID = "00000000";
+// A write on the scale reports its own timeout. The console waits this much
+// longer for that report before ending the write itself (scale offline).
+static constexpr uint32_t SCALE_WRITE_REPORT_GRACE_MS = 15000;
+// A write request (REQUESTING) that hasn't turned into a write by then ends as
+// failed (check_pending_write_timeout()); the request and its heartbeat take
+// well under this even with slow HTTP.
+static constexpr uint32_t TAG_WRITE_REQUEST_TIMEOUT_MS = 30000;
 // Scale push: after CONSOLE_BACKOFF_AFTER consecutive failures a console is
 // skipped for CONSOLE_BACKOFF_MIN_MS, doubling per further failure up to
 // CONSOLE_BACKOFF_MAX_MS. A single failure (a dropped packet) is not skipped,
@@ -238,6 +256,11 @@ struct TagFilamentInfo {
   uint16_t bed_temp{0};
   uint16_t drying_temp{0};
   uint16_t drying_time{0};
+  // OpenTag3D only, from this console's reader (a scale doesn't forward them):
+  uint16_t version{0};         // Tag Version, 1000 = 1.000
+  uint16_t capacity{0};        // data-area bytes from the tag's CC; 0 = not read
+  bool cc_copy{false};         // written with a copy of the CC before the message
+                               // (Bambuddy before #3500): other readers see it empty
 };
 
 struct FilamentInfo {
@@ -351,6 +374,40 @@ struct SmartPlug {
   bool operator!=(const SmartPlug &o) const { return !(*this == o); }
 };
 
+// A tag write as the console shows it (the write-status modal).
+enum class TagWriteStage : uint8_t {
+  NONE,        // nothing to show
+  REQUESTING,  // request_tag_write() is asking Bambuddy to queue the write
+  WAITING,     // armed here, or sent to the scale: waiting for a tag
+  WRITING,     // the tag is being written
+  DONE,
+  FAILED,      // tag_write_message says why
+};
+
+// What the tag on the reader holds compared with its spool, for the tag chip
+// on the spool view (update_tag_state_locked()).
+enum class TagState : uint8_t {
+  NONE,     // no OpenTag3D data read (blank, other NDEF data, Bambu, AMS): no chip text
+  MATCHES,  // OpenTag3D data that agrees with the spool
+  DIFFERS,  // OpenTag3D data whose material, brand or colour disagrees
+  // The data agrees, but a rewrite would improve the tag (this reader only):
+  NEEDS_REWRITE,  // written with a CC copy in the data area (Bambuddy before
+                  // maziggy/bambuddy#3500): other readers see it as empty
+  OLDER_FORMAT,   // OpenTag3D v1 on an NTAG215/216, and Bambuddy sends v2
+};
+
+// A spool looked up by ID for the spool-ID keypad (lookup_spool()).
+struct SpoolLookup {
+  enum State : uint8_t { IDLE, LOADING, FOUND, NOT_FOUND, FAILED };
+  int spool_id{0};      // the ID asked for (0 = none)
+  State state{IDLE};    // NOT_FOUND: Bambuddy has no such spool; FAILED: no answer
+  std::string material;
+  std::string subtype;
+  std::string brand;
+  std::string color_name;
+  std::string color_hex;  // RRGGBB
+};
+
 /** Display state shared between the component and LVGL callbacks */
 struct DisplayState {
   BackendState backend_state = BackendState::DISCONNECTED;
@@ -444,10 +501,24 @@ struct DisplayState {
   // also triggering that generation's tab-switch/panel side effects.
   uint32_t scan_chime_generation{0};
 
-  // Set after linking a writable (non-Bambu) tag to a spool — prompts the UI
-  // to offer writing spool data back to the physical tag.
-  bool propose_nfc_write{false};
   bool propose_archive{false};  // set when Quick Weight confirms 0g remaining
+  // The tag chip: what the tag holds compared with the spool shown, and
+  // whether the tag menu can write it (an NTAG linked to the spool, on this
+  // console's reader or the scale's, not an AMS tray; it need not be on the
+  // reader: the write waits for it). Derived: snapshot() recomputes both.
+  TagState tag_state{TagState::NONE};
+  bool tag_writable{false};
+
+  // Tag write shown in the write-status modal.
+  TagWriteStage tag_write_stage{TagWriteStage::NONE};
+  int tag_write_spool_id{0};
+  bool tag_write_on_scale{false};      // waiting on the scale's reader
+  uint32_t tag_write_deadline_ms{0};   // WAITING: millis() when the write gives up
+  std::string tag_write_message;       // FAILED: the reason
+  bool tag_write_erase{false};         // the modal shows Unlink + Erase, not a write
+
+  // The spool matching the ID typed on the spool-ID keypad.
+  SpoolLookup spool_lookup;
 
   // AMS removal toast — shown on the AMS tab for 5 s after a spool is ejected
   uint32_t ams_removed_toast_expiry_ms{0};
@@ -595,6 +666,15 @@ class BambuddyAPIComponent : public Component {
 
   // NFC picker — fetch up to 9 most-recently-created spools for the picker UI.
   void request_recent_spools();
+  // Spool-ID keypad: look up spool_id in Bambuddy, for the line naming the
+  // spool under the typed number. 0 clears the lookup.
+  void lookup_spool(int spool_id);
+  SpoolLookup get_spool_lookup() {
+    lock_state();
+    SpoolLookup l = display_state_.spool_lookup;
+    unlock_state();
+    return l;
+  }
 
   // ---- Storage locations ----
   // Fetch the full list of storage locations for the Settings screen and for
@@ -637,7 +717,32 @@ class BambuddyAPIComponent : public Component {
 
   // Remove the tag link from the current spool (sends PATCH with tag_uid="").
   // On success sets spool_selected = false so the unlinked panel re-appears.
-  void unlink_current_tag();
+  // erase_uid (Unlink + Erase): erase this tag once the unlink has succeeded.
+  void unlink_current_tag(const std::string &erase_uid = "");
+  // Whether the tag on this console's reader is an NTAG holding data that
+  // "Unlink + Erase" could clear (not a tag forwarded from the scale).
+  bool current_tag_erasable() {
+    lock_state();
+    const auto &fi = display_state_.current_filament;
+    const bool r = nfc_ != nullptr && display_state_.nfc_state == NFCTagState::PRESENT &&
+                   last_tag_source_ == TagSource::LOCAL && fi.tag_type == "ntag" &&
+                   (fi.tag_format == "open_tag_3d" || fi.tag_format == "ndef");
+    unlock_state();
+    return r;
+  }
+  // "Unlink + Erase" in the unlink confirm: unlink, and once Bambuddy has
+  // confirmed it, erase the tag (its NDEF message emptied).
+  void unlink_and_erase_current_tag();
+  // Show an erase in the write-status modal: WRITING while it runs, then
+  // DONE or FAILED (msg). It stays up until OK, on whatever tab is showing.
+  void set_tag_erase_stage(TagWriteStage stage, const std::string &msg = "") {
+    set_tag_write_stage(stage, 0, msg);
+    lock_state();
+    display_state_.tag_write_erase = true;
+    unlock_state();
+  }
+  // The reader's answer to NFCScanControl::request_erase().
+  void on_tag_erased(const std::string &uid, bool success, const std::string &msg);
 
   // Create a minimal PLA spool in inventory pre-linked to the current tag,
   // then fetch it and set spool_selected = true.
@@ -684,18 +789,53 @@ class BambuddyAPIComponent : public Component {
     unlock_state();
   }
 
-  // Dismiss the "write spool data to NFC tag?" proposal banner.
-  void dismiss_nfc_write_proposal() {
+  // ---- Tag writes started on the console ----
+  // "Write" in the tag menu: ask Bambuddy to queue a write of the spool shown on
+  // the NFC tab to this console. Bambuddy builds the bytes and sends write_tag
+  // back in the next heartbeat, which is sent at once.
+  void request_tag_write();
+  // The modal's Cancel, while the write waits for a tag: ends it as failed
+  // ("Cancelled on the console"), which is how Bambuddy learns of it.
+  void cancel_tag_write();
+  // The modal's OK on a finished write.
+  void dismiss_tag_write() { set_tag_write_stage(TagWriteStage::NONE); }
+  // For a UI without the write popup (the Lite): true while a tag write is
+  // under way. Once one has ended, puts its result in the status line and
+  // clears it, as the popup's OK does, and returns false. Checked and cleared
+  // under one lock, so a write started meanwhile isn't dismissed.
+  bool tag_write_status_poll() {
     lock_state();
-    display_state_.propose_nfc_write = false;
+    auto &ds = display_state_;
+    const TagWriteStage st = ds.tag_write_stage;
+    std::string result;
+    if (st == TagWriteStage::DONE || st == TagWriteStage::FAILED) {
+      result = st == TagWriteStage::DONE ? (ds.tag_write_erase ? "Tag erased" : "Tag written")
+               : (ds.tag_write_erase ? "Tag not erased: " : "Tag write failed: ") + ds.tag_write_message;
+      ds.tag_write_stage = TagWriteStage::NONE;
+      ds.tag_write_spool_id = 0;
+      ds.tag_write_message.clear();
+      ds.tag_write_erase = false;
+    }
     unlock_state();
+    if (!result.empty()) set_status(result);
+    return st == TagWriteStage::REQUESTING || st == TagWriteStage::WAITING ||
+           st == TagWriteStage::WRITING;
   }
 
-  // Called by the NFC component after reading NDEF pages to refine the format
-  // detected from SAK alone.  Runs on the NFC poll task, so it must be brief.
-  void set_tag_format(const std::string &fmt) {
+  // Show a tag write in the write-status modal.
+  void set_tag_write_stage(TagWriteStage stage, int spool_id = 0, const std::string &msg = "",
+                           bool on_scale = false) {
     lock_state();
-    display_state_.current_filament.tag_format = fmt;
+    auto &ds = display_state_;
+    ds.tag_write_stage = stage;
+    ds.tag_write_spool_id = stage == TagWriteStage::NONE ? 0 : spool_id;
+    ds.tag_write_message = msg;
+    ds.tag_write_erase = false;
+    if (stage == TagWriteStage::WAITING) {
+      ds.tag_write_on_scale = on_scale;
+      ds.tag_write_deadline_ms = millis() + WRITE_ARM_TTL_MS;
+    }
+    if (stage == TagWriteStage::REQUESTING) tag_write_requested_ms_ = millis();
     unlock_state();
   }
 
@@ -720,7 +860,6 @@ class BambuddyAPIComponent : public Component {
     display_state_.spool_assign_expiry_ms = 0;
     display_state_.assign_success = false;
     display_state_.assign_slot_desc.clear();
-    display_state_.propose_nfc_write = false;
     display_state_.propose_archive = false;
     display_state_.unlinked_tag_expiry_ms = 0;
     pending_assign_spool_id_ = 0;
@@ -734,9 +873,13 @@ class BambuddyAPIComponent : public Component {
   // or nullptr when the tag carries none / the decode failed.  Passing it in (rather than
   // a separate setter afterwards) keeps the scale push race-free: the value is
   // snapshotted into the queued job while the caller still owns it.
+  // ndef_format: what the NFC component's NDEF read found on an NTAG
+  // ("open_tag_3d", "ndef", or "" for blank/unread), passed in with the scan
+  // so a scale can forward it in the same push.
   void on_tag_scanned(const std::string &uid, const std::string &tray_uuid,
                       int sak, const std::string &tag_type,
-                      const TagFilamentInfo *filament = nullptr);
+                      const TagFilamentInfo *filament = nullptr,
+                      const std::string &ndef_format = "");
   void on_tag_removed(const std::string &uid);
 
 #ifdef USE_HOST
@@ -749,14 +892,19 @@ class BambuddyAPIComponent : public Component {
   void sim_scale_offline();   // stop scale pushes (scale_ok = false)
   void sim_plate_clear();     // printer waits for the build plate to be cleared
   void sim_ams_remove();      // take the first assigned spool out of the AMS
+  void sim_tag_write_result(bool success);  // finish the write shown in the modal
 #endif
 
-  // ---- Pending NTAG write (set by write_tag command) ----
-  bool has_pending_write() const { return pending_write_active_; }
-  const std::vector<uint8_t> &pending_write_data() const { return pending_write_ndef_; }
-  int pending_write_spool_id() const { return pending_write_spool_id_; }
+  // ---- Pending NTAG write (see TagWriteCoordinator, tag_write.h) ----
+  // True while a write waits for a tag.
+  bool has_pending_write() { return tag_write_.armed(); }
+  // Take the armed write so this caller alone reports its outcome; copies the
+  // NDEF bytes (from page 4 on) and the spool id. False if nothing is armed.
+  bool claim_pending_write(std::vector<uint8_t> *ndef, std::vector<uint8_t> *ndef_v2,
+                           int *spool_id);
+  // Ends the armed or running write and reports it: to Bambuddy in console
+  // mode, to the console on a scale. Ignored when no write is active.
   void on_write_tag_result(const std::string &uid, bool success, const std::string &msg);
-  void clear_pending_write() { pending_write_active_ = false; }
 
   // ---- Satellite status (console_url set) ----
   // Number of consoles a push from this device succeeded to within timeout_ms,
@@ -962,6 +1110,8 @@ class BambuddyAPIComponent : public Component {
       ARCHIVE_SPOOL,           // POST /inventory/spools/{id}/archive; spoolman: POST /spoolman/inventory/spools/{id}/archive
       CLEAR_PLATE,             // POST /api/v1/printers/{id}/clear-plate
       FETCH_LOCATIONS,         // GET /inventory/locations → fill storage_locations
+      REQUEST_TAG_WRITE,       // POST /spoolbuddy/nfc/write-tag {device_id, spool_id}
+      LOOKUP_SPOOL,            // GET /inventory/spools/{id} → spool_lookup (spoolman: /spoolman/inventory/spools/{id})
       LINK_LOCATION_TAG,       // PATCH /inventory/locations/{id} {"identifier": uid}
       LINK_LOCATION_TAG_CHECKED, // GET spools/by-tag first; spoolman: scan GET /spoolman/inventory/spools; only links if no spool owns the uid
       UNLINK_LOCATION_TAG,     // PATCH /inventory/locations/{id} {"identifier": ""}
@@ -977,6 +1127,7 @@ class BambuddyAPIComponent : public Component {
       SCALE_PUSH_NFC_REMOVED,  // POST {console_url}/scale/nfc/tag-removed
     } kind;
     std::string s1, s2, s3;  // generic string params
+    std::string s4;          // LINK_TAG_TO_SPOOL unlink: the tag to erase once it succeeds
     int i1{0};
     int i2{0};  // second int param (e.g. tray_slot for CLEAR_ASSIGNMENT)
     int i3{0};  // third int param (e.g. spool_id for CLEAR_ASSIGNMENT in Spoolman mode)
@@ -988,6 +1139,8 @@ class BambuddyAPIComponent : public Component {
     // never reads a display_state_.tag_filament that a later scan has already
     // overwritten.
     TagFilamentInfo filament{};
+    // SCALE_PUSH_NFC_SCANNED: what the scale's NDEF read found (on_tag_scanned()'s ndef_format).
+    std::string tag_format;
   };
 
   static void http_task_trampoline(void *arg);
@@ -1034,11 +1187,13 @@ class BambuddyAPIComponent : public Component {
   // ------------------------------------------------------------------
   bool http_request(esp_http_client_method_t method, const std::string &url,
                     const std::string &json_body, std::string &response_body,
-                    int timeout_ms, bool with_api_key, bool quiet);
+                    int timeout_ms, bool with_api_key, bool quiet,
+                    int *status = nullptr);
   // Build <backend_url><prefix><path>, trimming a trailing '/' from backend_url.
   std::string backend_url_for(const char *prefix, const std::string &path) const;
+  // status, if given, receives the HTTP status, or 0 when nothing answered.
   bool http_post(const std::string &path, const std::string &json_body,
-                 std::string &response_body);
+                 std::string &response_body, int *status = nullptr);
   bool http_get_api(const std::string &path, std::string &response_body);
   bool http_post_api(const std::string &path, const std::string &json_body,
                      std::string &response_body);
@@ -1067,8 +1222,9 @@ class BambuddyAPIComponent : public Component {
   // pair (translated to the backend's known_weight / raw_adc / tare_raw_adc
   // form) so the backend computes and stores the corrected calibration_factor.
   bool api_report_calibration_point(float reference_weight_g, float measured_weight_g);
+  // status receives the HTTP status, or 0 when Bambuddy didn't answer.
   bool api_write_tag_result(int spool_id, const std::string &uid,
-                            bool success, const std::string &message);
+                            bool success, const std::string &message, int *status);
   bool api_diagnostic_result(const std::string &diagnostic, bool success,
                              const std::string &output, int exit_code);
   bool api_system_command_result(const std::string &command, bool success,
@@ -1080,6 +1236,15 @@ class BambuddyAPIComponent : public Component {
 
   // Tare/calibration persistence (scale: type: local only)
   void load_calibration_nvs();
+  // Whether Bambuddy sends OpenTag3D v2 with its writes (ndef_v2_hex, since
+  // maziggy/bambuddy#3500), learned from each write_tag and kept in NVS. Only
+  // then does a v1 tag's chip say it could take the newer format
+  // (update_tag_state_locked()).
+  void load_ot3d_v2_nvs();
+  void note_bambuddy_sends_v2(bool sends);
+  std::atomic<bool> bambuddy_sends_v2_{false};
+  std::atomic<bool> ot3d_v2_dirty_{false};  // set on the HTTP task, saved by loop()
+  void save_ot3d_v2_nvs();
   void save_calibration_nvs();
 
   // Console receive server (started on every console, port CONSOLE_PUSH_PORT)
@@ -1100,7 +1265,8 @@ class BambuddyAPIComponent : public Component {
   void api_scale_push_nfc_scanned(const std::string &uid,
                                    const std::string &tray_uuid,
                                    int sak, const std::string &tag_type,
-                                   const TagFilamentInfo &filament);
+                                   const TagFilamentInfo &filament,
+                                   const std::string &tag_format);
   void api_scale_push_nfc_removed(const std::string &uid);
   void api_scale_push_write_result(int spool_id, const std::string &uid,
                                     bool success, const std::string &msg);
@@ -1156,6 +1322,11 @@ class BambuddyAPIComponent : public Component {
   // Internal mode: GET /api/v1/inventory/spools/{id}.
   // Spoolman mode: GET /api/v1/spoolman/inventory/spools/{id}.
   void api_get_spool(int spool_id, bool check_empty = false);
+  void api_lookup_spool(int spool_id);
+  // GET one spool from the inventory Bambuddy uses (its own or Spoolman's).
+  // quiet: a failure is expected (a typed ID that may not exist), log at DEBUG.
+  bool api_fetch_spool(int spool_id, std::string &resp, int *status = nullptr,
+                       bool quiet = false);
 
   // Stream a spool-list response (a JSON array) one top-level object at a time,
   // so a large inventory is never buffered whole. Calls on_object for each
@@ -1178,7 +1349,8 @@ class BambuddyAPIComponent : public Component {
   // field requires length ≥ 8, so unlink instead goes through the general
   // PATCH /spoolman/inventory/spools/{id} with tag_uid:null).
   void api_link_tag(int spool_id, const std::string &uid,
-                    const std::string &tray_uuid, const std::string &tag_type);
+                    const std::string &tray_uuid, const std::string &tag_type,
+                    const std::string &erase_uid);
   void api_update_spool_weight(int spool_id, float remaining_g);
   void api_archive_spool(int spool_id);
   void api_fetch_label_png(int spool_id, const std::string &tmpl, const std::string &fields, int dpi);
@@ -1189,6 +1361,25 @@ class BambuddyAPIComponent : public Component {
   // POST /api/v1/printers/{id}/clear-plate — notifies the backend the build
   // plate has been physically cleared.
   void api_clear_plate(const std::string &printer_id);
+  // POST /spoolbuddy/nfc/write-tag for this device, then a heartbeat to fetch
+  // the write_tag it queues.
+  void api_request_tag_write(int spool_id);
+  // End a write sent to the scale as failed with msg: take back a write_tag
+  // not yet handed over and send the result (which also cancels the scale).
+  void end_scale_write(int spool_id, const char *msg);
+  // Sets display_state_.tag_state and tag_writable from the tag's data and
+  // the spool shown. snapshot() calls it, so they always fit the rest of the
+  // state. Call with state_mutex_ held. In tag_state.cpp, which the simulator
+  // also builds.
+  void update_tag_state_locked();
+  // The scan and spool whose tag this console wrote: the tag holds that spool
+  // now, though the data read at that scan is gone (state_mutex_).
+  uint32_t tag_written_scan_gen_{0};
+  int tag_written_spool_id_{0};
+  // A write ended (here, or relayed from the scale): show the result unless the
+  // user has closed the modal or moved on to another write.
+  void show_tag_write_result(int spool_id, const std::string &uid, bool success,
+                             const std::string &msg);
   // Create a spool from the scanned tag (decoded filament payload when available,
   // otherwise a generic PLA placeholder) and link the tag to it.
   // Internal: single POST /inventory/spools with tag_uid in the body.
@@ -1568,13 +1759,22 @@ class BambuddyAPIComponent : public Component {
   // away by a newer one before it's sent.
   std::atomic<bool> weight_push_dirty_{false};
 
-  // Pending write — written by HTTP task, read by NFC (main) task.
-  // atomic gate: the ndef vector is filled BEFORE the flag is set true, and
-  // the NFC reader only touches the vector while the flag reads true, so the
-  // release/acquire ordering of the atomic makes the hand-off race-free.
-  std::atomic<bool> pending_write_active_{false};
-  int pending_write_spool_id_{0};
-  std::vector<uint8_t> pending_write_ndef_;
+  // Tag writes requested by Bambuddy: the local write and, on a console, the
+  // request itself. Thread-safe on its own; the methods below do the I/O.
+  TagWriteCoordinator tag_write_;
+  // Console, HTTP task: one heartbeat's pending_command (and its payload in
+  // resp) as far as tag writes are concerned. Called for every heartbeat.
+  void on_bambuddy_write_command(const std::string &cmd, const std::string &resp);
+  // Console, HTTP task: send a write result if Bambuddy still waits for it.
+  void post_write_result(const HttpJob &job);
+  // Arm a write for spool_id (payload as Bambuddy sends it).
+  void arm_pending_write(int spool_id, std::vector<uint8_t> ndef,
+                         std::vector<uint8_t> ndef_v2 = {});
+  // Drop an armed (not yet started) write without reporting it.
+  void disarm_pending_write(const char *why);
+  // Called from loop(): fail a write armed for WRITE_ARM_TTL_MS.
+  void check_pending_write_timeout();
+  uint32_t tag_write_requested_ms_{0};  // millis() when the stage went to REQUESTING (under state_mutex_)
 
   // ------------------------------------------------------------------
   // Threading

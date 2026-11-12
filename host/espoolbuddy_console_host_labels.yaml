@@ -7,8 +7,8 @@
 #
 # There's no Bambuddy to draw labels, so every spool gets the PNG that
 # ESPOOLBUDDY_LABEL_PNG names: save one from Bambuddy's label dialog (PNG,
-# 203 dpi, black and white). Kept out of the plain simulator so the docs
-# screenshots don't show the Print Label button.
+# 203 dpi, black and white). The docs screenshots (docs_screenshots.yaml)
+# build on this, so they show Print Label.
 
 packages:
   console: !include espoolbuddy_console_host.yaml

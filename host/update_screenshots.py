@@ -50,7 +50,8 @@ SHARED = [
     "plate-clear", "calibrate",
 ]
 # Screens only one UI has.
-FULL_ONLY = ["ams", "ams-slot", "quick-settings", "nfc-picker",
+FULL_ONLY = ["ams", "ams-slot", "quick-settings", "nfc-picker", "spool-keypad",
+             "tag-menu", "tag-write-waiting", "tag-write-done", "tag-chip",
              "settings-features", "settings-storage"]
 LITE_ONLY = ["spool-actions", "unlinked-actions", "settings", "settings-more"]
 

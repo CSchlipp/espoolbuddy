@@ -9,8 +9,8 @@ tapping an AMS slot. Bambuddy draws the label, the same one its label dialog
 prints, with a QR code that opens the spool in Bambuddy. The console only
 turns it into the printer's dots and sends it.
 
-It's for the full console UI. The Lite console has no spool screen or slot
-card to put the button on.
+On the Lite console, **Print Label** is in the spool's action sheet (tap the
+spool view); the Lite has no AMS slot card.
 
 A console has one label printer: add one of the packages below, not both.
 
