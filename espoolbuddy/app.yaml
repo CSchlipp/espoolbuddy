@@ -114,6 +114,10 @@ globals:
     initial_value: '-1'
   - id: confirm_action       # pending action for confirm_modal: 0=none 1=unlink tag
     type: int                # 2=clear assignment 3=reboot 4=unlink storage location
+    restore_value: no        # 5=overwrite the tag's data with the spool
+    initial_value: '0'
+  - id: confirm_scan_gen     # nfc_scan_generation when confirm_action=5 was asked:
+    type: uint32_t           # the overwrite only goes ahead for that same scan
     restore_value: no
     initial_value: '0'
   - id: confirm_location_id  # storage location id targeted by confirm_action=4
@@ -1089,7 +1093,7 @@ script:
               id(nfc_weight_popup_open) = 0;
               lv_obj_add_flag(id(nfc_weight_popup), LV_OBJ_FLAG_HIDDEN);
             }
-            if (id(confirm_action) == 1) {
+            if (id(confirm_action) == 1 || id(confirm_action) == 5) {
               id(confirm_action) = 0;
               lv_obj_add_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
             }
@@ -1805,6 +1809,10 @@ script:
             lv_obj_add_flag(id(nfc_archive_proposal_popup),  LV_OBJ_FLAG_HIDDEN);
             id(close_picker).execute();
             id(tag_menu_close).execute();  // the spool it was opened for is gone
+            if (id(confirm_action) == 5) {  // so is the tag an overwrite was asked for
+              id(confirm_action) = 0;
+              lv_obj_add_flag(id(confirm_modal), LV_OBJ_FLAG_HIDDEN);
+            }
             lv_obj_clear_flag(id(nfc_waiting),      LV_OBJ_FLAG_HIDDEN);
             lv_label_set_text(id(nfc_waiting_text),
                 s.tag_resolving ? "Identifying tag..." : "Place spool tag on reader");

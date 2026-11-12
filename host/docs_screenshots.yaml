@@ -5,7 +5,9 @@
 # at both console resolutions, runs it and copies the results into
 # docs/images/ui/full/.
 #
-# Builds espoolbuddy_console_host.yaml unchanged and adds a boot sequence
+# Builds espoolbuddy_console_host_labels.yaml (the simulator with a label
+# printer, so Print Label shows as it does for users with one) unchanged and
+# adds a boot sequence
 # that walks the UI through each documented screen (simulated taps via
 # lv_obj_send_event, simulated scans / scale readings / AMS changes via the
 # mock), saves a snapshot of each to .esphome/snapshots/espoolbuddy-docs/
@@ -23,7 +25,7 @@
 ################################################################################
 
 packages:
-  host: !include espoolbuddy_console_host.yaml
+  host: !include espoolbuddy_console_host_labels.yaml
 
 esphome:
   # Separate build dir and snapshot folder from the interactive simulator.
@@ -76,7 +78,7 @@ esphome:
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: nfc-waiting}
 
-        - lambda: 'bambuddy->on_tag_scanned("04A1B2C3D4E5F6", "", 0x00, "ntag");'
+        - lambda: 'bambuddy->on_tag_scanned("04A1B2C3D4E5F6", "", 0x00, "ntag", nullptr, "ndef");'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: nfc-spool}
 
@@ -95,7 +97,7 @@ esphome:
         - lambda: 'bambuddy->sim_scale_reading(1023.4f, true);'
 
         # Storage-location tag while the spool is shown
-        - lambda: 'bambuddy->on_tag_scanned("04AABBCCDDEE01", "", 0x00, "ntag");'
+        - lambda: 'bambuddy->on_tag_scanned("04AABBCCDDEE01", "", 0x00, "ntag", nullptr, "ndef");'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: location}
 
@@ -136,7 +138,7 @@ esphome:
         - snapshot.take: {id: main_display, filename: timeout}
 
         # ==== Unlinked tags ====
-        - lambda: 'bambuddy->on_tag_scanned("04DEADBEEF0001", "", 0x00, "ntag");'
+        - lambda: 'bambuddy->on_tag_scanned("04DEADBEEF0001", "", 0x00, "ntag", nullptr, "ndef");'
         - delay: 1200ms
         - snapshot.take: {id: main_display, filename: nfc-unlinked}
 
@@ -169,8 +171,7 @@ esphome:
         # A blank NTAG linked to a spool -> tag chip -> tag menu -> Write ->
         # waiting for the tag -> written -> the chip says it matches.
         - lambda: |-
-            bambuddy->on_tag_scanned("04C0FFEE000001", "", 0x00, "ntag");
-            bambuddy->set_tag_format("");  // blank: no NDEF on it, as the reader reports
+            bambuddy->on_tag_scanned("04C0FFEE000001", "", 0x00, "ntag");  // blank: no NDEF on it
         - delay: 1200ms
         - lambda: 'bambuddy->link_tag_to_spool(36);'
         - delay: 1200ms

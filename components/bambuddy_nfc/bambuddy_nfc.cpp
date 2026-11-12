@@ -1504,14 +1504,10 @@ void BambuddyNFCComponent::poll_once() {
         // afterwards: on a scale device on_tag_scanned() queues the push to the
         // console straight away, so anything set after the call would arrive
         // too late to be forwarded.
+        // So does the NDEF read's format, for the same reason.
+        if (!ndef_fmt.empty()) ESP_LOGD(NFC_TAG, "NDEF format detected: %s", ndef_fmt.c_str());
         api_->on_tag_scanned(uid_str, tray_uuid, (int)sak, tag_type,
-                             tag_info.valid ? &tag_info : nullptr);
-      }
-
-      // Refine the SAK-based format with what the NDEF read found.
-      if (!ndef_fmt.empty() && api_) {
-        ESP_LOGD(NFC_TAG, "NDEF format detected: %s", ndef_fmt.c_str());
-        api_->set_tag_format(ndef_fmt);
+                             tag_info.valid ? &tag_info : nullptr, ndef_fmt);
       }
 
       // A write command may already be queued (e.g. tag re-placed); try it.

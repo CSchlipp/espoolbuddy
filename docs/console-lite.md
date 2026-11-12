@@ -158,7 +158,7 @@ shows as buttons below it.
 
 | | |
 |---|---|
-| <img src="images/ui/lite/spool-actions.png" alt="Unlink Tag, Discard and Cancel" width="172"> | **Unlink Tag** removes the tag from the spool. **Discard** clears the spool from the screen. |
+| <img src="images/ui/lite/spool-actions.png" alt="Overwrite Tag, Print Label, Unlink Tag, Discard and Cancel" width="172"> | **Write Tag** writes the spool to an NTAG as an OpenTag3D record, as on the full console; it reads *Overwrite Tag* for a tag holding other NDEF data and asks first, *Rewrite Tag* or *Update Tag* when the tag's data differs or is older, and *Write Tag Again* when it matches. The header shows *Writing tag...* until the write is done, then the result. **Print Label** shows with a [label printer](label-printer.md). **Unlink Tag** removes the tag from the spool. **Discard** clears the spool from the screen. |
 | <img src="images/ui/lite/unlink-confirm.png" alt="'Are you sure? Unlink this tag from its spool?' with Cancel and Unlink" width="172"> | **Unlink confirm.** Afterwards the screen shows *Place spool tag on reader* with *Tag unlinked*. Scan the tag again and it shows as unlinked, ready for **Add to Inventory**. |
 | <img src="images/ui/lite/unlinked-actions.png" alt="Discard and Cancel over an unlinked tag" width="172"> | **Unlinked tag actions.** **Discard** hides the tag until it is scanned again. |
 

@@ -506,8 +506,10 @@ void BambuddyAPIComponent::toggle_power_plug() { toggle_plug(display_state_.powe
 
 // ---- NFC (driven by the host YAML's "Simulate tag" buttons, or bambuddy_nfc) ----
 void BambuddyAPIComponent::on_tag_scanned(const std::string &uid, const std::string &tray_uuid, int sak,
-                                           const std::string &tag_type, const TagFilamentInfo *filament) {
-  ESP_LOGI(TAG, "Mock: tag scanned uid=%s type=%s", uid.c_str(), tag_type.c_str());
+                                           const std::string &tag_type, const TagFilamentInfo *filament,
+                                           const std::string &ndef_format) {
+  ESP_LOGI(TAG, "Mock: tag scanned uid=%s type=%s format=%s", uid.c_str(), tag_type.c_str(),
+           ndef_format.c_str());
   auto &ds = display_state_;
   ds.scan_chime_generation++;
 
@@ -546,6 +548,11 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid, const std::str
   ds.unlinked_tag_expiry_ms = 0;
   unlinked_tag_expiry_ms_ = 0;
   ds.tag_filament = filament != nullptr ? *filament : TagFilamentInfo{};
+  // The format, as the real on_tag_scanned() seeds it: the NDEF read's, then
+  // "bambu_lab" for MIFARE Classic, then a decoded payload's own.
+  std::string format = ndef_format;
+  if (tag_type == "mifare_classic") format = "bambu_lab";
+  if (filament != nullptr && filament->valid && !filament->format.empty()) format = filament->format;
 
   auto it = tag_links().find(uid);
   const DemoSpool *s = it != tag_links().end() ? find_demo_spool(it->second) : nullptr;
@@ -554,9 +561,7 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid, const std::str
     fi.tray_uuid = tray_uuid;
     fi.sak = sak;
     fi.tag_type = tag_type;
-    fi.tag_format = (filament != nullptr && filament->valid && !filament->format.empty())
-                        ? filament->format
-                        : tag_type == "mifare_classic" ? "bambu_lab" : "ndef";
+    fi.tag_format = format;
     ds.current_filament = fi;
     ds.spool_selected = false;
     return;
@@ -565,7 +570,7 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid, const std::str
   fi.tray_uuid = tray_uuid;
   fi.sak = sak;
   fi.tag_type = tag_type;
-  fi.tag_format = tag_type == "mifare_classic" ? "bambu_lab" : "ndef";
+  fi.tag_format = format;
   ds.current_filament = fi;
   ds.spool_selected = true;
   ds.propose_archive = false;

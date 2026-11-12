@@ -422,7 +422,8 @@ void BambuddyAPIComponent::http_task_loop() {
       if (dequeue_job(job)) {
         switch (job.kind) {
           case HttpJob::SCALE_PUSH_NFC_SCANNED:
-            api_scale_push_nfc_scanned(job.s1, job.s2, job.i1, job.s3, job.filament);
+            api_scale_push_nfc_scanned(job.s1, job.s2, job.i1, job.s3, job.filament,
+                                       job.tag_format);
             break;
           case HttpJob::SCALE_PUSH_NFC_REMOVED:
             api_scale_push_nfc_removed(job.s1);
@@ -851,7 +852,8 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
                                            const std::string &tray_uuid,
                                            int sak,
                                            const std::string &tag_type,
-                                           const TagFilamentInfo *filament) {
+                                           const TagFilamentInfo *filament,
+                                           const std::string &ndef_format) {
   ESP_LOGI(TAG, "Tag scanned: uid=%s tray_uuid=%s sak=0x%02X type=%s",
            uid.c_str(), tray_uuid.c_str(), sak, tag_type.c_str());
 
@@ -934,14 +936,13 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
   }
 
   // Immediate (non-blocking) UI feedback under the state lock.
-  // tag_format is seeded here for BambuLab (Mifare Classic) where SAK is
-  // sufficient; for NTAG the NFC component updates it via set_tag_format()
-  // after reading NDEF pages (a few ms later, still before the HTTP response).
-  std::string initial_format;
+  // tag_format: what the NDEF read found on an NTAG (passed in with the scan,
+  // by the local NFC component or in a scale's push), "bambu_lab" for MIFARE
+  // Classic, where SAK is enough.
+  std::string initial_format = ndef_format;
   if (tag_type == "mifare_classic") initial_format = "bambu_lab";
-  // A decoded payload knows its own format.  This is what carries
-  // "open_tag_3d" across a scale -> console push, where no NDEF read
-  // follows on the console to refine it via set_tag_format().
+  // A decoded payload knows its own format.  This also carries "open_tag_3d"
+  // across a push from scale firmware that doesn't send tag_format.
   if (filament != nullptr && filament->valid && !filament->format.empty())
     initial_format = filament->format;
   lock_state();
@@ -1010,6 +1011,7 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
     job.s3 = tag_type;
     job.i1 = sak;
     if (filament != nullptr) job.filament = *filament;
+    job.tag_format = ndef_format;
     enqueue_job(job);
   }
 }
@@ -1219,12 +1221,20 @@ void BambuddyAPIComponent::check_pending_write_timeout() {
   const bool scale_silent =
       ds.tag_write_stage == TagWriteStage::WAITING && ds.tag_write_on_scale &&
       (int32_t) (millis() - ds.tag_write_deadline_ms) > (int32_t) SCALE_WRITE_REPORT_GRACE_MS;
-  const int scale_spool = ds.tag_write_spool_id;
+  const int write_spool = ds.tag_write_spool_id;
+  // A request that never became a write (Bambuddy's heartbeat didn't bring
+  // the write back in a form this console could arm) would otherwise stay on
+  // "Asking Bambuddy", with no Cancel, for good.
+  const bool request_stuck =
+      ds.tag_write_stage == TagWriteStage::REQUESTING &&
+      (int32_t) (millis() - tag_write_requested_ms_) > (int32_t) TAG_WRITE_REQUEST_TIMEOUT_MS;
   unlock_state();
   if (scale_silent) {
-    end_scale_write(scale_spool, "The scale did not report back");
-    show_tag_write_result(scale_spool, "", false, "The scale did not report back");
+    end_scale_write(write_spool, "The scale did not report back");
+    show_tag_write_result(write_spool, "", false, "The scale did not report back");
   }
+  if (request_stuck)
+    show_tag_write_result(write_spool, "", false, "Bambuddy did not send the write - try again");
 
   // Claimed like the NFC task does, so the two can't both end the write.
   if (!tag_write_.claim_expired(millis())) return;
@@ -1905,10 +1915,9 @@ bool BambuddyAPIComponent::api_tag_scanned(const std::string &uid,
     // A tag "belongs to a spool" when the backend resolves material or a
     // spool_id.  Such spools become the sticky selection shown on the NFC page.
     bool is_spool = !fi.material_type.empty() || fi.spool_id > 0;
-    // Preserve tag_format: set by on_tag_scanned() and refined by the NFC
-    // component's NDEF read (set_tag_format()), both of which happen before or
-    // concurrently with this HTTP response.  Reading it here under the lock
-    // gives us the most up-to-date value.
+    // Preserve tag_format: set by on_tag_scanned() from the NDEF read, or by a
+    // write that finished since.  Reading it here under the lock gives us the
+    // most up-to-date value.
     lock_state();
     fi.tag_format = display_state_.current_filament.tag_format;
     std::string scan_uid = display_state_.last_tag_uid;  // set by on_tag_scanned()
@@ -3681,7 +3690,8 @@ void BambuddyAPIComponent::api_scale_push_nfc_scanned(const std::string &uid,
                                                         const std::string &tray_uuid,
                                                         int sak,
                                                         const std::string &tag_type,
-                                                        const TagFilamentInfo &filament) {
+                                                        const TagFilamentInfo &filament,
+                                                        const std::string &tag_format) {
   if (console_urls_.empty()) return;
 
   // Built as a std::string rather than a fixed char[]: the decoded filament
@@ -3694,6 +3704,9 @@ void BambuddyAPIComponent::api_scale_push_nfc_scanned(const std::string &uid,
   body += "\"tray_uuid\":" + json_string(tray_uuid) + ",";
   body += "\"sak\":" + std::to_string(sak) + ",";
   body += "\"tag_type\":" + json_string(tag_type);
+  // What the NDEF read found, so the console can tell a blank NTAG from one
+  // holding data (Write vs Overwrite). Left out for a blank tag.
+  if (!tag_format.empty()) body += ",\"tag_format\":" + json_string(tag_format);
   std::string filament_fields = tag_filament_json_fields(filament);
   if (!filament_fields.empty()) body += "," + filament_fields;
   body += "}";
@@ -3976,6 +3989,11 @@ esp_err_t BambuddyAPIComponent::console_http_scale_nfc_scanned(httpd_req_t *req)
   // send it — parse_tag_filament_json() then returns an invalid struct and the
   // console falls back to the generic placeholder exactly as before.
   TagFilamentInfo filament = parse_tag_filament_json(json);
+  // Optional: what the scale's NDEF read found.  Older scale firmware leaves it
+  // out, and the console then treats the tag as blank, as before.  Only the
+  // NTAG formats on_tag_scanned() expects are taken.
+  std::string tag_format = parse_json_string(json, "tag_format");
+  if (tag_format != "ndef" && tag_format != "open_tag_3d") tag_format.clear();
 
   if (uid.empty()) {
     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "uid required");
@@ -3991,7 +4009,7 @@ esp_err_t BambuddyAPIComponent::console_http_scale_nfc_scanned(httpd_req_t *req)
 
   // Route through the unified NFC path — identical to a locally-scanned tag.
   self->on_tag_scanned(uid, tray_uuid, sak, tag_type.empty() ? "unknown" : tag_type,
-                       filament.valid ? &filament : nullptr);
+                       filament.valid ? &filament : nullptr, tag_format);
   // Override source AFTER on_tag_scanned() so write_tag commands are routed back
   // to the scale's PN532 rather than waiting on the console's reader.
   self->lock_state();
