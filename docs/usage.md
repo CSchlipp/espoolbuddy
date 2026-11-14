@@ -140,8 +140,9 @@ through every screen.
 
   <img src="images/ui/full/unlink-confirm.png" alt="Are you sure? Unlink this tag from its spool? with Cancel and Unlink" width="360">
 
-- **Write a tag**: trigger `write_tag` from the Bambuddy dashboard, then
-  present a blank/writable NTAG to the console or scale within the timeout.
+- **Write a tag**: pick the spool on Bambuddy's SpoolBuddy **Write** page
+  (`/spoolbuddy/write-tag`), then present an NTAG213, NTAG215 or NTAG216 to
+  the console or scale within 60 s. Whatever is on the tag is overwritten.
 - **AMS / printer status**: the console's AMS tab shows live slot/filament
   state polled from Bambuddy, along with each AMS unit's temperature,
   humidity, and its custom name if one was set in Bambuddy (falls back to a
