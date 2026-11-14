@@ -230,10 +230,6 @@ display:
       width: 172
       height: 320
       offset_width: 34
-    transform:
-      swap_xy: false
-      mirror_x: true
-      mirror_y: false
     init_sequence:
       # The demo only starts this after the ST7789 init has woken the panel,
       # so wait out the reset, soft-reset and leave sleep first.
@@ -271,6 +267,12 @@ display:
       - [0xDE, 0x02]                # page 2 (the demo repeats this)
       - [0xE5, 0x00, 0x02, 0x00]
       - [0xDE, 0x00]                # back to page 0
+      # The JD9853 only takes the column direction from MADCTL when the
+      # value changes; writing the same value it already holds leaves the
+      # image mirrored (cold boots and warm reboots alike). Write a
+      # different value here so mipi_spi's own MADCTL 0x00 after DISPON
+      # is always a change.
+      - [0x36, 0x40]
 
 # ============================================================================
 # Touch — AXS5106L (portrait, matches the display transform)
