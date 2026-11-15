@@ -283,17 +283,12 @@ bool BambuddyNFCComponent::pn532_init() {
   transport_wakeup();
   delay(100);  // allow PN532 oscillator startup and internal reset to complete
 
-  // After an ESP32 reset mid-transaction the PN532 may still assert "ready".
-  // Flush any such stale state so it is not mistaken for a command ACK.
-  {
-    uint8_t status = 0;
-    transport_read_status(status);
-    if (status == PN532_READY) {
-      ESP_LOGD(NFC_TAG, "PN532 had stale ready flag at init — flushing");
-      uint8_t flush[32];
-      transport_read_raw(flush, sizeof(flush));
-    }
-  }
+  // An ESP32-only reset (OTA, crash, restart) leaves the PN532 as it was: a
+  // response may be waiting, or a command (typically the idle tag search,
+  // which never ends on its own) still running. Discard the one and abort the
+  // other, or the next command arrives while it's busy. Without a working
+  // reset line nothing else clears this.
+  pn532_flush();
 
   // SAMConfiguration: Normal mode, 500 ms RF timeout, IRQ enabled if wired.
   // Byte 4 (UseIRQ): 0x01 = PN532 asserts IRQ LOW when data ready,

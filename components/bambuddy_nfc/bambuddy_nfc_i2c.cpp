@@ -32,6 +32,9 @@ bool BambuddyNFCI2CComponent::transport_read_status(uint8_t &status) {
   return true;
 }
 
+// A frame is always read together with its leading status byte, in one I2C
+// read (here and in transport_read_response). Splitting it into a status read
+// and a frame read makes the PN532 hang the bus every minute or so.
 bool BambuddyNFCI2CComponent::transport_read_raw(uint8_t *data, size_t len) {
   std::vector<uint8_t> buf(len + 1);  // +1: leading status byte
   if (this->read(buf.data(), buf.size()) != i2c::ERROR_OK) return false;
