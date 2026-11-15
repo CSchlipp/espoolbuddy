@@ -8,7 +8,9 @@
   (on means a problem). The scale has **Console connection** (connected only
   while every `console_url` answers), **NFC reader status** and **Load cell
   status**. Problem sensors stay unknown for the first 30 s after boot, and
-  don't appear on a device with no reader or no scale configured.
+  connection sensors stay unknown until connected or 30 s have passed, so a
+  restart doesn't trip an alert. Sensors for a reader or scale the device
+  doesn't have don't appear.
 - **Scale never turns green (a console unreachable)**: confirm `console_url`
   in `espoolbuddy_scale.yaml` matches the console's `esphome.name`, and that
   your router/network allows mDNS (`.local`) resolution between the two

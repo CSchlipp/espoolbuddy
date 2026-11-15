@@ -41,14 +41,19 @@ interval:
   - interval: 2s
     then:
       - lambda: |-
+          // The consoles, the PN532 and the load cell take a few seconds after
+          // boot. Until then don't let Console connection start out as off,
+          // so a restart doesn't flap it: before the first push is answered,
+          // it would read off for a moment. Once it has a state it always
+          // updates.
+          const bool settled = millis() >= 30000;
           // Same 5 s window as the status LED. On only when every console
           // answers, so with several consoles one dropping out shows up.
           size_t total = bambuddy->console_count();
-          id(health_console).publish_state(
-              total > 0 && bambuddy->consoles_connected(5000) == total);
-          // The PN532 and the load cell take a few seconds after boot. Hold
-          // off on "problem" until then so a restart doesn't flap them.
-          if (millis() < 30000) return;
+          const bool consoles_ok = total > 0 && bambuddy->consoles_connected(5000) == total;
+          if (consoles_ok || settled || id(health_console).has_state())
+            id(health_console).publish_state(consoles_ok);
+          if (!settled) return;
           bool backend_ok, printer_ok, nfc_ok, scale_ok;
           bambuddy->get_health(backend_ok, printer_ok, nfc_ok, scale_ok);
           if (bambuddy->has_nfc()) id(health_nfc).publish_state(!nfc_ok);
