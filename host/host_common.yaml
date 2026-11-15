@@ -117,12 +117,20 @@ button:
   - platform: template
     name: "Simulate Linked Tag"
     on_press:
-      - lambda: bambuddy->on_tag_scanned("04A1B2C3D4E5F6", "", 0x00, "ntag");
+      - lambda: bambuddy->on_tag_scanned("04A1B2C3D4E5F6", "", 0x00, "ntag", nullptr, "ndef");
 
   - platform: template
     name: "Simulate Unlinked Tag"
     on_press:
-      - lambda: bambuddy->on_tag_scanned("04DEADBEEF0001", "", 0x00, "ntag");
+      - lambda: bambuddy->on_tag_scanned("04DEADBEEF0001", "", 0x00, "ntag", nullptr, "ndef");
+
+  # A blank NTAG (NDEF-formatted but empty, as new stickers ship): Write
+  # without the overwrite confirmation, where the tags above (other NDEF data)
+  # ask first.
+  - platform: template
+    name: "Simulate Blank Tag"
+    on_press:
+      - lambda: bambuddy->on_tag_scanned("04B1A4C00000FF", "", 0x00, "ntag");
 
   # Unknown tags that carry spool data (same payloads as the docs screenshots).
   - platform: template
@@ -191,7 +199,7 @@ button:
   - platform: template
     name: "Simulate Location Tag"
     on_press:
-      - lambda: bambuddy->on_tag_scanned("04AABBCCDDEE01", "", 0x00, "ntag");
+      - lambda: bambuddy->on_tag_scanned("04AABBCCDDEE01", "", 0x00, "ntag", nullptr, "ndef");
 
   # Printer finished and waits for the build plate to be cleared.
   - platform: template

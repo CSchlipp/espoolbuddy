@@ -1031,8 +1031,9 @@ lvgl:
 
               # ================================================================
               # Spool action sheet. The full UI shows these as an action row
-              # (Unlink Tag | Quick Weight | Discard); three buttons do not fit
-              # 172 px, so here a tap on the spool view opens them.
+              # and its tag menu (Write, Print Label, Unlink, Discard); they do
+              # not fit 172 px, so here a tap on the spool view opens them.
+              # Write and Print Label are shown by lite_update_actions.
               # ================================================================
               - obj:
                   id: lite_actions
@@ -1062,6 +1063,42 @@ lvgl:
                           flex_flow: column
                           pad_row: 6
                         widgets:
+                          - button:
+                              id: lite_act_write
+                              width: 100%
+                              height: 44
+                              bg_color: 0x0D2B14
+                              border_color: 0x4CAF50
+                              border_width: 2
+                              radius: 6
+                              shadow_width: 0
+                              hidden: true
+                              on_click:
+                                then:
+                                  - script.execute: lite_ask_write
+                              widgets:
+                                - label: {id: lite_act_write_lbl, align: CENTER, text: "Write Tag", text_font: lite_16, text_color: 0x4CAF50}
+                          # Print Label: only with a label printer package
+                          - button:
+                              id: lite_act_print
+                              width: 100%
+                              height: 44
+                              bg_color: 0x1A1A2E
+                              border_color: 0x4A4A8A
+                              border_width: 1
+                              radius: 6
+                              shadow_width: 0
+                              hidden: true
+                              on_click:
+                                then:
+                                  - lambda: |-
+                                      #ifdef USE_LABEL_PRINTER
+                                      auto s = bambuddy->snapshot();
+                                      if (label_printer::global_label_printer != nullptr)
+                                        label_printer::global_label_printer->print_spool(s.current_filament.spool_id);
+                                      #endif
+                              widgets:
+                                - label: {id: lite_act_print_lbl, align: CENTER, text: "Print Label", text_font: lite_16, text_color: 0xA5A5FF}
                           - button:
                               id: lite_act_unlink
                               width: 100%
@@ -1348,7 +1385,7 @@ lvgl:
                                       - label: {id: lite_confirm_ok_lbl, align: CENTER, text: "Confirm", text_font: lite_16, text_color: 0xFF8888}
 
               # ================================================================
-              # Calibration (full UI: cal_modal). The step buttons are 3 rows of
+              # Calibration (full UI: the number keypad). The step buttons are 3 rows of
               # 2 instead of one row of 6 so they stay big enough to hit.
               # ================================================================
               - obj:

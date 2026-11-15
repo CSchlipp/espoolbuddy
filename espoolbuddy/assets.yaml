@@ -184,6 +184,7 @@ font:
       - "\U000F0472"   # scale (scale device icon in Settings picker)
       - "\U000F042B"   # printer-3d (printer status icon)
       - "\U000F0143"   # chevron-up (quick-settings grab handle)
+      - "\U000F006E"   # backspace (spool-ID keypad)
   - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
     id: mdi_30
     size: 30

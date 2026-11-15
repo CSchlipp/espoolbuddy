@@ -23,7 +23,7 @@ files: [version.yaml], is accepted as well. CI proves the legacy console
 layout still builds with .github/legacy/espoolbuddy_console.yaml.
 
 With --label-printer=<printer> it also adds an optional label printer
-package to each full-UI console config and points that package's components
+package to each console config (full UI or Lite) and points that package's components
 at the local checkout, so CI builds the label printer on top of an existing
 config instead of a separate one. <printer> is one of LABEL_PRINTERS below
 (m220 or brother_ql); a package that needs a setting with no default (the
@@ -215,13 +215,6 @@ def rewrite(path: pathlib.Path, label_printer: str | None = None) -> None:
     if is_console:
         git, local = console
         if label_printer:
-            # Only the full UI (the bundle or the legacy file list) has a
-            # Print Label button to wire up; the Lite UI has none.
-            if local == PACKAGES_LOCAL_LITE:
-                sys.exit(
-                    f"::error file={path}::--label-printer needs a full-UI "
-                    f"console config; the Lite UI has no Print Label button."
-                )
             local += label_printer_include(label_printer)
             text = add_label_printer_substitutions(text, label_printer, path)
         text = text.replace(git, local)
