@@ -28,6 +28,10 @@ Set the PN532's mode DIP switches to I²C: **switch 1 ON, switch 2 OFF**.
 After flashing, tare with the pad empty, then calibrate with a known weight. The
 values are stored on the device and in Bambuddy.
 
+If the NAU7802 loses power, or isn't connected at boot, the console shows **No
+scale connected** and sets it up again once it answers, keeping your tare and
+calibration.
+
 Tested with a 2 kg load cell. Recovery from a hung I²C bus using the reset wire
 has not been tested. The reading can drift by a fraction of a gram per hour, and
 the zero can shift across a restart, so tare again if an empty pad doesn't read

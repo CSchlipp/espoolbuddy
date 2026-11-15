@@ -53,33 +53,81 @@ esphome:
     - priority: 600
       then:
         - logger.log: "SpoolBuddy booting..."
-    # ESPHome's nau7802 driver doesn't run the chip's internal offset
-    # calibration itself. Wait out its 600 ms power-up in setup() first. The
-    # sensor below publishes nothing until this has succeeded, so nothing acts
-    # on a reading from before the baseline moved. If it fails, the scale stays
-    # out of service until a reboot rather than showing a wrong weight.
     - priority: -100
       then:
-        - delay: 2s
-        - nau7802.calibrate_internal_offset: spool_weight
-        # CTRL2 register: CALS (0x04) is set while calibrating, CAL_ERR (0x08) on failure.
-        - wait_until:
-            condition:
-              lambda: 'return !(id(spool_weight).reg(0x02).get() & 0x04);'
-            timeout: 5s
-        # Let a conversion from after the calibration reach the data registers.
-        - delay: 300ms
-        - lambda: |-
-            if (id(spool_weight).reg(0x02).get() & 0x0C) {
-              ESP_LOGE("scale", "NAU7802 offset calibration failed, reboot to retry");
-              return;
-            }
-            id(nau_offset_calibrated) = true;
+        - script.execute: nau_setup_calibration
 
 globals:
   - id: nau_offset_calibrated
     type: bool
     initial_value: "false"
+  # When the NAU7802 last produced a conversion, and when it was last set up.
+  - id: nau_last_raw_ms
+    type: uint32_t
+    initial_value: "0"
+  - id: nau_setup_ms
+    type: uint32_t
+    initial_value: "0"
+
+script:
+  # ESPHome's nau7802 driver doesn't run the chip's internal offset
+  # calibration itself. Wait out its 600 ms power-up in setup() first. The
+  # sensor below publishes nothing until this has succeeded, so nothing acts
+  # on a reading from before the baseline moved. If it fails, the scale stays
+  # out of service until a reboot rather than showing a wrong weight.
+  - id: nau_setup_calibration
+    mode: restart
+    then:
+      - delay: 2s
+      - nau7802.calibrate_internal_offset: spool_weight
+      # CTRL2 register: CALS (0x04) is set while calibrating, CAL_ERR (0x08) on failure.
+      - wait_until:
+          condition:
+            lambda: 'return !(id(spool_weight).reg(0x02).get() & 0x04);'
+          timeout: 5s
+      # Let a conversion from after the calibration reach the data registers.
+      - delay: 300ms
+      - lambda: |-
+          // Failed again while this ran: recovery starts over.
+          if (id(spool_weight).is_failed()) return;
+          if (id(spool_weight).reg(0x02).get() & 0x0C) {
+            ESP_LOGE("scale", "NAU7802 offset calibration failed, reboot to retry");
+            return;
+          }
+          id(nau_offset_calibrated) = true;
+
+interval:
+  # A NAU7802 that loses power comes back powered down and never converts
+  # again, and one missing at boot leaves its driver marked failed. Neither
+  # recovers by itself. So once the chip answers again after 5 s without a
+  # conversion, set it up the way boot does. Tare and calibration live in
+  # bambuddy_api and are kept.
+  - interval: 5s
+    then:
+      - lambda: |-
+          auto *nau = id(spool_weight);
+          const uint32_t now = millis();
+          if (now - id(nau_last_raw_ms) < 5000 || now - id(nau_setup_ms) < 5000) return;
+          uint8_t rev;
+          if (nau->read_register(0x1F, &rev, 1) != i2c::ERROR_OK) return;
+          id(nau_setup_ms) = now;
+          id(nau_offset_calibrated) = false;
+          if (nau->is_failed()) {
+            // A failed component is out of the loop and the scheduler. Put it
+            // back through setup as at boot, then into the loop, which
+            // finishes the offset calibration.
+            ESP_LOGW("scale", "NAU7802 found, setting it up");
+            nau->reset_to_construction_state();
+            nau->call();
+            if (nau->is_failed()) return;
+            nau->disable_loop();
+            nau->enable_loop();
+          } else {
+            ESP_LOGW("scale", "NAU7802 stopped converting, setting it up again");
+            nau->setup();
+            if (nau->is_failed()) return;
+          }
+          id(nau_setup_calibration).execute();
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -295,6 +343,8 @@ sensor:
     # conversion without update() logging "No measurements ready!" by polling
     # ahead of the ADC.
     update_interval: 120ms
+    on_raw_value:
+      - lambda: id(nau_last_raw_ms) = millis();
     filters:
       - lambda: |-
           if (!id(nau_offset_calibrated)) return {};
