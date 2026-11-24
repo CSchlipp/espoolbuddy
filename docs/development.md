@@ -189,8 +189,9 @@ Template buttons on the native API (`localhost:6053`) drive what the
 hardware or the backend would:
 
 - **NFC:** Simulate Linked Tag, Unlinked Tag (a plain NTAG), **Unknown
-  Bambu Tag** and **Unknown OpenTag3D Tag** (unlinked tags carrying decoded
-  spool data), Tag Removed, and **Location Tag** (the demo location
+  Bambu Tag**, **Unknown OpenTag3D Tag** and **Unknown OpenSpool Tag**
+  (unlinked tags carrying decoded spool data; the mock has no backend, so the
+  OpenSpool one arrives as Bambuddy's decode would), Tag Removed, and **Location Tag** (the demo location
   "Shelf A").
 - **AMS:** **AMS Insert** loads the pending spool into the first empty slot.
   **AMS Remove** takes the first assigned spool out, which stages it like a

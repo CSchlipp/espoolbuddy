@@ -46,7 +46,8 @@ SHARED = [
     "scale", "scale-settling", "scale-no-scale",
     "nfc-waiting", "nfc-spool", "quick-weight", "weight-popup", "location",
     "unlink-confirm", "assigned", "ams-removed", "archive", "timeout",
-    "nfc-unlinked", "nfc-unlinked-bambu", "nfc-unlinked-opentag3d", "created",
+    "nfc-unlinked", "nfc-unlinked-bambu", "nfc-unlinked-opentag3d",
+    "nfc-unlinked-openspool", "created",
     "plate-clear", "calibrate",
 ]
 # Screens only one UI has.

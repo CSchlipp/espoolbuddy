@@ -239,7 +239,9 @@ enum class TagSource {
 // ---------------------------------------------------------------------------
 struct TagFilamentInfo {
   bool valid{false};
-  std::string format;          // "bambu_lab" | "open_tag_3d" (same values as FilamentInfo::tag_format)
+  // "bambu_lab" | "open_tag_3d" (same values as FilamentInfo::tag_format), or,
+  // for a tag only Bambuddy decoded (bambuddy#3657), "openspool" | "filaman"
+  std::string format;
   std::string brand;           // "Bambu Lab", or the OpenTag3D manufacturer
   std::string material;        // "PLA"          -> material
   std::string detailed_type;   // "PLA Matte"
@@ -261,6 +263,20 @@ struct TagFilamentInfo {
   uint16_t capacity{0};        // data-area bytes from the tag's CC; 0 = not read
   bool cc_copy{false};         // written with a copy of the CC before the message
                                // (Bambuddy before #3500): other readers see it empty
+  // Only from Bambuddy's decode of the tag (bambuddy#3657), for "Add to Inventory":
+  std::string slicer_name;     // its name for the slicer profile, e.g. "Bambu PLA Basic"
+  std::string rgba;            // RRGGBBAA, alpha included (a clear roll is 00000000)
+  std::string extra_colors;    // gradient stops, "ff0000ff,00ff00ff"
+  std::string effect_type;     // "silk", "matte", ...
+};
+
+// The bytes a tag's filament data came from, sent with the scan so Bambuddy can
+// decode them itself (bambuddy#2685 for Bambu tags, #3657 for NTAGs): the
+// backend maps them onto its catalogue and reads formats this firmware doesn't
+// (OpenSpool, FilaMan).  Empty when the read found nothing to send.
+struct TagRawData {
+  std::string ndef_hex;    // NTAG data area from page 4 to the end of the NDEF message, hex
+  std::string raw_blocks;  // Bambu tag blocks as a JSON object, {"1":"<32 hex>",...}
 };
 
 struct FilamentInfo {
@@ -876,10 +892,12 @@ class BambuddyAPIComponent : public Component {
   // ndef_format: what the NFC component's NDEF read found on an NTAG
   // ("open_tag_3d", "ndef", or "" for blank/unread), passed in with the scan
   // so a scale can forward it in the same push.
+  // raw: the tag bytes Bambuddy decodes itself (TagRawData), or nullptr.
   void on_tag_scanned(const std::string &uid, const std::string &tray_uuid,
                       int sak, const std::string &tag_type,
                       const TagFilamentInfo *filament = nullptr,
-                      const std::string &ndef_format = "");
+                      const std::string &ndef_format = "",
+                      const TagRawData *raw = nullptr);
   void on_tag_removed(const std::string &uid);
 
 #ifdef USE_HOST
@@ -1141,6 +1159,8 @@ class BambuddyAPIComponent : public Component {
     TagFilamentInfo filament{};
     // SCALE_PUSH_NFC_SCANNED: what the scale's NDEF read found (on_tag_scanned()'s ndef_format).
     std::string tag_format;
+    // TAG_SCANNED and SCALE_PUSH_NFC_SCANNED: the tag bytes for Bambuddy to decode.
+    TagRawData raw{};
   };
 
   static void http_task_trampoline(void *arg);
@@ -1214,7 +1234,7 @@ class BambuddyAPIComponent : public Component {
   // (NFC path) and api_get_ams() (AMS-removal path).
   void activate_spool(FilamentInfo fi, const std::string &source_uid, TagSource source);
   bool api_tag_scanned(const std::string &uid, const std::string &tray_uuid,
-                       int sak, const std::string &tag_type);
+                       int sak, const std::string &tag_type, const TagRawData &raw);
   bool api_tag_removed(const std::string &uid);
   bool api_scale_reading(float grams, bool stable, int raw_adc);
   bool api_update_tare(float tare_offset);
@@ -1267,7 +1287,8 @@ class BambuddyAPIComponent : public Component {
                                    const std::string &tray_uuid,
                                    int sak, const std::string &tag_type,
                                    const TagFilamentInfo &filament,
-                                   const std::string &tag_format);
+                                   const std::string &tag_format,
+                                   const TagRawData &raw);
   void api_scale_push_nfc_removed(const std::string &uid);
   void api_scale_push_write_result(int spool_id, const std::string &uid,
                                     bool success, const std::string &msg);
@@ -1460,6 +1481,12 @@ class BambuddyAPIComponent : public Component {
   // scanned on the console itself.
   static std::string tag_filament_json_fields(const TagFilamentInfo &tf);
   static TagFilamentInfo parse_tag_filament_json(const std::string &json);
+  // The Quick Add prefill Bambuddy returns for an unknown tag ("tag_data", with
+  // its "tag_format"), as a TagFilamentInfo; invalid when there is none.
+  static TagFilamentInfo parse_backend_tag_data(const std::string &resp);
+  // Fill what Bambuddy's decode left empty from this reader's decode of the
+  // same tag, and keep what only this reader knows (how the tag was written).
+  static void merge_tag_filament(TagFilamentInfo &decoded, const TagFilamentInfo &local);
   static std::string bool_str(bool v) { return v ? "true" : "false"; }
   // Parse a specific string field from a minimal JSON response
   static std::string parse_json_string(const std::string &json,
@@ -1515,6 +1542,7 @@ class BambuddyAPIComponent : public Component {
   std::string retry_tray_uuid_;
   std::string retry_tag_type_;
   int retry_sak_{0};
+  TagRawData retry_raw_;
 
   // ------------------------------------------------------------------
   // Runtime state

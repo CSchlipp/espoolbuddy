@@ -25,6 +25,32 @@ actually goes over the wire. The console consumes the Bambuddy API
 | POST | `/api/v1/printers/{id}/clear-plate` | Confirm the build plate is clear (popup **Confirm**) |
 | GET | `/api/v1/spoolman/status` | Which inventory Bambuddy uses (Spoolman or its own database) |
 
+## Tag data sent with a scan
+
+`POST /nfc/tag-scanned` carries the tag's bytes as well as its UID, so
+Bambuddy can decode the tag itself
+([bambuddy#2685](https://github.com/maziggy/bambuddy/issues/2685) for Bambu
+tags, [#3657](https://github.com/maziggy/bambuddy/issues/3657) for NTAGs):
+
+| Field | What it holds |
+|---|---|
+| `ndef_hex` | An NTAG's data area from page 4 to the end of its NDEF message, as hex (at most 888 bytes, an NTAG216) |
+| `raw_blocks` | A Bambu tag's blocks, `{"<block>":"<32 hex>",...}` |
+
+For a tag no spool owns, a Bambuddy release after 1.3.2 answers with
+`tag_data` (its Quick Add prefill) and `tag_format` (`bambu`, `opentag3d`,
+`openspool`, `filaman_system`, `filaman`, `filaman_mfr` or `blank`). The
+console shows that prefill on the unlinked-tag panel and creates the spool
+from it on **Add to Inventory**. Fields it leaves empty keep the console's
+own decode. An older Bambuddy ignores both fields. If Bambuddy refuses the
+request with a 4xx, the console sends the scan again without them, so the
+spool is still found.
+
+A scale passes the same fields on in its push to the console, which sends
+them to Bambuddy as if it had read the tag. To stay under the 2 KB a console
+from before this change accepts, a scale leaves `ndef_hex` out when the push
+would grow past that.
+
 ## Inventory endpoints (internal vs. Spoolman)
 
 The console asks Bambuddy which inventory it uses with `GET /spoolman/status`:

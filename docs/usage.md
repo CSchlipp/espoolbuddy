@@ -85,16 +85,31 @@ through every screen.
   new spool is shown just like a scanned one: its details, the 60 s window to
   load it into an AMS slot, and **Quick Weight**.
 
+  With a Bambuddy release after 1.3.2, the console also sends the tag's
+  bytes with the scan (an NTAG's NDEF data, a Bambu tag's blocks) and
+  Bambuddy decodes them as well
+  ([bambuddy#3657](https://github.com/maziggy/bambuddy/issues/3657)). Its
+  decode is matched against Bambuddy's catalogue (colour names, slicer
+  profile, empty-spool weight) and takes over where it has a value. It also
+  reads formats the firmware doesn't: [OpenSpool](https://openspool.io)
+  and [FilaMan](https://github.com/ManuelW77/Filaman) tags, which then get
+  their own titles and an **Add to Inventory** filled from them. A FilaMan
+  tag whose spool is already in Spoolman is left as a plain tag, so it isn't
+  added twice. An older Bambuddy ignores the extra data, and the console's
+  own decode stays.
+
   The panel already previews what will be added: the title names the tag
-  type ("New Bambu Lab Tag discovered", "New OpenTag3D discovered" or "New
-  generic NFC Tag discovered"), the spool icon is tinted in the tag's colour, and
-  the line below the title shows the material, colour name and spool weight
-  decoded from the tag (plus the manufacturer for OpenTag3D). Tags without
+  type ("New Bambu Lab Tag discovered", "New OpenTag3D discovered", "New
+  OpenSpool tag discovered", "New FilaMan tag discovered" or "New generic NFC
+  Tag discovered"), the spool icon is tinted in the tag's colour, and the line
+  below the title shows the material, colour name and spool weight decoded
+  from the tag (plus the brand for every tag but Bambu Lab's). Tags without
   decodable filament data show a grey spool and "No filament info on tag".
 
   <img src="images/ui/full/nfc-unlinked.png" alt="NFC tab for an unlinked NTAG: grey spool icon, New generic NFC Tag discovered, No filament info on tag and its UID, with Add to Inventory, Assign Spool and Discard buttons" width="360">
   <img src="images/ui/full/nfc-unlinked-bambu.png" alt="NFC tab for an unlinked Bambu Lab tag: spool icon tinted in the tag colour, New Bambu Lab Tag discovered, with material, colour name and weight decoded from the tag above its UID" width="360">
   <img src="images/ui/full/nfc-unlinked-opentag3d.png" alt="NFC tab for an unlinked OpenTag3D tag: spool icon tinted in the tag colour, New OpenTag3D discovered, with manufacturer, material, colour name and weight decoded from the tag above its UID" width="360">
+  <img src="images/ui/full/nfc-unlinked-openspool.png" alt="NFC tab for an unlinked OpenSpool tag as Bambuddy decoded it: spool icon tinted orange, New OpenSpool tag discovered, Polymaker PLA · Orange · 1000 g above its UID" width="360">
 
   After **Add to Inventory** the new spool is shown like a scanned one, with
   *Created spool #N* in the header:

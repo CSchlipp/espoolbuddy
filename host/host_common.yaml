@@ -170,6 +170,26 @@ button:
           tf.nozzle_temp_max = 260;
           bambuddy->on_tag_scanned("04B7E2A91C3D80", "", 0x00, "ntag", &tf);
 
+  # An OpenSpool tag only Bambuddy can decode: the mock has no backend, so it
+  # is passed in as Bambuddy's decode would arrive (bambuddy#3657).
+  - platform: template
+    name: "Simulate Unknown OpenSpool Tag"
+    on_press:
+      - lambda: |-
+          bambuddy_api::TagFilamentInfo tf;
+          tf.valid           = true;
+          tf.format          = "openspool";
+          tf.brand           = "Polymaker";
+          tf.material        = "PLA";
+          tf.detailed_type   = "PLA";
+          tf.color_hex       = "F28C28";
+          tf.color_name      = "Orange";
+          tf.spool_weight    = 1000;
+          tf.diameter        = 1.75f;
+          tf.nozzle_temp_min = 190;
+          tf.nozzle_temp_max = 230;
+          bambuddy->on_tag_scanned("04A1C3E5F70912", "", 0x00, "ntag", &tf);
+
   - platform: template
     name: "Simulate Tag Removed"
     on_press:

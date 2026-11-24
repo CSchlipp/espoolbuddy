@@ -710,10 +710,14 @@ script:
             lv_obj_add_flag(id(lite_spool), LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(id(lite_unlinked), LV_OBJ_FLAG_HIDDEN);
 
-            const std::string &fmt = s.current_filament.tag_format;
+            // A payload Bambuddy decoded names its format (OpenSpool, FilaMan)
+            const std::string &fmt = (tf.valid && !tf.format.empty()) ? tf.format
+                                                                      : s.current_filament.tag_format;
             lv_label_set_text(id(lite_unlinked_title),
                 fmt == "bambu_lab"    ? "New Bambu Lab Tag discovered" :
                 fmt == "open_tag_3d"  ? "New OpenTag3D discovered" :
+                fmt == "openspool"    ? "New OpenSpool tag discovered" :
+                fmt == "filaman"      ? "New FilaMan tag discovered" :
                                         "New generic NFC Tag discovered");
             std::string uid_txt = "UID " + s.last_tag_uid;
             lv_label_set_text(id(lite_unlinked_uid), uid_txt.c_str());
@@ -721,7 +725,7 @@ script:
             uint32_t tint = 0x444466;
             if (tf.valid) {
               std::string info = !tf.detailed_type.empty() ? tf.detailed_type : tf.material;
-              if (fmt == "open_tag_3d" && !tf.brand.empty()) info = tf.brand + " " + info;
+              if (fmt != "bambu_lab" && !tf.brand.empty()) info = tf.brand + " " + info;
               if (!tf.color_name.empty()) info += " \xC2\xB7 " + tf.color_name;
               if (tf.spool_weight > 0) {
                 char wb[16]; snprintf(wb, sizeof(wb), " \xC2\xB7 %u g", (unsigned) tf.spool_weight);
