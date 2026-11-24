@@ -374,7 +374,7 @@ void BambuddyAPIComponent::create_spool_from_tag() {
   const bool decoded = tf.valid && !tf.material.empty();
   const float label = decoded && tf.spool_weight > 0 && tf.spool_weight <= 5000 ? tf.spool_weight : 1000;
   std::string brand = !decoded ? "" : !tf.brand.empty() ? tf.brand
-                    : tf.format != "open_tag_3d" ? "Bambu Lab" : "";
+                    : tf.format == "bambu_lab" ? "Bambu Lab" : "";
   DemoSpool ns{};
   ns.id = DEMO_SPOOLS[0].id + 1 + (int) created_spools().size();
   ns.material = intern(decoded ? tf.material : "PLA");
@@ -507,7 +507,7 @@ void BambuddyAPIComponent::toggle_power_plug() { toggle_plug(display_state_.powe
 // ---- NFC (driven by the host YAML's "Simulate tag" buttons, or bambuddy_nfc) ----
 void BambuddyAPIComponent::on_tag_scanned(const std::string &uid, const std::string &tray_uuid, int sak,
                                            const std::string &tag_type, const TagFilamentInfo *filament,
-                                           const std::string &ndef_format) {
+                                           const std::string &ndef_format, const TagRawData * /*raw*/) {
   ESP_LOGI(TAG, "Mock: tag scanned uid=%s type=%s format=%s", uid.c_str(), tag_type.c_str(),
            ndef_format.c_str());
   auto &ds = display_state_;

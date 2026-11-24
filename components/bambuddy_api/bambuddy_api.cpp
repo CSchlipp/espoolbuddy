@@ -29,6 +29,9 @@
 namespace esphome {
 namespace bambuddy_api {
 
+static std::string json_object_text(const std::string &json, const std::string &key);
+static bool valid_raw_blocks(const std::string &obj);
+
 // malloc() above this size prefers PSRAM, see setup().
 static constexpr size_t MALLOC_EXTMEM_LIMIT = 4096;
 
@@ -134,7 +137,10 @@ static esp_err_t send_json(httpd_req_t *req, const char *json) {
 // keys intact) and drop the fields near the end.  httpd_req_recv() may
 // return fewer bytes than asked for, hence the loop.
 static bool read_req_body(httpd_req_t *req, std::string &out) {
-  static constexpr size_t MAX_REQ_BODY = 2048;  // largest push (OpenTag3D tag-scanned) is ~600 B
+  // Largest push: a scale's tag-scanned, ~750 B of decoded payload plus the
+  // NTAG data, which a scale keeps under 2,048 B in all so older consoles take
+  // it; Bambuddy takes up to 888 bytes (1,776 hex characters, bambuddy#3657).
+  static constexpr size_t MAX_REQ_BODY = 4096;
   if (req->content_len == 0) return false;
   if (req->content_len > MAX_REQ_BODY) {
     ESP_LOGW(TAG, "Request body too large: %u bytes (max %u)",
@@ -424,7 +430,7 @@ void BambuddyAPIComponent::http_task_loop() {
         switch (job.kind) {
           case HttpJob::SCALE_PUSH_NFC_SCANNED:
             api_scale_push_nfc_scanned(job.s1, job.s2, job.i1, job.s3, job.filament,
-                                       job.tag_format);
+                                       job.tag_format, job.raw);
             break;
           case HttpJob::SCALE_PUSH_NFC_REMOVED:
             api_scale_push_nfc_removed(job.s1);
@@ -542,7 +548,7 @@ void BambuddyAPIComponent::http_task_loop() {
       did_work = true;
       switch (job.kind) {
         case HttpJob::TAG_SCANNED:
-          api_tag_scanned(job.s1, job.s2, job.i1, job.s3);
+          api_tag_scanned(job.s1, job.s2, job.i1, job.s3, job.raw);
           // Follow immediately with a heartbeat so a pending write_tag command
           // is fetched while the tag is still on the reader.
           api_heartbeat();
@@ -711,6 +717,7 @@ void BambuddyAPIComponent::http_task_loop() {
         retry_uid_.clear();
         lock_state();
         display_state_.tag_resolving = false;
+        retry_raw_ = TagRawData{};  // up to ~1.8 KB of heap
         unlock_state();
         ESP_LOGW(TAG, "tag-scanned retry: giving up (elapsed=%lums tag_present=%d same_tag=%d)",
                  elapsed, tag_present, same_tag);
@@ -724,6 +731,10 @@ void BambuddyAPIComponent::http_task_loop() {
         job.s2   = retry_tray_uuid_;
         job.s3   = retry_tag_type_;
         job.i1   = retry_sak_;
+        lock_state();
+        job.raw  = std::move(retry_raw_);  // written by on_tag_scanned() on another task
+        retry_raw_ = TagRawData{};
+        unlock_state();
         enqueue_job(job);
         did_work = true;
       }
@@ -858,7 +869,8 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
                                            int sak,
                                            const std::string &tag_type,
                                            const TagFilamentInfo *filament,
-                                           const std::string &ndef_format) {
+                                           const std::string &ndef_format,
+                                           const TagRawData *raw) {
   ESP_LOGI(TAG, "Tag scanned: uid=%s tray_uuid=%s sak=0x%02X type=%s",
            uid.c_str(), tray_uuid.c_str(), sak, tag_type.c_str());
 
@@ -998,12 +1010,16 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
     retry_tray_uuid_  = tray_uuid;
     retry_tag_type_   = tag_type;
     retry_sak_        = sak;
+    lock_state();  // read by the HTTP task's retry
+    retry_raw_        = raw != nullptr ? *raw : TagRawData{};
+    unlock_state();
     HttpJob job;
     job.kind = HttpJob::TAG_SCANNED;
     job.s1 = uid;
     job.s2 = tray_uuid;
     job.s3 = tag_type;
     job.i1 = sak;
+    if (raw != nullptr) job.raw = *raw;
     enqueue_job(job);
   } else {
     // Satellite: forward tag event to the console, decoded filament
@@ -1017,6 +1033,7 @@ void BambuddyAPIComponent::on_tag_scanned(const std::string &uid,
     job.i1 = sak;
     if (filament != nullptr) job.filament = *filament;
     job.tag_format = ndef_format;
+    if (raw != nullptr) job.raw = *raw;
     enqueue_job(job);
   }
 }
@@ -1891,7 +1908,8 @@ void BambuddyAPIComponent::activate_spool(FilamentInfo fi,
 bool BambuddyAPIComponent::api_tag_scanned(const std::string &uid,
                                             const std::string &tray_uuid,
                                             int sak,
-                                            const std::string &tag_type) {
+                                            const std::string &tag_type,
+                                            const TagRawData &raw) {
   ESP_LOGD(TAG, "api_tag_scanned: POST uid=%s tray_uuid=%s sak=0x%02X type=%s",
            uid.c_str(), tray_uuid.c_str(), sak, tag_type.c_str());
   std::ostringstream js;
@@ -1900,13 +1918,31 @@ bool BambuddyAPIComponent::api_tag_scanned(const std::string &uid,
      << "\"tag_uid\":" << json_string(uid) << ","
      << "\"tray_uuid\":" << json_string(tray_uuid) << ","
      << "\"sak\":" << sak << ","
-     << "\"tag_type\":" << json_string(tag_type)
-     << "}";
+     << "\"tag_type\":" << json_string(tag_type);
+  // The tag's bytes, for Bambuddy to decode into its Quick Add prefill
+  // (bambuddy#2685, #3657).  A backend that doesn't know these keys ignores them.
+  const std::string base = js.str();
+  const bool has_raw = !raw.ndef_hex.empty() || !raw.raw_blocks.empty();
+  std::string body = base;
+  if (!raw.ndef_hex.empty()) body += ",\"ndef_hex\":" + json_string(raw.ndef_hex);
+  if (!raw.raw_blocks.empty()) body += ",\"raw_blocks\":" + raw.raw_blocks;
+  body += "}";
   std::string resp;
-  bool ok = http_post("/nfc/tag-scanned", js.str(), resp);
+  int status = 0;
+  bool ok = http_post("/nfc/tag-scanned", body, resp, &status);
+  if (!ok && has_raw && status >= 400 && status < 500) {
+    // The backend refused the tag bytes (a validator this firmware doesn't
+    // match): the scan itself must still go through, so the spool is found.
+    ESP_LOGW(TAG, "tag-scanned refused with tag data (HTTP %d) - sending without it", status);
+    resp.clear();
+    ok = http_post("/nfc/tag-scanned", base + "}", resp);
+  }
 
   // Parse filament info from response (into locals, then publish under lock)
   if (ok) {
+    lock_state();
+    retry_raw_ = TagRawData{};  // delivered: no retry needs it
+    unlock_state();
     FilamentInfo fi;
     fi.tray_uuid     = tray_uuid;
     fi.tag_type      = tag_type;
@@ -1943,10 +1979,24 @@ bool BambuddyAPIComponent::api_tag_scanned(const std::string &uid,
     } else {
       // Unlinked tag: clear resolving flag and store minimal tag info for the
       // unlinked panel, but do not arm the auto-assign TTL.
+      // What Bambuddy decoded from the tag's bytes is merged over the local
+      // decode for the panel and "Add to Inventory": it is mapped onto
+      // Bambuddy's catalogue (colour names, slicer profile, spool weight) and
+      // covers formats this firmware can't read (OpenSpool, FilaMan).  Fields
+      // it leaves empty keep the local value.  Without it (older backend,
+      // nothing decoded) the local decode stays.
+      TagFilamentInfo decoded = parse_backend_tag_data(resp);
       lock_state();
       display_state_.tag_resolving    = false;
       display_state_.current_filament = fi;
+      if (decoded.valid && display_state_.last_tag_uid == uid) {  // still the same tag
+        merge_tag_filament(decoded, display_state_.tag_filament);
+        display_state_.tag_filament = decoded;
+      }
       unlock_state();
+      if (decoded.valid)
+        ESP_LOGI(TAG, "Tag data from Bambuddy (%s): %s %s / %s", decoded.format.c_str(),
+                 decoded.brand.c_str(), decoded.material.c_str(), decoded.color_name.c_str());
     }
   } else {
     ESP_LOGW(TAG, "tag-scanned POST failed");
@@ -3696,7 +3746,8 @@ void BambuddyAPIComponent::api_scale_push_nfc_scanned(const std::string &uid,
                                                         int sak,
                                                         const std::string &tag_type,
                                                         const TagFilamentInfo &filament,
-                                                        const std::string &tag_format) {
+                                                        const std::string &tag_format,
+                                                        const TagRawData &raw) {
   if (console_urls_.empty()) return;
 
   // Built as a std::string rather than a fixed char[]: the decoded filament
@@ -3714,6 +3765,12 @@ void BambuddyAPIComponent::api_scale_push_nfc_scanned(const std::string &uid,
   if (!tag_format.empty()) body += ",\"tag_format\":" + json_string(tag_format);
   std::string filament_fields = tag_filament_json_fields(filament);
   if (!filament_fields.empty()) body += "," + filament_fields;
+  // The tag's bytes, so the console can send them on to Bambuddy (#3657).
+  // A console from before them takes at most 2,048 bytes and would refuse the
+  // whole push, so the NDEF data is left out rather than lose the scan.
+  if (!raw.raw_blocks.empty()) body += ",\"raw_blocks\":" + raw.raw_blocks;
+  if (!raw.ndef_hex.empty() && body.size() + raw.ndef_hex.size() + 16 <= 2048)
+    body += ",\"ndef_hex\":" + json_string(raw.ndef_hex);
   body += "}";
 
   if (filament.valid)
@@ -3999,6 +4056,18 @@ esp_err_t BambuddyAPIComponent::console_http_scale_nfc_scanned(httpd_req_t *req)
   // NTAG formats on_tag_scanned() expects are taken.
   std::string tag_format = parse_json_string(json, "tag_format");
   if (tag_format != "ndef" && tag_format != "open_tag_3d") tag_format.clear();
+  // Optional: the tag's bytes, passed on to Bambuddy as if read here.  Only
+  // hex is taken; anything else is dropped rather than forwarded.
+  // Held to what Bambuddy accepts, since a refused field costs the console a
+  // second request: ndef_hex at most 888 bytes of hex, raw_blocks at most 16
+  // {"<block>":"<32 hex>"} pairs.
+  TagRawData raw;
+  raw.ndef_hex = parse_json_string(json, "ndef_hex");
+  if (raw.ndef_hex.size() > 2 * 888 || raw.ndef_hex.size() % 2 != 0 ||
+      raw.ndef_hex.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos)
+    raw.ndef_hex.clear();
+  raw.raw_blocks = json_object_text(json, "raw_blocks");
+  if (!valid_raw_blocks(raw.raw_blocks)) raw.raw_blocks.clear();
 
   if (uid.empty()) {
     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "uid required");
@@ -4014,7 +4083,7 @@ esp_err_t BambuddyAPIComponent::console_http_scale_nfc_scanned(httpd_req_t *req)
 
   // Route through the unified NFC path — identical to a locally-scanned tag.
   self->on_tag_scanned(uid, tray_uuid, sak, tag_type.empty() ? "unknown" : tag_type,
-                       filament.valid ? &filament : nullptr, tag_format);
+                       filament.valid ? &filament : nullptr, tag_format, &raw);
   // Override source AFTER on_tag_scanned() so write_tag commands are routed back
   // to the scale's PN532 rather than waiting on the console's reader.
   self->lock_state();
@@ -4456,6 +4525,129 @@ TagFilamentInfo BambuddyAPIComponent::parse_tag_filament_json(const std::string 
   // requires it, so refuse it here rather than creating a half-empty spool.
   tf.valid = !tf.material.empty();
   return tf;
+}
+
+// The JSON object a key holds, as text ("{...}"), or "" when the key is
+// missing or holds anything else.  Braces inside strings are skipped.
+static std::string json_object_text(const std::string &json, const std::string &key) {
+  std::string needle = "\"" + key + "\"";
+  size_t pos = json.find(needle);
+  if (pos == std::string::npos) return "";
+  pos += needle.size();
+  while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' || json[pos] == ':')) pos++;
+  if (pos >= json.size() || json[pos] != '{') return "";
+  int depth = 0;
+  bool in_string = false;
+  for (size_t i = pos; i < json.size(); i++) {
+    char c = json[i];
+    if (in_string) {
+      if (c == '\\') i++;
+      else if (c == '"') in_string = false;
+    } else if (c == '"') {
+      in_string = true;
+    } else if (c == '{') {
+      depth++;
+    } else if (c == '}' && --depth == 0) {
+      return json.substr(pos, i - pos + 1);
+    }
+  }
+  return "";
+}
+
+// {"<block 0-63>":"<32 hex>",...} with 1-16 entries, exactly as this firmware
+// writes it and Bambuddy's TagScannedRequest accepts it; nothing else.
+static bool valid_raw_blocks(const std::string &obj) {
+  if (obj.size() < 2 || obj.front() != '{' || obj.back() != '}') return false;
+  size_t pos = 1;
+  int entries = 0;
+  while (pos < obj.size() - 1) {
+    if (entries > 0) {
+      if (obj[pos] != ',') return false;
+      pos++;
+    }
+    if (obj[pos++] != '"') return false;
+    size_t digits = 0;
+    int block = 0;
+    while (pos < obj.size() && isdigit((unsigned char) obj[pos]) && digits < 2) {
+      block = block * 10 + (obj[pos++] - '0');
+      digits++;
+    }
+    if (digits == 0 || block > 63 || pos + 2 > obj.size() || obj.compare(pos, 3, "\":\"") != 0)
+      return false;
+    pos += 3;
+    for (int i = 0; i < 32; i++, pos++)
+      if (pos >= obj.size() || !isxdigit((unsigned char) obj[pos])) return false;
+    if (pos >= obj.size() || obj[pos++] != '"') return false;
+    if (++entries > 16) return false;
+  }
+  return entries > 0 && pos == obj.size() - 1;
+}
+
+TagFilamentInfo BambuddyAPIComponent::parse_backend_tag_data(const std::string &resp) {
+  TagFilamentInfo tf;
+  const std::string data = json_object_text(resp, "tag_data");
+  if (data.empty()) return tf;
+  // Bambuddy's tag_format, in this firmware's names where it has one
+  const std::string format = parse_json_string(resp, "tag_format");
+  if (format == "bambu")                 tf.format = "bambu_lab";
+  else if (format == "opentag3d")        tf.format = "open_tag_3d";
+  else if (format == "openspool")        tf.format = "openspool";
+  else if (format.rfind("filaman", 0) == 0) tf.format = "filaman";
+  else return tf;
+  auto str = [&](const char *k) { return parse_json_string(data, k); };
+  auto u16 = [&](const char *k) {
+    int v = parse_json_int(data, k, 0);
+    return (uint16_t) (v > 0 && v <= 65535 ? v : 0);
+  };
+  tf.material      = str("material");
+  tf.subtype       = str("subtype");
+  tf.detailed_type = tf.subtype.empty() ? tf.material : tf.material + " " + tf.subtype;
+  tf.brand         = str("brand");
+  tf.color_name    = str("color_name");
+  const std::string rgba = str("rgba");
+  tf.color_hex     = rgba.size() >= 6 ? rgba.substr(0, 6) : "";
+  tf.material_id   = str("slicer_filament");
+  tf.variant_id    = str("variant_id");
+  tf.spool_weight  = u16("label_weight");
+  tf.core_weight   = u16("core_weight");
+  tf.diameter      = parse_json_float(data, "diameter", 0.0f);
+  tf.nozzle_temp_min = u16("nozzle_temp_min");
+  tf.nozzle_temp_max = u16("nozzle_temp_max");
+  tf.drying_temp   = u16("drying_temp");
+  tf.drying_time   = u16("drying_time");
+  tf.slicer_name   = str("slicer_filament_name");
+  tf.extra_colors  = str("extra_colors");
+  tf.effect_type   = str("effect_type");
+  if (rgba.size() == 8) tf.rgba = rgba;
+  tf.valid = !tf.material.empty();
+  return tf;
+}
+
+void BambuddyAPIComponent::merge_tag_filament(TagFilamentInfo &decoded, const TagFilamentInfo &local) {
+  if (!local.valid || local.format != decoded.format) return;
+  // The same tag read twice: what Bambuddy left out, this reader may know
+  auto keep = [](std::string &to, const std::string &from) { if (to.empty()) to = from; };
+  auto keep_n = [](uint16_t &to, uint16_t from) { if (to == 0) to = from; };
+  keep(decoded.brand, local.brand);
+  keep(decoded.subtype, local.subtype);
+  keep(decoded.variant_id, local.variant_id);
+  keep(decoded.material_id, local.material_id);
+  keep(decoded.color_hex, local.color_hex);
+  keep(decoded.color_name, local.color_name);
+  keep_n(decoded.spool_weight, local.spool_weight);
+  keep_n(decoded.core_weight, local.core_weight);
+  keep_n(decoded.nozzle_temp_min, local.nozzle_temp_min);
+  keep_n(decoded.nozzle_temp_max, local.nozzle_temp_max);
+  keep_n(decoded.bed_temp, local.bed_temp);  // not in Bambuddy's prefill
+  keep_n(decoded.drying_temp, local.drying_temp);
+  keep_n(decoded.drying_time, local.drying_time);
+  if (decoded.diameter <= 0.0f) decoded.diameter = local.diameter;
+  if (decoded.detailed_type.empty() || decoded.subtype == local.subtype)
+    keep(decoded.detailed_type, local.detailed_type);
+  // How the tag was written is only known to the reader that read it
+  decoded.version  = local.version;
+  decoded.capacity = local.capacity;
+  decoded.cc_copy  = local.cc_copy;
 }
 
 std::string BambuddyAPIComponent::json_string(const std::string &s) {
@@ -5052,9 +5244,16 @@ void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid,
     uint16_t label_weight = (tf.spool_weight > 0 && tf.spool_weight <= 5000)
                                 ? tf.spool_weight
                                 : 1000;
-    const bool bambu_fmt = (tf.format != "open_tag_3d");
-    std::string slicer_name = "Bambu " + tf.material;
-    if (!tf.subtype.empty()) slicer_name += " " + tf.subtype;
+    // Older scales push Bambu payloads without a format; parse_tag_filament_json()
+    // fills in "bambu_lab" for them.  OpenTag3D, OpenSpool and FilaMan tags
+    // carry their own brand and spool weight.
+    const bool bambu_fmt = (tf.format == "bambu_lab");
+    // Bambuddy's own name for the profile when it decoded the tag; else made up
+    std::string slicer_name = tf.slicer_name;
+    if (slicer_name.empty()) {
+      slicer_name = "Bambu " + tf.material;
+      if (!tf.subtype.empty()) slicer_name += " " + tf.subtype;
+    }
     // Bambu Lab tags don't name the brand; OpenTag3D ones carry the
     // manufacturer (required by the spec, but don't send an empty one).
     std::string brand = !tf.brand.empty() ? tf.brand
@@ -5067,23 +5266,33 @@ void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid,
       js += "\"subtype\":" + json_string(tf.subtype) + ",";
     if (!tf.color_name.empty())
       js += "\"color_name\":" + json_string(tf.color_name) + ",";
-    if (!tf.color_hex.empty())
+    // The full colour, alpha included (a clear roll is 00000000), when Bambuddy
+    // decoded it; this reader only keeps RGB
+    if (tf.rgba.size() == 8)
+      js += "\"rgba\":" + json_string(tf.rgba) + ",";
+    else if (!tf.color_hex.empty())
       js += "\"rgba\":" + json_string(tf.color_hex + "FF") + ",";
     if (!brand.empty())
       js += "\"brand\":" + json_string(brand) + ",";
     js += "\"label_weight\":" + std::to_string(label_weight) + ",";
     // Bambu's reusable spool weighs 216 g; OpenTag3D states its own (optional).
     if (local) {
-      if (bambu_fmt)
-        js += "\"core_weight\":216,";
-      else if (tf.core_weight > 0 && tf.core_weight <= 2000)
+      // Bambuddy's catalogue weight for a Bambu spool when it sent one
+      if (tf.core_weight > 0 && tf.core_weight <= 2000)
         js += "\"core_weight\":" + std::to_string(tf.core_weight) + ",";
+      else if (bambu_fmt)
+        js += "\"core_weight\":216,";
     }
     if (!tf.material_id.empty()) {
       js += "\"slicer_filament\":" + json_string(tf.material_id) + ",";
       js += "\"slicer_filament_name\":" + json_string(slicer_name) + ",";
     }
     if (local) {
+      // From Bambuddy's decode only; Spoolman's create body has neither
+      if (!tf.extra_colors.empty())
+        js += "\"extra_colors\":" + json_string(tf.extra_colors) + ",";
+      if (!tf.effect_type.empty())
+        js += "\"effect_type\":" + json_string(tf.effect_type) + ",";
       if (tf.nozzle_temp_min > 0)
         js += "\"nozzle_temp_min\":" + std::to_string(tf.nozzle_temp_min) + ",";
       if (tf.nozzle_temp_max > 0)
@@ -5099,7 +5308,7 @@ void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid,
     if (local) js += ",\"data_origin\":\"spoolbuddy\"";
     js += "}";
     ESP_LOGI(TAG, "Creating spool from %s tag: %s %s %s / %s (%d g)",
-             bambu_fmt ? "Bambu" : "OpenTag3D", brand.c_str(),
+             tf.format.c_str(), brand.c_str(),
              tf.material.c_str(), tf.subtype.c_str(), tf.color_name.c_str(),
              (int) label_weight);
   } else if (local) {
@@ -5171,7 +5380,7 @@ void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid,
     fi.color_name     = tf.color_name;
     fi.color_hex      = tf.color_hex.substr(0, 6);
     fi.brand          = !tf.brand.empty() ? tf.brand
-                      : tf.format != "open_tag_3d" ? std::string("Bambu Lab") : std::string();
+                      : tf.format == "bambu_lab" ? std::string("Bambu Lab") : std::string();
     fi.label_weight_g = (tf.spool_weight > 0 && tf.spool_weight <= 5000) ? tf.spool_weight : 1000;
   } else {
     fi.material_type  = "PLA";

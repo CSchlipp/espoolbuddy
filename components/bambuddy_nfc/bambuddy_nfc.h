@@ -287,9 +287,11 @@ class BambuddyNFCComponent : public Component {
   // records.  Returns "open_tag_3d" for an OpenTag3D record (decoded into
   // `info` when it is the spec'd application/opentag3d MIME record), "ndef"
   // for any other valid NDEF, or "" if the tag is unreadable, blank or holds
-  // an empty NDEF message.
+  // an empty NDEF message.  `area`, when given, receives the data area read
+  // from page 4 up to the end of the message, for Bambuddy to decode itself.
   std::string ntag_read_ndef(uint8_t target_num, const std::vector<uint8_t> &uid,
-                             bambuddy_api::TagFilamentInfo &info);
+                             bambuddy_api::TagFilamentInfo &info,
+                             std::vector<uint8_t> *area = nullptr);
   // Re-select the tag after a failed NTAG command. False if it left the
   // reader or another tag took its place.
   bool ntag_reselect(const std::vector<uint8_t> &uid);

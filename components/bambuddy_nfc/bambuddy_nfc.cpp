@@ -1030,14 +1030,15 @@ bool BambuddyNFCComponent::ntag_read_pages(uint8_t target_num,
 
 std::string BambuddyNFCComponent::ntag_read_ndef(uint8_t target_num,
                                                  const std::vector<uint8_t> &uid,
-                                                 bambuddy_api::TagFilamentInfo &info) {
+                                                 bambuddy_api::TagFilamentInfo &info,
+                                                 std::vector<uint8_t> *area) {
   // NTAG data area starts at page 4; reads come in 16-byte (4-page) chunks.
   // The first chunk is enough to locate the NDEF Message TLV and its length;
   // only then is the rest of the message read, so a blank or tiny tag costs a
-  // single read.  Capped at NTAG215's 504-byte user area — the largest tag an
-  // OpenTag3D spool carries; a bigger NTAG216 message is cut there, which
-  // only loses records after the (first) OpenTag3D one.
-  static constexpr size_t MAX_NDEF_AREA = 504;
+  // single read.  Capped at the 872 bytes an NTAG216's CC declares (its user
+  // area is 888): the whole message also goes to Bambuddy, which reads JSON
+  // formats that can be that long.
+  static constexpr size_t MAX_NDEF_AREA = 872;
   std::vector<uint8_t> mem(16);
   if (!ntag_read_pages_retry(target_num, uid, NTAG_DATA_PAGE, mem.data())) {
     ESP_LOGD(NFC_TAG, "NDEF read: page read failed");
@@ -1093,6 +1094,7 @@ std::string BambuddyNFCComponent::ntag_read_ndef(uint8_t target_num,
     mem.insert(mem.end(), chunk, chunk + 16);
   }
   const size_t end = std::min(pos + msg_len, mem.size());
+  if (area != nullptr) area->assign(mem.begin(), mem.begin() + end);
 
   // Walk the NDEF records.
   std::string fmt = "ndef";
@@ -1462,8 +1464,12 @@ void BambuddyNFCComponent::poll_once() {
       // along with the scan, and before attempt_pending_write() so we
       // classify the current content.
       std::string ndef_fmt;
+      // The bytes the tag's data came from, for Bambuddy to decode itself
+      bambuddy_api::TagRawData raw;
       if (is_ntag_sak(sak)) {
-        ndef_fmt = ntag_read_ndef(1, uid, tag_info);
+        std::vector<uint8_t> area;
+        ndef_fmt = ntag_read_ndef(1, uid, tag_info, &area);
+        raw.ndef_hex = format_hex(area.data(), area.size());
         if (tag_info.valid) {
           ESP_LOGI(NFC_TAG,
                    "OpenTag3D tag decoded: %s %s / %s (#%s) %u g, "
@@ -1480,6 +1486,13 @@ void BambuddyNFCComponent::poll_once() {
         if (read_bambu_blocks_retry(uid, blocks)) {
           tray_uuid   = extract_tray_uuid(blocks);
           tag_info  = parse_bambu_tag(blocks);
+          raw.raw_blocks = "{";
+          for (const auto &b : blocks) {
+            if (raw.raw_blocks.size() > 1) raw.raw_blocks += ",";
+            raw.raw_blocks += "\"" + std::to_string(b.first) + "\":\"" +
+                              format_hex(b.second.data(), b.second.size()) + "\"";
+          }
+          raw.raw_blocks += "}";
           if (tag_info.valid) {
             ESP_LOGI(NFC_TAG,
                      "Bambu tag decoded: %s / %s / %s (#%s) %u g, "
@@ -1504,7 +1517,7 @@ void BambuddyNFCComponent::poll_once() {
         // So does the NDEF read's format, for the same reason.
         if (!ndef_fmt.empty()) ESP_LOGD(NFC_TAG, "NDEF format detected: %s", ndef_fmt.c_str());
         api_->on_tag_scanned(uid_str, tray_uuid, (int)sak, tag_type,
-                             tag_info.valid ? &tag_info : nullptr, ndef_fmt);
+                             tag_info.valid ? &tag_info : nullptr, ndef_fmt, &raw);
       }
 
       // A write command may already be queued (e.g. tag re-placed); try it.
