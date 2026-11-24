@@ -16,7 +16,7 @@ through every screen.
   that tab shows *Place spool tag on reader*.
 
   <img src="images/ui/full/nfc-waiting.png" alt="NFC tab waiting for a tag: NFC icon and Place spool tag on reader" width="360">
-  <img src="images/ui/full/nfc-spool.png" alt="NFC tab showing a scanned spool: name, colour, remaining weight, the tag chip in the top-left corner, and Quick Weight / Print Label / Discard buttons" width="360">
+  <img src="images/ui/full/nfc-spool.png" alt="NFC tab showing a scanned spool: name, colour, remaining weight, the tag chip in the top-left corner, and Quick Weight / Print Label / Done buttons" width="360">
 
 - **Scan + load auto-assigns the AMS slot**: after scanning a tag linked to
   a known spool, loading that physical spool into any AMS slot within the
@@ -178,7 +178,7 @@ through every screen.
   <img src="images/ui/full/tag-chip.png" alt="Spool view of eSUN PLA Plus Bone White with a green Matches spool chip in the top-left corner" width="360">
   <img src="images/ui/full/unlink-confirm.png" alt="Are you sure? Unlink this tag from its spool? with Cancel and Unlink" width="360">
 
-- **Discard** clears the spool from the screen.
+- **Done** clears the spool from the screen. The spool stays in the inventory.
 - **AMS / printer status**: the console's AMS tab shows live slot/filament
   state polled from Bambuddy, along with each AMS unit's temperature,
   humidity, and its custom name if one was set in Bambuddy (falls back to a

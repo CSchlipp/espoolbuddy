@@ -1101,7 +1101,7 @@ script:
           static bool        prev_spool_sel       = false;
           static std::string prev_scan_uid;  // last_tag_uid as of the previous tick
           static uint32_t    prev_switch_scan_gen = 0;
-          // UID that was on the reader when the user tapped "Discard" on a linked
+          // UID that was on the reader when the user tapped "Done" on a linked
           // spool.  dismiss_spool() clears spool_selected but the tag stays present,
           // so without this guard the unlinked panel would flash up immediately.
           // Cleared once the tag physically leaves the reader.
@@ -1135,7 +1135,7 @@ script:
             if (id(active_tab) != 1) { id(active_tab) = 1; id(apply_tab).execute(); }
             nfc_episode_active = true;
           }
-          // Detect a "Discard on known tag": spool_selected just fell to false while
+          // Detect a "Done on known tag": spool_selected just fell to false while
           // the *same physical tag* is still present → record the UID so the
           // unlinked panel is not shown while that tag remains on the reader.
           // The last_tag_uid == prev_scan_uid check is what distinguishes this
@@ -1145,7 +1145,7 @@ script:
           // resolves), and does so in the very same state-lock critical section
           // that sets last_tag_uid to B — so a snapshot can catch both changes
           // on one tick. Without this check, that tick would be misread as "the
-          // user discarded spool A while it's still on the reader", capturing
+          // user closed spool A while it's still on the reader", capturing
           // tag B's own (brand new) UID into dismissed_known_uid and silently
           // suppressing its unlinked-tag panel for as long as it stays present.
           // MUST be evaluated BEFORE prev_spool_sel/prev_scan_uid are updated below.
@@ -1676,7 +1676,7 @@ script:
               lv_obj_add_flag(id(nfc_assign_banner), LV_OBJ_FLAG_HIDDEN);
             }
 
-            // ---- Action row: Quick Weight | Discard (nfc_action_row is a
+            // ---- Action row: Quick Weight | Print Label | Done (nfc_action_row is a
             // flex row with each button flex_grow:1 -- tab_nfc.yaml -- so hiding a
             // button is all that's needed for the remaining ones to reflow; no
             // width/x math to keep in sync with the YAML any more) ----
@@ -1698,7 +1698,7 @@ script:
                 lv_obj_set_style_text_color(id(lbl_nfc_weight_btn), lv_color_hex(0x4ECDC4), LV_PART_MAIN);
               }
             } else {
-              // Discard only (no scale, or an unknown/unlinked spool)
+              // No Quick Weight without a scale or a spool id
               lv_obj_add_flag(id(btn_nfc_weight), LV_OBJ_FLAG_HIDDEN);
             }
 
@@ -1761,7 +1761,7 @@ script:
             // Tag present, backend lookup complete, not linked to any spool → unlinked panel.
             // Suppressed when:
             //   • nfc_unlinked_dismissed — user tapped "Discard" on the unlinked panel
-            //   • dismissed_known_uid match — user tapped "Discard" on a linked spool
+            //   • dismissed_known_uid match — user tapped "Done" on a linked spool
             //     (dismiss_spool() clears spool_selected while the tag is still present)
             // Don't interrupt the picker if the user already opened it.
             lv_obj_add_flag(id(nfc_waiting),                 LV_OBJ_FLAG_HIDDEN);
