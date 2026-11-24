@@ -693,7 +693,11 @@ void BambuddyAPIComponent::http_task_loop() {
     // the backend registers we re-enqueue the job. Give up after 30 s or if the
     // tag UID changed (user pulled the tag).
     if (pending_tag_retry_) {
-      uint32_t elapsed = now - retry_started_ms_;
+      // millis(), not this pass's `now`: the failed POST that armed the retry
+      // ran earlier in this same pass, after `now` was read, so `now` would be
+      // older than retry_started_ms_ and the unsigned difference would wrap
+      // to ~49 days, giving up at once.
+      uint32_t elapsed = millis() - retry_started_ms_;
       lock_state();
       bool backend_up   = (display_state_.backend_state == BackendState::REGISTERED);
       bool tag_present  = (display_state_.nfc_state == NFCTagState::PRESENT);
