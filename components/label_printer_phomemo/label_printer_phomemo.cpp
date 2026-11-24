@@ -1,5 +1,7 @@
 #include "label_printer_phomemo.h"
 
+// format_hex_pretty(); helpers.h stopped including it in ESPHome 2026.11
+#include "esphome/core/alloc_helpers.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
