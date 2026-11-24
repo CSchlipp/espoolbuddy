@@ -2,6 +2,8 @@
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/helpers.h"
+// str_sprintf(); helpers.h stopped including it in ESPHome 2026.11
+#include "esphome/core/alloc_helpers.h"
 
 // mbedTLS HMAC-SHA256 (available in ESP-IDF)
 #include "mbedtls/md.h"
