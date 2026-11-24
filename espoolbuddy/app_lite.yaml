@@ -234,6 +234,11 @@ script:
           };
           // Unlink Tag only for a spool with an id (full UI: Unlink in the tag menu).
           show(id(lite_act_unlink), spool);
+          // Done for a spool, which stays in the inventory; Discard for an
+          // unlinked tag (full UI: btn_dismiss / btn_nfc_discard_unlinked).
+          const char *dt = s.spool_selected ? "Done" : "Discard";
+          if (strcmp(lv_label_get_text(id(lite_act_discard_lbl)), dt) != 0)
+            lv_label_set_text(id(lite_act_discard_lbl), dt);
           // Write Tag: for a tag the console can write (full UI: Write in the
           // tag menu), labelled for what it will do to the tag. Hidden while
           // a write for another spool is under way.
@@ -320,7 +325,7 @@ script:
           lv_obj_add_flag(id(lite_confirm), LV_OBJ_FLAG_HIDDEN);
       - script.execute: lite_refresh
 
-  # Discard (full UI: btn_dismiss / btn_nfc_discard_unlinked).
+  # Done / Discard (full UI: btn_dismiss / btn_nfc_discard_unlinked).
   - id: lite_discard
     then:
       - lambda: |-

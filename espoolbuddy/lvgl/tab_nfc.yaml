@@ -335,7 +335,8 @@ obj:
                           text_color: 0xA5A5FF
                           text_align: CENTER
                           align: CENTER
-                # ---- Discard ----
+                # ---- Done: closes the spool panel; the spool stays in the
+                # inventory (an unlinked tag has Discard, btn_nfc_discard_unlinked) ----
                 - button:
                     id: btn_dismiss
                     flex_grow: 1
@@ -365,7 +366,7 @@ obj:
                         - script.execute: ui_refresh
                     widgets:
                       - label:
-                          text: "Discard"
+                          text: "Done"
                           text_font: roboto_16
                           text_color: 0xE0708C
                           align: CENTER

@@ -16,7 +16,7 @@
 #                          banner (the full UI's action row / assign banner)
 #
 # Overlays (later = on top): settings (quick-settings tiles + compact rows),
-# spool action sheet (Unlink Tag / Discard — the full UI's action row does not
+# spool action sheet (Unlink Tag / Done — the full UI's action row does not
 # fit 172 px side by side), Quick Weight popup, archive proposal, confirm,
 # calibration, build-plate-clear popup, wake guard.
 #
@@ -1079,9 +1079,10 @@ lvgl:
 
               # ================================================================
               # Spool action sheet. The full UI shows these as an action row
-              # and its tag menu (Write, Print Label, Unlink, Discard); they do
+              # and its tag menu (Write, Print Label, Unlink, Done); they do
               # not fit 172 px, so here a tap on the spool view opens them.
-              # Write and Print Label are shown by lite_update_actions.
+              # Write and Print Label are shown, and Done / Discard named, by
+              # lite_update_actions.
               # ================================================================
               - obj:
                   id: lite_actions
@@ -1174,7 +1175,7 @@ lvgl:
                                 then:
                                   - script.execute: lite_discard
                               widgets:
-                                - label: {align: CENTER, text: "Discard", text_font: lite_16, text_color: 0xE0708C}
+                                - label: {id: lite_act_discard_lbl, align: CENTER, text: "Discard", text_font: lite_16, text_color: 0xE0708C}
                           - button:
                               id: lite_act_cancel
                               width: 100%
