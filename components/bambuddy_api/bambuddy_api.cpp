@@ -4618,6 +4618,8 @@ TagFilamentInfo BambuddyAPIComponent::parse_backend_tag_data(const std::string &
   tf.slicer_name   = str("slicer_filament_name");
   tf.extra_colors  = str("extra_colors");
   tf.effect_type   = str("effect_type");
+  const int catalog_id = parse_json_int(data, "core_weight_catalog_id", 0);
+  tf.core_weight_catalog_id = catalog_id > 0 ? catalog_id : 0;
   if (rgba.size() == 8) tf.rgba = rgba;
   tf.valid = !tf.material.empty();
   return tf;
@@ -5275,13 +5277,13 @@ void BambuddyAPIComponent::api_create_spool_from_tag(const std::string &uid,
     if (!brand.empty())
       js += "\"brand\":" + json_string(brand) + ",";
     js += "\"label_weight\":" + std::to_string(label_weight) + ",";
-    // Bambu's reusable spool weighs 216 g; OpenTag3D states its own (optional).
-    if (local) {
-      // Bambuddy's catalogue weight for a Bambu spool when it sent one
-      if (tf.core_weight > 0 && tf.core_weight <= 2000)
-        js += "\"core_weight\":" + std::to_string(tf.core_weight) + ",";
-      else if (bambu_fmt)
-        js += "\"core_weight\":216,";
+    // The empty spool's weight: Bambuddy's from its spool catalogue, linked to
+    // that row, or the tag's own (OpenTag3D). Without one Bambuddy uses its
+    // default (250 g, its Bambu Lab spool).
+    if (local && tf.core_weight > 0 && tf.core_weight <= 2000) {
+      js += "\"core_weight\":" + std::to_string(tf.core_weight) + ",";
+      if (tf.core_weight_catalog_id > 0)
+        js += "\"core_weight_catalog_id\":" + std::to_string(tf.core_weight_catalog_id) + ",";
     }
     if (!tf.material_id.empty()) {
       js += "\"slicer_filament\":" + json_string(tf.material_id) + ",";
