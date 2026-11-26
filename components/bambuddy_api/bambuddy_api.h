@@ -268,6 +268,7 @@ struct TagFilamentInfo {
   std::string rgba;            // RRGGBBAA, alpha included (a clear roll is 00000000)
   std::string extra_colors;    // gradient stops, "ff0000ff,00ff00ff"
   std::string effect_type;     // "silk", "matte", ...
+  int core_weight_catalog_id{0};  // its spool-catalogue row for core_weight, 0 = none
 };
 
 // The bytes a tag's filament data came from, sent with the scan so Bambuddy can
