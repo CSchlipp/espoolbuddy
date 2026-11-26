@@ -96,6 +96,11 @@ inline bool bambu_block_is_required(uint8_t block) {
 // reader. Retry the series a few times while the same tag stays present.
 static const uint8_t BAMBU_READ_ATTEMPTS = 4;
 static const uint16_t BAMBU_RETRY_DELAY_MS = 30;
+// A MIFARE Classic tag whose Bambu read fails is read again on the next polls
+// for this long after it arrived, before it is reported without filament data.
+// A spool still being set down often fails the first read; reporting it at
+// once showed "No filament info on tag" and offered to add a blank spool.
+static const uint32_t BAMBU_READ_WINDOW_MS = 3000;
 
 // NTAG reads and writes are retried the same way: a failed command drops the
 // tag out of the selected state, so each retry re-selects it first and checks
@@ -375,6 +380,8 @@ class BambuddyNFCComponent : public Component {
   uint8_t current_sak_{0};
   uint8_t miss_count_{0};
   uint8_t miss_threshold_{3};
+  uint32_t tag_arrived_ms_{0};       // when current_uid_ was first detected
+  bool tag_report_pending_{false};   // current_uid_ not reported to the API yet
   uint32_t poll_interval_ms_{300};
   std::atomic<bool> low_power_{false};  // true while the console sleeps → slow polling
   std::atomic<bool> scan_enabled_{true};  // false → skip detection entirely (RF off)

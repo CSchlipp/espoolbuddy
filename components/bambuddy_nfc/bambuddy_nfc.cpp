@@ -691,7 +691,7 @@ bool BambuddyNFCComponent::read_bambu_blocks_retry(
       return false;
     }
   }
-  ESP_LOGW(NFC_TAG, "Bambu read failed after %u attempts (%u ms)",
+  ESP_LOGD(NFC_TAG, "Bambu read failed after %u attempts (%u ms)",
            BAMBU_READ_ATTEMPTS, (unsigned) (millis() - start_ms));
   stats_.bambu_fail++;
   return false;
@@ -1387,11 +1387,13 @@ void BambuddyNFCComponent::poll_once() {
       // instead of leaving it "present" indefinitely. It is re-reported as
       // soon as the reader is back.
       std::string old_uid = uid_to_hex(current_uid_);
+      const bool reported = !tag_report_pending_;
       state_ = NFCState::IDLE;
       current_uid_.clear();
       current_sak_ = 0;
       miss_count_ = 0;
-      if (api_) api_->on_tag_removed(old_uid);
+      tag_report_pending_ = false;
+      if (api_ && reported) api_->on_tag_removed(old_uid);
     }
     if (last_recover_ms_ != 0 &&
         millis() - last_recover_ms_ < PN532_RECOVER_RETRY_MS)
@@ -1427,18 +1429,25 @@ void BambuddyNFCComponent::poll_once() {
     const bool same_tag =
         (state_ == NFCState::TAG_PRESENT && uid == current_uid_);
 
-    if (state_ != NFCState::TAG_PRESENT || !same_tag) {
-      if (state_ == NFCState::TAG_PRESENT) {
+    // A tag whose Bambu read failed is read again while it stays (see
+    // BAMBU_READ_WINDOW_MS); it has not been reported yet.
+    if (!same_tag || tag_report_pending_) {
+      if (state_ == NFCState::TAG_PRESENT && !same_tag) {
         std::string old_uid = uid_to_hex(current_uid_);
         ESP_LOGI(NFC_TAG, "Tag swapped without a gap: %s -> %s",
                  old_uid.c_str(), uid_to_hex(uid).c_str());
-        if (api_) api_->on_tag_removed(old_uid);
+        // A tag never reported has nothing to remove
+        if (api_ && !tag_report_pending_) api_->on_tag_removed(old_uid);
       }
-      // New tag detected
-      stats_.tags++;
-      state_ = NFCState::TAG_PRESENT;
-      current_uid_ = uid;
-      current_sak_ = sak;
+      if (!same_tag) {
+        // New tag detected
+        stats_.tags++;
+        state_ = NFCState::TAG_PRESENT;
+        current_uid_ = uid;
+        current_sak_ = sak;
+        tag_arrived_ms_ = millis();
+        tag_report_pending_ = true;
+      }
 
       // Determine tag type
       std::string tag_type;
@@ -1477,7 +1486,20 @@ void BambuddyNFCComponent::poll_once() {
       // Try to read Bambu tag data for MIFARE Classic
       if (is_mifare_classic_sak(sak)) {
         std::vector<std::pair<uint8_t, std::array<uint8_t, 16>>> blocks;
-        if (read_bambu_blocks_retry(uid, blocks)) {
+        const bool read_ok = read_bambu_blocks_retry(uid, blocks);
+        const uint32_t waited_ms = millis() - tag_arrived_ms_;
+        if (!read_ok && waited_ms < BAMBU_READ_WINDOW_MS) {
+          // Not reported yet: the next poll reads it again. If it leaves
+          // first, its removal is not reported either.
+          ESP_LOGD(NFC_TAG, "Bambu read of %s failed after %u ms, reading again",
+                   uid_str.c_str(), (unsigned) waited_ms);
+          return;
+        }
+        if (!read_ok) {
+          ESP_LOGW(NFC_TAG, "No Bambu data read from %s in %u ms, reporting it without",
+                   uid_str.c_str(), (unsigned) waited_ms);
+        }
+        if (read_ok) {
           tray_uuid   = extract_tray_uuid(blocks);
           tag_info  = parse_bambu_tag(blocks);
           if (tag_info.valid) {
@@ -1506,6 +1528,7 @@ void BambuddyNFCComponent::poll_once() {
         api_->on_tag_scanned(uid_str, tray_uuid, (int)sak, tag_type,
                              tag_info.valid ? &tag_info : nullptr, ndef_fmt);
       }
+      tag_report_pending_ = false;
 
       // A write command may already be queued (e.g. tag re-placed); try it.
       attempt_pending_write(uid, sak);
@@ -1531,12 +1554,14 @@ void BambuddyNFCComponent::poll_once() {
         std::string old_uid = uid_to_hex(current_uid_);
 
         ESP_LOGI(NFC_TAG, "Tag removed: %s", old_uid.c_str());
+        const bool reported = !tag_report_pending_;
         state_ = NFCState::IDLE;
         current_uid_.clear();
         current_sak_ = 0;
         miss_count_ = 0;
+        tag_report_pending_ = false;
 
-        if (api_) {
+        if (api_ && reported) {
           api_->on_tag_removed(old_uid);
         }
       }

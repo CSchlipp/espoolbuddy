@@ -91,6 +91,10 @@ through every screen.
   the line below the title shows the material, colour name and spool weight
   decoded from the tag (plus the manufacturer for OpenTag3D). Tags without
   decodable filament data show a grey spool and "No filament info on tag".
+  A Bambu Lab tag the reader can't read straight away (a spool still being
+  set down) is read again for up to 3 s before the panel appears. If it
+  still shows "No filament info on tag", lift the spool and set it down
+  again rather than adding it.
 
   <img src="images/ui/full/nfc-unlinked.png" alt="NFC tab for an unlinked NTAG: grey spool icon, New generic NFC Tag discovered, No filament info on tag and its UID, with Add to Inventory, Assign Spool and Discard buttons" width="360">
   <img src="images/ui/full/nfc-unlinked-bambu.png" alt="NFC tab for an unlinked Bambu Lab tag: spool icon tinted in the tag colour, New Bambu Lab Tag discovered, with material, colour name and weight decoded from the tag above its UID" width="360">
