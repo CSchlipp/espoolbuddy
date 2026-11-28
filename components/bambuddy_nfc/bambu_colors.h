@@ -102,7 +102,7 @@ static const BambuColorEntry BAMBU_COLORS[] = {
   {"PETG Translucent", "FFFFFF", "Clear"},
   {"PETG-CF", "000000", "Black"},
   {"PETG-CF", "16B08E", "Malachite Green"},
-  {"PETG-CF", "324585", "Indigue Blue"},
+  {"PETG-CF", "324585", "Indigo Blue"},
   {"PETG-CF", "565656", "Titan Gray"},
   {"PETG-CF", "583061", "Violet Purple"},
   {"PETG-CF", "9F332A", "Brick Red"},
